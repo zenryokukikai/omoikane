@@ -20,10 +20,27 @@ const (
 
 // authGoogleLogin starts the OAuth flow: mint state, set cookie,
 // redirect to Google.
+//
+// Before doing any of that, enforce that the user is on the same
+// hostname as the configured OAuth redirect URI. Otherwise the state
+// cookie is set on origin A but the callback arrives at origin B, and
+// the browser correctly refuses to send it back. The fix is to bounce
+// the user to the canonical host first.
 func (h *Handler) authGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if h.OAuthGoogle == nil {
 		writeError(w, http.StatusNotImplemented, CodeNotImplemented,
 			"Google OAuth is not configured on this server", nil)
+		return
+	}
+	if canonicalHost := canonicalHostFromBase(h.OAuthRedirectBase); canonicalHost != "" && r.Host != canonicalHost {
+		// Redirect to the canonical host with the same query string so
+		// the cookie/callback origins match.
+		scheme := "http"
+		if strings.HasPrefix(h.OAuthRedirectBase, "https://") {
+			scheme = "https"
+		}
+		dest := scheme + "://" + canonicalHost + r.URL.RequestURI()
+		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
 	state, err := oauth.NewState()
@@ -189,6 +206,20 @@ func clearStateCookie(w http.ResponseWriter, https bool) {
 		Name: stateCookieName, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: https,
 	})
+}
+
+// canonicalHostFromBase extracts the host part of KB_OAUTH_REDIRECT_BASE
+// (e.g. "http://localhost:8095" → "localhost:8095"). Returns "" when
+// the base is empty or unparseable.
+func canonicalHostFromBase(base string) string {
+	if base == "" {
+		return ""
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // isSafeRedirect rejects external / scheme-bearing targets. We only

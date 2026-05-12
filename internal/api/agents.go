@@ -13,35 +13,41 @@ import (
 )
 
 // ============================================================
-// Agent self-onboarding (Moltbook-pattern)
+// Agent self-onboarding (Moltbook-pattern, gated by default)
 //
-// The flow:
-//   1. Agent POSTs /v1/agents/register {name, description} (public)
-//   2. Response: {api_key, claim_url, expires_at}
-//   3. Agent stores api_key; passes claim_url to its human
-//   4. Human visits claim_url in a browser, signs in via Google, presses
-//      "Claim". Their human user_id becomes the agent's parent_user_id.
-//   5. From then on all writes by this agent are audit-logged as
-//      "agent X on behalf of human Y".
+// Default flow (KB_REGISTER_OPEN unset):
+//   1. Human signs in, calls POST /v1/admin/agent-invites — gets a
+//      short code.
+//   2. Human hands the code to the agent (env var, prompt, etc.)
+//   3. Agent POSTs /v1/agents/register {name, description,
+//      invitation_code}. Atomic: creates agent user, sets
+//      parent_user_id = inviter, marks code used, returns api_key.
 //
-// Public on purpose: any caller who reaches the server can register
-// themselves. The claim step is the security gate — an agent that no
-// human claims is effectively orphaned, and a human only claims agents
-// they actually told to register.
+// Open flow (KB_REGISTER_OPEN=1, dev only):
+//   1. Agent POSTs /v1/agents/register without a code — anyone can.
+//   2. Agent gets a one-time claim_url, sends it to its human.
+//   3. Human visits claim_url and POSTs /v1/agents/claim/{code} while
+//      signed in. parent_user_id is set then.
+//
+// The invitation flow is preferred because the security gate (human
+// approval) sits BEFORE token issuance instead of after. The open flow
+// stays available for dev / private deployments only.
 // ============================================================
 
 type agentRegisterRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name           string `json:"name"`
+	Description    string `json:"description,omitempty"`
+	InvitationCode string `json:"invitation_code,omitempty"`
 }
 
 type agentRegisterResponse struct {
 	AgentID   string `json:"agent_id"`
 	Name      string `json:"name"`
 	APIKey    string `json:"api_key"`
-	ClaimCode string `json:"claim_code"`
-	ClaimURL  string `json:"claim_url"`
-	ExpiresAt string `json:"expires_at"`
+	ParentID  string `json:"parent_user_id,omitempty"`
+	ClaimCode string `json:"claim_code,omitempty"`
+	ClaimURL  string `json:"claim_url,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 	HowToUse  string `json:"how_to_use"`
 }
 
@@ -55,15 +61,42 @@ func (h *Handler) agentRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeMissingFields, "name required", nil)
 		return
 	}
+
+	// Invitation flow — human pre-approved.
+	if req.InvitationCode != "" {
+		reg, err := h.Store.RedeemAgentInvitation(httpCtx(r), req.InvitationCode, req.Name, req.Description)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, agentRegisterResponse{
+			AgentID:  reg.AgentUser.ID,
+			Name:     reg.AgentUser.Name,
+			APIKey:   reg.APIToken,
+			ParentID: reg.AgentUser.ParentUserID,
+			HowToUse: "Save api_key securely. You are already adopted by user " +
+				reg.AgentUser.ParentUserID + ". Configure kb-mcp or use REST " +
+				"with `Authorization: Bearer <api_key>`.",
+		})
+		return
+	}
+
+	// Open flow requires explicit operator opt-in.
+	if !h.RegisterOpen {
+		writeError(w, http.StatusForbidden, CodeForbidden,
+			"agent registration requires an `invitation_code`. Ask a human "+
+				"with an omoikane account to issue one by POSTing to "+
+				"/v1/admin/agent-invites (or via the dashboard).", nil)
+		return
+	}
+
 	reg, err := h.Store.RegisterAgent(httpCtx(r), req.Name, req.Description)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-
 	base := h.publicBase(r)
 	claimURL := base + "/claim/" + reg.ClaimCode
-
 	writeJSON(w, http.StatusCreated, agentRegisterResponse{
 		AgentID:   reg.AgentUser.ID,
 		Name:      reg.AgentUser.Name,
@@ -75,6 +108,65 @@ func (h *Handler) agentRegister(w http.ResponseWriter, r *http.Request) {
 			"so they can adopt you. Configure kb-mcp or use the REST API " +
 			"directly with `Authorization: Bearer <api_key>`.",
 	})
+}
+
+// ============================================================
+// Admin: issue invitation codes
+// ============================================================
+
+type issueInviteRequest struct {
+	Note string `json:"note,omitempty"`
+}
+
+type issueInviteResponse struct {
+	Code         string `json:"code"`
+	ExpiresAt    string `json:"expires_at"`
+	RegisterURL  string `json:"register_url"`
+	Instructions string `json:"instructions"`
+}
+
+func (h *Handler) issueAgentInvite(w http.ResponseWriter, r *http.Request) {
+	tok := auth.FromContext(r.Context())
+	if tok == nil || tok.UserID == "" {
+		writeError(w, http.StatusUnauthorized, CodeInvalidToken, "sign in to issue invites", nil)
+		return
+	}
+	var req issueInviteRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
+			return
+		}
+	}
+	inv, err := h.Store.CreateAgentInvitation(httpCtx(r), tok.UserID, req.Note)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	base := h.publicBase(r)
+	writeJSON(w, http.StatusCreated, issueInviteResponse{
+		Code:        inv.Code,
+		ExpiresAt:   inv.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		RegisterURL: base + "/v1/agents/register",
+		Instructions: "Give the code to your agent. The agent calls " +
+			"POST " + base + "/v1/agents/register with " +
+			"{name, description, invitation_code}. " +
+			"On redemption the agent is automatically adopted under your account.",
+	})
+}
+
+func (h *Handler) listAgentInvites(w http.ResponseWriter, r *http.Request) {
+	tok := auth.FromContext(r.Context())
+	if tok == nil || tok.UserID == "" {
+		writeError(w, http.StatusUnauthorized, CodeInvalidToken, "sign in", nil)
+		return
+	}
+	invs, err := h.Store.ListAgentInvitations(httpCtx(r), tok.UserID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"invitations": invs})
 }
 
 // agentClaimGet shows what the human is about to adopt. No auth required

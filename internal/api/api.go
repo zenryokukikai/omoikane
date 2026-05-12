@@ -29,10 +29,14 @@ type Handler struct {
 	// Phase A auth — nil disables OAuth login (the rest of the API
 	// keeps working with admin-issued Bearer tokens).
 	OAuthGoogle      oauth.Provider
+	OAuthRedirectBase string // for canonical-host enforcement (e.g. "http://localhost:8095")
 	AuthAllowDomains []string
 	AuthAllowEmails  []string
 	HTTPSEnabled     bool
 	SessionTTL       time.Duration
+
+	// Agent registration policy
+	RegisterOpen bool // KB_REGISTER_OPEN=1 disables invite-code requirement
 }
 
 // Mount registers the Phase 1 surface on r under /v1. Process-wide middleware
@@ -64,6 +68,10 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Use(authMW.Authenticate)
 			r.Get("/auth/me", h.authMe)
 			r.Post("/agents/claim/{code}", h.agentClaimPost)
+			// Invite issuance — any authenticated human can issue invites
+			// for their own agents.
+			r.Post("/admin/agent-invites", h.issueAgentInvite)
+			r.Get("/admin/agent-invites", h.listAgentInvites)
 
 			r.With(auth.RequireScope("read")).Get("/projects", h.listProjects)
 			r.With(auth.RequireScope("read")).Get("/projects/{id}", h.getProject)

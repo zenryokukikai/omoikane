@@ -195,8 +195,10 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 			ClientSecret: cfg.GoogleClientSecret,
 			RedirectURI:  cfg.OAuthRedirectBase + "/v1/auth/google/callback",
 		}
+		apiH.OAuthRedirectBase = cfg.OAuthRedirectBase
 		logger.Info("oauth.google configured", "redirect", apiH.OAuthGoogle.(*oauth.Google).RedirectURI)
 	}
+	apiH.RegisterOpen = cfg.RegisterOpen
 	dashH, err := newDashboard(st, cfg.DashboardOpen)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)

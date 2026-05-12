@@ -47,7 +47,8 @@ func TestServeSkillMD(t *testing.T) {
 		"kb_post",
 		"kb_feedback",
 		"# omoikane",
-		"## 1. Register yourself",
+		"invitation_code",
+		"invitation code",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in skill.md", want)

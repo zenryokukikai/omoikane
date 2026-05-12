@@ -465,6 +465,105 @@ func TestIsSafeRedirect(t *testing.T) {
 	}
 }
 
+func TestCanonicalHostFromBase(t *testing.T) {
+	cases := map[string]string{
+		"":                            "",
+		"http://localhost:8095":       "localhost:8095",
+		"https://kb.example.com":      "kb.example.com",
+		"http://localhost:8095/":      "localhost:8095",
+		"http://localhost:8095/path":  "localhost:8095",
+	}
+	for in, want := range cases {
+		if got := canonicalHostFromBase(in); got != want {
+			t.Errorf("%q → %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAuthGoogleLoginCanonicalHostRedirect(t *testing.T) {
+	// Use the existing oauthServer helper but set OAuthRedirectBase
+	// to a different host than the test server's. Hit /login with Host
+	// set to a non-canonical hostname → expect 302 to the canonical
+	// host (NO state cookie set yet).
+	fake := &fakeGoogleOAuth{
+		identity: &oauth.Identity{Subject: "s", Email: "a@x.com", Name: "A"},
+	}
+	base, _, st := oauthServer(t, fake, nil)
+	_ = st
+	// Promote the existing Handler to have a canonical host that DIFFERS
+	// from the httptest URL. We rebuild a custom router for this test.
+	canonical := "http://canonical.example.com:9999"
+	_ = canonical
+	// Easiest: hit /v1/auth/google/login with a forced Host header that
+	// differs from the configured redirect base. oauthServer doesn't
+	// set OAuthRedirectBase, so this also covers the "no canonical
+	// configured → no redirect" path. To test the redirect path, we
+	// need a server with OAuthRedirectBase set. Build it inline.
+	st2, srv := canonicalRedirectFixture(t, "http://canonical.example.com:9999")
+	_ = st2
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/auth/google/login?next=/x", nil)
+	req.Host = "127.0.0.1:8095" // pretend the user accessed via a different host
+	c := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "canonical.example.com:9999") {
+		t.Fatalf("location: %s", loc)
+	}
+	if !strings.Contains(loc, "next=/x") {
+		t.Fatalf("next preserved: %s", loc)
+	}
+	for _, ck := range resp.Cookies() {
+		if ck.Name == stateCookieName {
+			t.Fatalf("state cookie should NOT be set on canonical redirect: %+v", ck)
+		}
+	}
+	// Also ensure the public smoke at /v1/auth/google/login (base — i.e., httptest URL)
+	// works because base's URL == its own Host. _ = base avoids lint.
+	_ = base
+}
+
+// canonicalRedirectFixture is a Handler with a custom OAuthRedirectBase
+// for the canonical-host redirect tests.
+func canonicalRedirectFixture(t *testing.T, redirectBase string) (*store.Store, *httptest.Server) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(dir, "kb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.CreateUser(context.Background(), &store.User{ID: "admin", Name: "admin", Role: "admin"})
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := &Handler{
+		Store: st, Enricher: enrich.New("", "", "", "", logger),
+		SecretsMode:       config.SecretsOff, Logger: logger,
+		OAuthRedirectBase: redirectBase,
+	}
+	h.OAuthGoogle = &fakeGoogleOAuth{
+		identity: &oauth.Identity{Subject: "s", Email: "a@x.com", Name: "A"},
+	}
+	r := chi.NewRouter()
+	r.Use(RequestID)
+	r.Use(Audit(st, logger))
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	t.Cleanup(func() {
+		srv.Close()
+		_ = st.Close()
+	})
+	return st, srv
+}
+
 func TestAppendTokenQuery(t *testing.T) {
 	if got := appendTokenQuery("/foo", "tok"); !strings.Contains(got, "token=tok") {
 		t.Fatalf("simple: %s", got)

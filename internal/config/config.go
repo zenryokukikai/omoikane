@@ -45,6 +45,9 @@ type Config struct {
 	AuthAllowEmails    []string // KB_AUTH_ALLOW_EMAILS=alice@x.com,bob@y.com — explicit email allow-list (OR with domain list)
 	HTTPSEnabled       bool     // KB_HTTPS=1 → mark cookies Secure, expect https redirects
 	SessionTTL         time.Duration // KB_SESSION_TTL — default 24h
+
+	// Agent registration policy
+	RegisterOpen bool // KB_REGISTER_OPEN=1 disables invite-code requirement (default false)
 }
 
 // Load reads configuration from environment variables (see design.md §10 /
@@ -112,6 +115,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("KB_SESSION_TTL: %w", err)
 	}
 	c.SessionTTL = sessTTL
+	c.RegisterOpen = envBool("KB_REGISTER_OPEN", false)
 
 	return c, nil
 }

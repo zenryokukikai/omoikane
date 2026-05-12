@@ -123,6 +123,63 @@ func (s *Store) GetUserByGoogleSub(ctx context.Context, sub string) (*User, erro
 	return &u, nil
 }
 
+// UserProfilePatch is the set of self-editable fields. Pointer
+// semantics: nil = "leave alone", non-nil = "set to this value".
+// We deliberately exclude email/google_sub/role/parent_user_id/id —
+// those are controlled by other paths (OAuth handshake, admin
+// promotion, agent claim flow) and self-editing them would either
+// break invariants or escalate privileges.
+type UserProfilePatch struct {
+	Name        *string
+	Description *string
+	AvatarURL   *string
+}
+
+// UpdateUserProfile applies the patch and returns the post-update
+// user. Only the fields whose pointer is non-nil are touched. Returns
+// ErrInvalidInput if Name is set to an empty/whitespace string (name
+// is required by the users table), ErrNotFound if no user has that id.
+func (s *Store) UpdateUserProfile(ctx context.Context, userID string, p UserProfilePatch) (*User, error) {
+	if userID == "" {
+		return nil, ErrInvalidInput
+	}
+	// Build dynamic UPDATE — only columns the caller actually set.
+	sets := []string{}
+	args := []any{}
+	if p.Name != nil {
+		trimmed := strings.TrimSpace(*p.Name)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%w: name cannot be empty", ErrInvalidInput)
+		}
+		sets = append(sets, "name = ?")
+		args = append(args, trimmed)
+	}
+	if p.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, nullable(strings.TrimSpace(*p.Description)))
+	}
+	if p.AvatarURL != nil {
+		sets = append(sets, "avatar_url = ?")
+		args = append(args, nullable(strings.TrimSpace(*p.AvatarURL)))
+	}
+	if len(sets) == 0 {
+		// Nothing to update — return current user. This isn't an error;
+		// idempotent no-op PATCH is a legitimate use case.
+		return s.GetUser(ctx, userID)
+	}
+	args = append(args, userID)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetUser(ctx, userID)
+}
+
 // SetUserEmail updates the email (and ensures lowercasing). Returns
 // ErrAlreadyExists when another user already owns that email.
 func (s *Store) SetUserEmail(ctx context.Context, userID, email string) error {

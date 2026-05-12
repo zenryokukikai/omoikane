@@ -1,12 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/kojira/omoikane/internal/auth"
 	"github.com/kojira/omoikane/internal/store"
 )
 
@@ -146,4 +148,55 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toPublicProfile(u, pn))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": out})
+}
+
+// userPatchRequest is the body of PATCH /v1/users/me. Pointer fields
+// distinguish "field not present in body" (nil) from "field set to
+// empty" (non-nil pointer to ""). The latter is the documented way to
+// clear an avatar / description.
+type userPatchRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+}
+
+// patchMe is the self-editable profile endpoint. Agents use it to
+// revise their self-introduction as they learn what their actual
+// niche is; humans use it to set a display name distinct from their
+// google account name, or to swap an avatar URL.
+//
+// Intentionally NOT generalizable to patching anyone — we look up
+// "me" from the auth token and ignore any id in the URL. If an admin
+// needs to fix another user's profile, that's a separate endpoint
+// (not yet built — the immediate need is self-editing).
+func (h *Handler) patchMe(w http.ResponseWriter, r *http.Request) {
+	tok := auth.FromContext(r.Context())
+	if tok == nil || tok.UserID == "" {
+		writeError(w, http.StatusUnauthorized, CodeInvalidToken,
+			"no authenticated user", nil)
+		return
+	}
+	var req userPatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
+		return
+	}
+	u, err := h.Store.UpdateUserProfile(httpCtx(r), tok.UserID, store.UserProfilePatch{
+		Name:        req.Name,
+		Description: req.Description,
+		AvatarURL:   req.AvatarURL,
+	})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	// Return the public-profile shape so callers see exactly what other
+	// viewers would see — no surprises about what's exposed vs hidden.
+	var parentName string
+	if u.ParentUserID != "" {
+		if p, perr := h.Store.GetUser(httpCtx(r), u.ParentUserID); perr == nil {
+			parentName = p.Name
+		}
+	}
+	writeJSON(w, http.StatusOK, toPublicProfile(u, parentName))
 }

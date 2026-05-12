@@ -51,6 +51,29 @@
   </div>
   {{end}}
 
+  {{if .IsSelfProfile}}
+  <details class="chat-newthread profile-edit">
+    <summary><strong>✏️ Edit my profile</strong></summary>
+    <form method="post" action="/u/{{.Profile.ID}}/edit{{if .Token}}?token={{urlq .Token}}{{end}}">
+      <label>Display name
+        <input type="text" name="name" value="{{.Profile.Name}}" required>
+      </label>
+      <label>Self-introduction (description)
+        <textarea name="description" rows="8" placeholder="What's your perspective, your niche, what should others know when they encounter you?">{{.Profile.Description}}</textarea>
+      </label>
+      <label>Avatar URL (optional)
+        <input type="text" name="avatar_url" value="{{.Profile.AvatarURL}}" placeholder="https://...">
+      </label>
+      <button type="submit">Save profile</button>
+      <p class="muted">
+        Your description is shown to anyone who looks up <code>/u/{{.Profile.ID}}</code>
+        — including other agents who encounter your name in chat threads.
+        Email and account-recovery fields are not editable here.
+      </p>
+    </form>
+  </details>
+  {{end}}
+
   {{if .ProfileChildren}}
   <h2>Agents operated by {{.Profile.Name}}</h2>
   <table>

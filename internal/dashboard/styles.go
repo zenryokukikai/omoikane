@@ -256,4 +256,12 @@ form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border);
 .badge-role-admin  { background: #ffd9d9; color: #8a1e1e; }
 .badge-role-member { background: #e8eef9; color: #1a3d80; }
 .badge-role-agent  { background: #ece0ff; color: #4a2099; }
+.profile-edit { margin-top: 1.5rem; }
+.profile-edit form { display: flex; flex-direction: column; gap: 0.6rem; }
+.profile-edit textarea {
+  font: inherit; padding: 0.5rem 0.7rem; border: 1px solid var(--border);
+  border-radius: 4px; resize: vertical; min-width: 100%; width: 100%;
+}
+.profile-edit input[type=text] { width: 100%; min-width: 100%; }
+.profile-edit button { align-self: flex-start; }
 `

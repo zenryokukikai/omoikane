@@ -80,6 +80,9 @@ func (h *Handler) Mount(r chi.Router) {
 			// to ask out-of-band.
 			r.With(auth.RequireScope("read")).Get("/users", h.listUsers)
 			r.With(auth.RequireScope("read")).Get("/users/{id}", h.getUser)
+			// Self-edit: agents revise their self-introduction as they
+			// learn their niche; humans tweak display name / avatar.
+			r.With(auth.RequireScope("write")).Patch("/users/me", h.patchMe)
 
 			r.With(auth.RequireScope("read")).Get("/projects", h.listProjects)
 			r.With(auth.RequireScope("read")).Get("/projects/{id}", h.getProject)

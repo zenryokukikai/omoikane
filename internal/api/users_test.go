@@ -156,3 +156,105 @@ func TestListUsersInvalidLimitRejected(t *testing.T) {
 		t.Fatalf("want 400 for limit=0, got %d", s)
 	}
 }
+
+// PATCH /v1/users/me updates the caller's own profile. Test it
+// editing description (the headline use case for agents).
+func TestPatchMeUpdatesDescription(t *testing.T) {
+	base, tok, _ := testServer(t)
+
+	newDesc := "I notice patterns in middleware composition."
+	s, raw := doJSON(t, http.MethodPatch, base+"/v1/users/me", tok,
+		map[string]any{"description": newDesc}, nil)
+	if s != 200 {
+		t.Fatalf("status %d: %s", s, raw)
+	}
+	var p PublicProfile
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if p.Description != newDesc {
+		t.Errorf("description not updated: got %q", p.Description)
+	}
+
+	// Reading via GET should reflect the update.
+	s, raw = doJSON(t, http.MethodGet, base+"/v1/users/admin", tok, nil, nil)
+	if s != 200 {
+		t.Fatalf("get after patch: %d %s", s, raw)
+	}
+	var p2 PublicProfile
+	_ = json.Unmarshal(raw, &p2)
+	if p2.Description != newDesc {
+		t.Errorf("GET shows stale description: %q", p2.Description)
+	}
+}
+
+func TestPatchMeUpdatesName(t *testing.T) {
+	base, tok, _ := testServer(t)
+	s, raw := doJSON(t, http.MethodPatch, base+"/v1/users/me", tok,
+		map[string]any{"name": "kojira"}, nil)
+	if s != 200 {
+		t.Fatalf("status %d: %s", s, raw)
+	}
+	var p PublicProfile
+	_ = json.Unmarshal(raw, &p)
+	if p.Name != "kojira" {
+		t.Errorf("name not updated: %q", p.Name)
+	}
+}
+
+func TestPatchMeRejectsEmptyName(t *testing.T) {
+	base, tok, _ := testServer(t)
+	s, _ := doJSON(t, http.MethodPatch, base+"/v1/users/me", tok,
+		map[string]any{"name": "   "}, nil)
+	if s != http.StatusBadRequest && s != http.StatusUnprocessableEntity {
+		t.Fatalf("want 4xx for empty name, got %d", s)
+	}
+}
+
+// PATCH must NOT allow changing role or parent_user_id. Even if the
+// caller sends those keys, they should be ignored.
+func TestPatchMeIgnoresPrivilegedFields(t *testing.T) {
+	base, tok, _ := testServer(t)
+	// admin's role is "admin"; try to demote to "member" via PATCH —
+	// should be silently ignored (not in the request schema at all).
+	s, raw := doJSON(t, http.MethodPatch, base+"/v1/users/me", tok,
+		map[string]any{"role": "member", "id": "hijack", "description": "ok"}, nil)
+	if s != 200 {
+		t.Fatalf("status %d: %s", s, raw)
+	}
+	var p PublicProfile
+	_ = json.Unmarshal(raw, &p)
+	if p.Role != "admin" {
+		t.Errorf("role was changed via PATCH (privilege escalation): %q", p.Role)
+	}
+	if p.ID != "admin" {
+		t.Errorf("id was changed via PATCH: %q", p.ID)
+	}
+	if p.Description != "ok" {
+		t.Errorf("description (legit field) not applied: %q", p.Description)
+	}
+}
+
+func TestPatchMeRequiresAuth(t *testing.T) {
+	base, _, _ := testServer(t)
+	s, _ := doJSON(t, http.MethodPatch, base+"/v1/users/me", "",
+		map[string]any{"description": "anon"}, nil)
+	if s != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", s)
+	}
+}
+
+// Empty body / no fields → no-op success with current state returned.
+func TestPatchMeNoOpReturnsCurrent(t *testing.T) {
+	base, tok, _ := testServer(t)
+	s, raw := doJSON(t, http.MethodPatch, base+"/v1/users/me", tok,
+		map[string]any{}, nil)
+	if s != 200 {
+		t.Fatalf("status %d: %s", s, raw)
+	}
+	var p PublicProfile
+	_ = json.Unmarshal(raw, &p)
+	if p.ID != "admin" {
+		t.Errorf("want admin, got %s", p.ID)
+	}
+}

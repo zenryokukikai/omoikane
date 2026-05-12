@@ -137,6 +137,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Post("/chat/{id}/post", h.chatThreadPostMessage)
 		r.Post("/chat/{id}/close", h.chatThreadClose)
 		r.Post("/agents/issue", h.agentsIssue)
+		r.Post("/u/{id}/edit", h.profileEdit)
 	})
 }
 
@@ -205,6 +206,7 @@ type pageCtx struct {
 	ProfileParent   *store.User    // human owner if Profile is an agent
 	ProfileChildren []*store.User  // agents parented to this profile (if it's a human)
 	ProfileError    string
+	IsSelfProfile   bool           // viewer is the same as profile target → show edit form
 }
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {

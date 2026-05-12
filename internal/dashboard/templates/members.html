@@ -1,0 +1,120 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  {{if .Me}}· <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}">🤖 Agents</a>{{end}}
+</nav>
+
+<h1>Members 👥</h1>
+
+{{if .MembersPageError}}
+<div class="banner">⚠️ {{.MembersPageError}}</div>
+{{else}}
+
+<p class="muted">
+  Invite humans to this omoikane instance and assign their role.
+  Invitations are addressed to a specific email — only that email can
+  redeem the link by signing in with Google.
+</p>
+
+{{if .NewMemberCode}}
+{{range .MemberInvitations}}{{if eq .Code $.NewMemberCode}}
+<div class="banner banner-success">
+  <p><strong>✅ Invitation issued for {{.TargetEmail}}</strong> as <code>{{.TargetRole}}</code>.</p>
+  <p>Send this URL to the invitee:</p>
+  <input class="copy-target" type="text" readonly value="{{$.BaseURL}}/members/claim/{{.Code}}"
+         onclick="this.select();" aria-label="claim URL">
+  <p class="muted">When they open it and sign in with Google using <code>{{.TargetEmail}}</code>,
+  they'll be granted role <code>{{.TargetRole}}</code> automatically. The link expires
+  {{.ExpiresAt.Format "2006-01-02 15:04"}}.</p>
+</div>
+{{end}}{{end}}
+{{end}}
+
+<details class="chat-newthread" {{if not .NewMemberCode}}open{{end}}>
+  <summary><strong>Invite a new member</strong></summary>
+  <form method="post" action="/members/invite{{if .Token}}?token={{urlq .Token}}{{end}}">
+    <label>Email
+      <input type="email" name="email" required placeholder="someone@example.com">
+    </label>
+    <label>Role
+      <select name="role">
+        <option value="member" selected>member</option>
+        <option value="admin">admin</option>
+      </select>
+    </label>
+    <label>Note (optional)
+      <input type="text" name="note" placeholder="e.g. ops lead, joining 2026-Q2">
+    </label>
+    <button type="submit">Issue invitation</button>
+  </form>
+</details>
+
+<h2>Current members</h2>
+{{if .MembersList}}
+<table>
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Last seen</th><th>Actions</th></tr></thead>
+  <tbody>
+    {{range .MembersList}}
+    <tr>
+      <td>
+        <a href="/u/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}"><strong>{{.Name}}</strong></a>
+        <br><span class="badge">{{.ID}}</span>
+      </td>
+      <td class="muted">{{.Email}}</td>
+      <td>
+        <span class="badge badge-role-{{.Role}}">{{.Role}}</span>
+      </td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+      <td class="muted">{{if .LastLoginAt}}{{.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}<em>never</em>{{end}}</td>
+      <td>
+        {{if ne .ID $.Me.ID}}
+        <form method="post" action="/members/{{.ID}}/role{{if $.Token}}?token={{urlq $.Token}}{{end}}" class="role-form">
+          <select name="role">
+            <option value="member" {{if eq .Role "member"}}selected{{end}}>member</option>
+            <option value="admin"  {{if eq .Role "admin"}}selected{{end}}>admin</option>
+          </select>
+          <button type="submit">Change</button>
+        </form>
+        {{else}}
+        <span class="muted"><em>(you)</em></span>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No members yet — just you.</div>
+{{end}}
+
+<h2>Outstanding invitations</h2>
+{{if .MemberInvitations}}
+<table>
+  <thead><tr><th>Email</th><th>Role</th><th>Note</th><th>Issued</th><th>Expires</th><th>Status</th></tr></thead>
+  <tbody>
+    {{range .MemberInvitations}}
+    <tr>
+      <td><code>{{.TargetEmail}}</code></td>
+      <td><span class="badge badge-role-{{.TargetRole}}">{{.TargetRole}}</span></td>
+      <td class="muted">{{.Note}}</td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+      <td>
+        {{if .UsedAt}}
+          <span class="badge badge-status-PROMOTED">claimed</span>
+          {{if .UsedByUser}}<span class="muted">by <code>{{.UsedByUser}}</code></span>{{end}}
+        {{else}}
+          <span class="badge badge-status-OPEN">pending</span>
+          <br><a class="muted" href="/members/claim/{{.Code}}">claim link</a>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No invitations issued yet.</div>
+{{end}}
+
+{{end}}
+{{end}}

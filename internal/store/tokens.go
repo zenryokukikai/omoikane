@@ -238,7 +238,23 @@ func (s *Store) RecordLogin(ctx context.Context, userID string) error {
 //
 // `name` may be the Google display name; we keep `email`'s local-part
 // as a fallback.
+// ProvisionGoogleUser is the legacy entry point: looks up by sub →
+// then by email → then creates as role=member. Kept for callers that
+// don't need to override the role of a freshly-created user.
 func (s *Store) ProvisionGoogleUser(ctx context.Context, email, googleSub, name, avatarURL string) (*User, error) {
+	return s.ProvisionGoogleUserWithRole(ctx, email, googleSub, name, avatarURL, "member")
+}
+
+// ProvisionGoogleUserWithRole resolves an OAuth identity to a user
+// row, creating one if necessary. `role` is honoured only on the
+// CREATE branch — existing users keep their role (we don't silently
+// promote/demote on every login). Pass "member" if you don't want to
+// influence the role.
+//
+// Used by the OAuth callback's invitation-redemption path: when a
+// new email lands with a pending member_invitation, we look the
+// invitation's target_role up here.
+func (s *Store) ProvisionGoogleUserWithRole(ctx context.Context, email, googleSub, name, avatarURL, role string) (*User, error) {
 	if existing, err := s.GetUserByGoogleSub(ctx, googleSub); err == nil {
 		return existing, nil
 	}
@@ -248,7 +264,7 @@ func (s *Store) ProvisionGoogleUser(ctx context.Context, email, googleSub, name,
 		}
 		return s.GetUser(ctx, existing.ID)
 	}
-	// Mint a fresh user
+	// Mint a fresh user with the requested role.
 	id, err := newUserID()
 	if err != nil {
 		return nil, err
@@ -256,8 +272,11 @@ func (s *Store) ProvisionGoogleUser(ctx context.Context, email, googleSub, name,
 	if name == "" {
 		name = email
 	}
+	if role == "" {
+		role = "member"
+	}
 	u := &User{
-		ID: id, Name: name, Role: "member",
+		ID: id, Name: name, Role: role,
 		Email:     strings.ToLower(strings.TrimSpace(email)),
 		GoogleSub: googleSub,
 		AvatarURL: avatarURL,

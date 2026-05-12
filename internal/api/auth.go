@@ -110,20 +110,63 @@ func (h *Handler) authGoogleCallback(w http.ResponseWriter, r *http.Request) {
 			"oauth callback: "+err.Error(), nil)
 		return
 	}
-	if !oauth.EmailAllowed(id.Email, h.AuthAllowDomains, h.AuthAllowEmails) {
-		h.Logger.Warn("login denied by allow-list", "email", id.Email)
-		writeError(w, http.StatusForbidden, CodeForbidden,
-			"this email is not permitted to sign in. Contact an administrator.",
-			map[string]any{"email": id.Email})
-		return
+	// Three-way gate for "is this email allowed to sign in":
+	//
+	//   1. Existing users (by google_sub or by email) — always allowed.
+	//      They've been let in before; we don't relitigate at every
+	//      login.
+	//   2. New users with an open member_invitation matching their
+	//      email — allowed, with the invitation's target_role honored
+	//      at creation. Marks the invitation used.
+	//   3. New users on the env allow-list — allowed, role=member.
+	//   4. Otherwise — rejected with a hint to ask an admin.
+	//
+	// (1) is checked implicitly via ProvisionGoogleUser*, which is a
+	// no-op for existing identities. (2) and (3) decide what role we
+	// pass when creating a fresh row.
+	ctx := httpCtx(r)
+	newUserRole := ""
+	var pendingInvite *store.MemberInvitation
+	isExisting := false
+	if u, err := h.Store.GetUserByGoogleSub(ctx, id.Subject); err == nil {
+		isExisting = true
+		_ = u
+	} else if u, err := h.Store.GetUserByEmail(ctx, id.Email); err == nil {
+		isExisting = true
+		_ = u
+	}
+	if !isExisting {
+		// New user — must either have an invitation OR be on the
+		// allow-list.
+		if inv, err := h.Store.FindOpenMemberInvitationForEmail(ctx, id.Email); err == nil {
+			pendingInvite = inv
+			newUserRole = inv.TargetRole
+		} else if oauth.EmailAllowed(id.Email, h.AuthAllowDomains, h.AuthAllowEmails) {
+			newUserRole = "member"
+		} else {
+			h.Logger.Warn("login denied (no invite, not on allow-list)", "email", id.Email)
+			writeError(w, http.StatusForbidden, CodeForbidden,
+				"this email is not permitted to sign in. Contact an administrator to receive an invitation.",
+				map[string]any{"email": id.Email})
+			return
+		}
 	}
 
-	user, err := h.Store.ProvisionGoogleUser(httpCtx(r), id.Email, id.Subject, id.Name, id.AvatarURL)
+	user, err := h.Store.ProvisionGoogleUserWithRole(ctx, id.Email, id.Subject, id.Name, id.AvatarURL, newUserRole)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	_ = h.Store.RecordLogin(httpCtx(r), user.ID)
+	// If we just consumed an invitation, mark it used. Best-effort:
+	// we've already created the user, so failing to mark used leaves
+	// the invitation reusable — annoying but not security-critical
+	// (the now-existing user is still allowed in by path (1) above).
+	if pendingInvite != nil {
+		if err := h.Store.MarkMemberInvitationUsed(ctx, pendingInvite.Code, user.ID); err != nil {
+			h.Logger.Warn("couldn't mark invitation used", "code", pendingInvite.Code, "err", err)
+		}
+	}
+	_ = h.Store.RecordLogin(ctx, user.ID)
 
 	// Session-type token; agent tokens (`api`) are issued separately by
 	// the admin CLI. Session scopes mirror the user's role: admin gets

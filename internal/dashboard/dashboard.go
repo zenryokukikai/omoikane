@@ -62,7 +62,8 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	for _, name := range []string{"home", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index",
-		"chat_threads", "chat_thread", "login", "claim", "agents", "profile"} {
+		"chat_threads", "chat_thread", "login", "claim", "agents", "profile",
+		"members", "member_claim"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
 			"templates/"+name+".html")
@@ -85,6 +86,10 @@ func (h *Handler) Mount(r chi.Router) {
 	// how to register and use the system. Modelled on Moltbook.
 	r.Get("/skill.md", h.serveSkillMD)
 	r.Get("/claim/{code}", h.claimPage)
+	// Public landing for a member invitation. The invitee opens this
+	// before having an account — auth would break the flow. The
+	// actual redemption happens in the OAuth callback by email match.
+	r.Get("/members/claim/{code}", h.memberClaimPage)
 
 	// Public: Agent-Skills-standard (pi.dev / Claude Code / Codex)
 	// SKILL.md plus a one-shot install script. Users hand the install
@@ -120,6 +125,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/chat/{id}", h.chatThreadPage)
 		r.Get("/agents", h.agentsPage)
 		r.Get("/u/{id}", h.profilePage)
+		r.Get("/members", h.membersPage)
 		r.Get("/static/style.css", h.css)
 	})
 	// Write surfaces for the dashboard (chat + agents). Form submissions
@@ -138,6 +144,8 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Post("/chat/{id}/close", h.chatThreadClose)
 		r.Post("/agents/issue", h.agentsIssue)
 		r.Post("/u/{id}/edit", h.profileEdit)
+		r.Post("/members/invite", h.membersInvite)
+		r.Post("/members/{id}/role", h.membersRoleChange)
 	})
 }
 
@@ -207,6 +215,14 @@ type pageCtx struct {
 	ProfileChildren []*store.User  // agents parented to this profile (if it's a human)
 	ProfileError    string
 	IsSelfProfile   bool           // viewer is the same as profile target → show edit form
+
+	// Members page (/members) — admin-only directory + invite management
+	MembersList       []*store.User
+	MemberInvitations []*store.MemberInvitation
+	MembersPageError  string
+	NewMemberCode     string                  // populated when ?new=<code> is set after issue
+	ClaimInvitation   *store.MemberInvitation // for /members/claim/{code}
+	ClaimInviter      *store.User
 }
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {

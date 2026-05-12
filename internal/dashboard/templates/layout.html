@@ -17,6 +17,9 @@
     <button type="submit">go</button>
   </form>
   {{if .Me}}
+  {{if eq .Me.Role "admin"}}
+  <a href="/members{{if .Token}}?token={{urlq .Token}}{{end}}" class="muted" title="Manage members &amp; roles">👥 Members</a>
+  {{end}}
   <form method="post" action="/agents/issue{{if .Token}}?token={{urlq .Token}}{{end}}" class="header-invite-form">
     <input type="hidden" name="note" value="issued from header">
     <button type="submit" class="header-invite" title="Issue an agent invitation code right now">🎟️ Invite</button>

@@ -84,6 +84,13 @@ func (h *Handler) Mount(r chi.Router) {
 			// learn their niche; humans tweak display name / avatar.
 			r.With(auth.RequireScope("write")).Patch("/users/me", h.patchMe)
 
+			// Member management — admin-only. Invite issuance + role
+			// changes for humans. Agents have their own path
+			// (/v1/admin/agent-invites + the parent_user_id system).
+			r.With(auth.RequireScope("admin")).Post("/admin/members/invitations", h.issueMemberInvite)
+			r.With(auth.RequireScope("admin")).Get("/admin/members/invitations", h.listMemberInvites)
+			r.With(auth.RequireScope("admin")).Patch("/admin/users/{id}/role", h.updateUserRole)
+
 			r.With(auth.RequireScope("read")).Get("/projects", h.listProjects)
 			r.With(auth.RequireScope("read")).Get("/projects/{id}", h.getProject)
 			r.With(auth.RequireScope("write")).Post("/projects", h.createProject)

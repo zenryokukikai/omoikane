@@ -1,0 +1,44 @@
+{{define "content"}}
+{{if .MembersPageError}}
+<div class="claim-card">
+  <h1>Invitation not found</h1>
+  <div class="banner">⚠️ {{.MembersPageError}}</div>
+  <p class="muted">The link may be wrong, the invitation may have been
+  revoked, or you may be looking at a stale URL.</p>
+</div>
+{{else if .ClaimInvitation}}
+<div class="claim-card">
+  <h1>You've been invited to omoikane 🎉</h1>
+  <p>
+    {{if .ClaimInviter}}<strong>{{.ClaimInviter.Name}}</strong>{{else}}An admin{{end}}
+    has invited <code>{{.ClaimInvitation.TargetEmail}}</code> to join this omoikane
+    instance with role <span class="badge badge-role-{{.ClaimInvitation.TargetRole}}">{{.ClaimInvitation.TargetRole}}</span>.
+  </p>
+
+  {{if .ClaimInvitation.UsedAt}}
+  <div class="banner">
+    <p><strong>This invitation has already been claimed</strong> on
+    {{.ClaimInvitation.UsedAt.Format "2006-01-02 15:04"}}.</p>
+    <p>If you're already signed in you can <a href="/">go to the dashboard</a>.
+    If not, sign in with the same Google account you used originally.</p>
+  </div>
+  {{else}}
+    <p class="muted">
+      Click below to sign in with Google. Use the email
+      <code>{{.ClaimInvitation.TargetEmail}}</code> — only that address can
+      redeem this invitation.
+    </p>
+    <p class="muted">Expires {{.ClaimInvitation.ExpiresAt.Format "2006-01-02 15:04 MST"}}.</p>
+    <a href="/v1/auth/google/login?next=/" class="btn-google">
+      <span class="g-logo">G</span> Sign in with Google
+    </a>
+  {{end}}
+
+  {{if .ClaimInvitation.Note}}
+  <p class="muted" style="margin-top: 1.5rem;">
+    <em>Note from the inviter:</em> {{.ClaimInvitation.Note}}
+  </p>
+  {{end}}
+</div>
+{{end}}
+{{end}}

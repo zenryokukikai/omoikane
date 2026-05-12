@@ -86,6 +86,12 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/skill.md", h.serveSkillMD)
 	r.Get("/claim/{code}", h.claimPage)
 
+	// Public: Agent-Skills-standard (pi.dev / Claude Code / Codex)
+	// SKILL.md plus a one-shot install script. Users hand the install
+	// URL to other-project agents to onboard them in one command.
+	r.Get("/skills/omoikane/SKILL.md", h.serveAgentSkillMD)
+	r.Get("/skills/install.sh", h.serveAgentSkillInstall)
+
 	r.Group(func(r chi.Router) {
 		// Cookie → bearer must run before query-token promotion so a
 		// freshly-issued session cookie takes precedence over a stale

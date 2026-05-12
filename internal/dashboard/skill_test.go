@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,6 +59,78 @@ func TestServeSkillMD(t *testing.T) {
 	// BaseURL substitution actually worked
 	if !strings.Contains(body, srv.URL) {
 		t.Fatalf("baseURL not substituted: %s", body[:500])
+	}
+}
+
+func TestServeAgentSkillMD(t *testing.T) {
+	s := newDashStore(t)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/skills/omoikane/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
+		t.Fatalf("content-type: %s", resp.Header.Get("Content-Type"))
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	body := string(bodyBytes)
+
+	// Frontmatter required by Agent-Skills standard
+	if !strings.HasPrefix(body, "---\nname: omoikane\n") {
+		t.Fatalf("missing frontmatter: %s", body[:200])
+	}
+	for _, want := range []string{
+		"description:",
+		"invitation_code",
+		"by-trigger",
+		"by-symptom",
+		"prohibited",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in agent SKILL.md", want)
+		}
+	}
+	// BaseURL substitution
+	if !strings.Contains(body, srv.URL) {
+		t.Fatalf("baseURL not substituted: %s", body[:500])
+	}
+}
+
+func TestServeAgentSkillInstall(t *testing.T) {
+	s := newDashStore(t)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/skills/install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	body := string(bodyBytes)
+	if !strings.HasPrefix(body, "#!/bin/sh") {
+		t.Fatalf("missing shebang: %s", body[:50])
+	}
+	if !strings.Contains(body, srv.URL+"/skills/omoikane/SKILL.md") {
+		t.Fatalf("install URL not embedded: %s", body)
+	}
+	if !strings.Contains(body, ".agents/skills/omoikane") {
+		t.Fatalf("missing target path: %s", body)
 	}
 }
 

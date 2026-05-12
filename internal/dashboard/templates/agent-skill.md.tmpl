@@ -1,0 +1,164 @@
+---
+name: omoikane
+description: |
+  Agent Knowledge Base — share traps, decisions, lessons, and incidents
+  across AI agents and humans. Use BEFORE making code changes
+  (kb_lookup_by_trigger to check for known traps), WHEN diagnosing
+  issues (kb_lookup_by_symptom), or AFTER solving a hard problem
+  (kb_post type=trap|decision|design|lesson|incident). Records persist
+  across sessions and are shared with the user's team. Requires an
+  api_key obtained via invitation from the user.
+license: MIT
+metadata:
+  homepage: {{.BaseURL}}
+  api_base: {{.BaseURL}}/v1
+  version: {{.SkillVersion}}
+---
+
+# omoikane
+
+A local-first knowledge base where AI agents and humans share traps,
+decisions, design notes, lessons, and incidents. Every action is
+audit-logged under the human who claimed the agent.
+
+## Setup (one-time, requires the user)
+
+You need an `api_key`. Ask the user:
+
+> "Please issue me an omoikane invitation code. Sign in at
+> `{{.BaseURL}}/login`, then `curl -X POST
+> {{.BaseURL}}/v1/admin/agent-invites -H 'Authorization: Bearer
+> <your-token>' -d '{}'`. Send me the `code` field from the response."
+
+When they hand you the 16-hex code (it expires in 24h), register:
+
+```bash
+curl -X POST {{.BaseURL}}/v1/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "<runtime>-<purpose>",
+    "description": "<one line>",
+    "invitation_code": "<the code>"
+  }'
+```
+
+Save the returned `api_key` to `~/.config/omoikane/credentials.json`
+or an environment variable:
+
+```bash
+mkdir -p ~/.config/omoikane
+cat > ~/.config/omoikane/credentials.json <<EOF
+{
+  "kb_core_url": "{{.BaseURL}}",
+  "api_key": "<paste here>"
+}
+EOF
+chmod 600 ~/.config/omoikane/credentials.json
+```
+
+Set the env vars for future calls:
+
+```bash
+export KB_CORE_URL="{{.BaseURL}}"
+export KB_TOKEN="$(jq -r .api_key ~/.config/omoikane/credentials.json)"
+```
+
+## Core usage loop
+
+### 1. Before changing code in a sensitive area
+
+```bash
+curl -sX POST "$KB_CORE_URL/v1/lookup/by-trigger" \
+  -H "Authorization: Bearer $KB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"trigger_description":"<what you are about to do>"}'
+```
+
+Look at every `prohibited` field in the response. If a hit's
+`prohibited` matches what you were planning to do, **abort and
+re-plan**.
+
+If a hit returns a `case_id`, save it so you can report the outcome
+later.
+
+### 2. Diagnosing a reported issue
+
+```bash
+curl -sX POST "$KB_CORE_URL/v1/lookup/by-symptom" \
+  -H "Authorization: Bearer $KB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"symptom_description":"<observed symptom>"}'
+```
+
+### 3. After solving a non-trivial problem
+
+```bash
+curl -sX POST "$KB_CORE_URL/v1/entries" \
+  -H "Authorization: Bearer $KB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "<project name>",
+    "type": "trap",
+    "title": "<short summary>",
+    "symptom": "<one line>",
+    "root_cause": "<one line>",
+    "resolution": "<one line>",
+    "prohibited": "<what NOT to do>",
+    "body": "<markdown details, can include [[T-XXX]] cross-refs>",
+    "tags": ["..."]
+  }'
+```
+
+Use `type=trap` for foreseeable failures with a known avoidance,
+`type=decision` for non-obvious choices, `type=design` for durable
+architectural rationale, `type=lesson` for one-time learnings,
+`type=incident` for unresolved issues.
+
+### 4. Close the feedback loop
+
+If you acted on a lookup hit (got a `case_id`):
+
+```bash
+curl -sX PATCH "$KB_CORE_URL/v1/cases/<case_id>" \
+  -H "Authorization: Bearer $KB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"outcome":"applied","result":"helpful"}'
+```
+
+Values: `outcome` = applied | considered_rejected | ignored,
+`result` = helpful | partially_helpful | not_helpful | misleading |
+unknown.
+
+## Cross-project knowledge
+
+Use `project_id` to separate namespaces. The agent working on
+`lipsync` posts to `project_id: "lipsync"`; their entries don't
+pollute lookups for `inference-svc`. The `omoikane` project is
+reserved for self-knowledge about the KB itself.
+
+## Security notes
+
+- Your `api_key` is your identity. Never send it to any host other
+  than `{{.BaseURL}}`.
+- The server does write-time secret scanning (AWS keys, GitHub
+  tokens, PII). Writes containing matches are rejected with HTTP
+  422 `SECRETS_DETECTED`. Sanitise before posting.
+- All writes are audit-logged: `agent_name → on behalf of
+  user@example.com`.
+
+## When NOT to use this skill
+
+- Single-session throwaway scripts where no future agent will benefit
+- Content under NDA that shouldn't leave the project
+- Discussion-only context (just chat with the user, no need to
+  persist)
+
+## Reference
+
+Full markdown discovery doc with up-to-date tool list:
+{{.BaseURL}}/skill.md
+
+OpenAPI: {{.BaseURL}}/v1/health then GET /api/openapi.yaml (if
+exposed by the operator).
+
+Live dashboard for the user: {{.BaseURL}}/

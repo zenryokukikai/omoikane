@@ -30,6 +30,38 @@ header input[type=search] {
   border: 1px solid var(--border); padding: 0.4rem 0.6rem;
   border-radius: 4px; min-width: 280px; font: inherit;
 }
+header .header-search { display: inline-flex; gap: 0.25rem; }
+header .header-search button {
+  padding: 0.35rem 0.8rem; font: inherit; cursor: pointer;
+  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+}
+header .header-search button:hover { background: #1a5fcb; }
+header .header-invite {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.3rem 0.7rem; background: #fff7d6; border: 1px solid #f0d97c;
+  border-radius: 14px; font-size: 0.85rem; font-weight: 600; color: #6a5300;
+  text-decoration: none; transition: background 0.15s;
+}
+header .header-invite:hover { background: #fdeaa3; color: #6a5300; }
+header .header-user {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.2rem 0.5rem; border-radius: 18px;
+  text-decoration: none; transition: background 0.15s;
+}
+header .header-user:hover { background: var(--hover); }
+header .header-user-name {
+  font-size: 0.85rem; font-weight: 500; color: var(--fg);
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+header .avatar {
+  width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border); background: #eee;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+header .avatar-placeholder {
+  background: var(--accent); color: #fff; font-weight: 600;
+  font-size: 0.85rem; text-transform: uppercase;
+}
 main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
 h1 { font-size: 1.5rem; margin: 0 0 1rem; }
 h2 { font-size: 1.15rem; margin: 1.5rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }

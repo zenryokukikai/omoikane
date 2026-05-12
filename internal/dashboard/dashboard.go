@@ -201,10 +201,19 @@ type pageCtx struct {
 }
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {
-	return pageCtx{
+	pc := pageCtx{
 		Open:  h.Open,
 		Token: r.URL.Query().Get("token"),
 	}
+	// Populate Me from the request auth context so every page can show
+	// the signed-in user in the header. Falls through silently when
+	// the request isn't authenticated.
+	if tok := auth.FromContext(r.Context()); tok != nil && tok.UserID != "" {
+		if u, err := h.Store.GetUser(r.Context(), tok.UserID); err == nil {
+			pc.Me = u
+		}
+	}
+	return pc
 }
 
 func (h *Handler) home(w http.ResponseWriter, r *http.Request) {

@@ -151,6 +151,31 @@ func TestHomeSubnavLinksToAgents(t *testing.T) {
 	}
 }
 
+// The global header should show the signed-in user's name/email and a
+// link to /agents on every page (so code issuance is discoverable from
+// anywhere in the dashboard). This locks the rendering of pc.Me in
+// renderCtx + the {{if .Me}} block in layout.html.
+func TestGlobalHeaderShowsUserAndInviteLink(t *testing.T) {
+	srv, _, tok := mountAuthed(t)
+	// Hit the home page — but the markup we care about is in the layout
+	// header, so any page that uses the layout would do.
+	resp, _ := http.Get(srv.URL + "/?token=" + tok)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	for _, want := range []string{
+		`class="header-invite"`,    // 🎟️ Invite chip
+		`class="header-user"`,      // User pill with avatar+name
+		`class="header-user-name"`, // visible name span
+		"alice@x.com",              // the bootstrapped user's email
+		`href="/agents`,            // both header links point at /agents
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in home page header", want)
+		}
+	}
+}
+
 // Time-related: invites with past expiry should still be listed (just
 // marked unused — the dashboard shows them so the human sees what
 // they've issued historically). We can't easily backdate without

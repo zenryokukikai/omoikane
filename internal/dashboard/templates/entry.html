@@ -1,0 +1,112 @@
+{{define "content"}}
+{{with .Entry}}
+{{if $.AsOf}}<div class="banner">Showing snapshot as of <code>{{$.AsOf}}</code>. <a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">View current</a></div>{{end}}
+<p class="muted">
+  <a href="/projects/{{.ProjectID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.ProjectID}}</a>
+  · <span class="badge">{{.ID}}</span>
+  · <span class="badge">{{.Type}}</span>
+  · <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
+  · updated {{.UpdatedAt.Format "2006-01-02 15:04"}}
+  · v{{.Version}}
+  · <a href="/entries/{{.ID}}/history{{if $.Token}}?token={{urlq $.Token}}{{end}}">history</a>
+</p>
+<h1>{{.Title}}</h1>
+
+{{if .Tags}}
+<div class="field">
+  <div class="label">Tags</div>
+  {{range .Tags}}<span class="badge">{{.}}</span>{{end}}
+</div>
+{{end}}
+
+{{if .Symptom}}<div class="field"><div class="label">Symptom</div><div class="body">{{wikiLinks .Symptom $.Token}}</div></div>{{end}}
+{{if .RootCause}}<div class="field"><div class="label">Root cause</div><div class="body">{{wikiLinks .RootCause $.Token}}</div></div>{{end}}
+{{if .Resolution}}<div class="field"><div class="label">Resolution</div><div class="body">{{wikiLinks .Resolution $.Token}}</div></div>{{end}}
+{{if .Prohibited}}<div class="field"><div class="label">Prohibited</div><div class="body">{{wikiLinks .Prohibited $.Token}}</div></div>{{end}}
+{{if .AttemptedApproaches}}<div class="field"><div class="label">Attempted approaches</div><div class="body">{{wikiLinks .AttemptedApproaches $.Token}}</div></div>{{end}}
+{{if .ObservedBehavior}}<div class="field"><div class="label">Observed behavior</div><div class="body">{{wikiLinks .ObservedBehavior $.Token}}</div></div>{{end}}
+{{if .Hypotheses}}<div class="field"><div class="label">Hypotheses</div><div class="body">{{wikiLinks .Hypotheses $.Token}}</div></div>{{end}}
+
+<div class="field"><div class="label">Body ({{.BodyFormat}})</div><div class="body">{{wikiLinks .Body $.Token}}</div></div>
+
+<div class="field">
+  <div class="label">Validity</div>
+  <div class="muted">
+    valid_from: {{.ValidFrom.Format "2006-01-02 15:04"}}
+    {{if .ValidTo}} · valid_to: {{.ValidTo.Format "2006-01-02 15:04"}}{{end}}
+    {{if .SupersededBy}} · superseded_by: <span class="badge">{{.SupersededBy}}</span>{{end}}
+    {{if .InvalidationReason}} · reason: {{.InvalidationReason}}{{end}}
+  </div>
+</div>
+
+{{if .Scope}}<div class="field"><div class="label">Scope</div><div class="body"><code>{{.Scope}}</code></div></div>{{end}}
+{{if .Metadata}}<div class="field"><div class="label">Metadata</div><div class="body"><code>{{.Metadata}}</code></div></div>{{end}}
+{{end}}
+
+{{if .Signals}}
+<h2>Usage signals</h2>
+<table class="signals">
+  <tr><th>Total</th><th>Helpful</th><th>Partial</th><th>Not helpful</th><th>Misleading</th><th>Unknown</th><th>Score</th></tr>
+  <tr>
+    <td>{{.Signals.TotalUses}}</td>
+    <td>{{.Signals.HelpfulCount}}</td>
+    <td>{{.Signals.PartialCount}}</td>
+    <td>{{.Signals.NotHelpfulCount}}</td>
+    <td>{{.Signals.MisleadingCount}}</td>
+    <td>{{.Signals.UnknownCount}}</td>
+    <td>{{if .Signals.HelpfulnessScore}}{{printf "%.2f" (deref .Signals.HelpfulnessScore)}}{{else}}<span class="muted">—</span>{{end}}</td>
+  </tr>
+</table>
+{{end}}
+
+{{if .Cases}}
+<h2>Recent cases</h2>
+<table>
+  <thead><tr><th>Case</th><th>Retrieved</th><th>Outcome</th><th>Result</th><th>Trigger</th></tr></thead>
+  <tbody>
+    {{range .Cases}}
+    <tr>
+      <td><span class="badge">{{trunc .CaseID 16}}</span></td>
+      <td class="muted">{{.RetrievedAt.Format "2006-01-02 15:04"}}</td>
+      <td>{{if .Outcome}}<span class="badge">{{.Outcome}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>{{if .Result}}<span class="badge">{{.Result}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td class="muted">{{trunc .TriggerQuery 60}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{if .Relations}}
+<h2>Relations</h2>
+<table>
+  <thead><tr><th>Type</th><th>To</th><th>Confidence</th><th>Source</th></tr></thead>
+  <tbody>
+    {{range .Relations}}
+    <tr>
+      <td><span class="badge">{{.RelType}}</span></td>
+      <td><a href="/entries/{{.ToID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.ToID}}</a></td>
+      <td>{{printf "%.2f" .Confidence}}</td>
+      <td class="muted">{{.Source}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{if .Backlinks}}
+<h2>Backlinks</h2>
+<table>
+  <thead><tr><th>From</th><th>Type</th><th>Source</th></tr></thead>
+  <tbody>
+    {{range .Backlinks}}
+    <tr>
+      <td><a href="/entries/{{.FromID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.FromID}}</a></td>
+      <td><span class="badge">{{.RelType}}</span></td>
+      <td class="muted">{{.Source}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

@@ -1,0 +1,9 @@
+bin/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+coverage.out
+*.test
+.idea/
+.vscode/

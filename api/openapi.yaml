@@ -1,0 +1,522 @@
+openapi: 3.0.3
+info:
+  title: omoikane — AgentKB
+  version: 0.6.0
+  description: |
+    HTTP REST API for the omoikane Agent Knowledge Base (Phase 1 surface).
+    See docs/design.md (canonical) and docs/error-codes.md.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+security:
+  - BearerAuth: []
+tags:
+  - name: health
+  - name: projects
+  - name: entries
+  - name: search
+paths:
+  /v1/health:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  started_at: { type: string, format: date-time }
+                  build: { type: string }
+
+  /v1/projects:
+    get:
+      tags: [projects]
+      summary: List projects
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+    post:
+      tags: [projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectCreate' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/projects/{id}:
+    get:
+      tags: [projects]
+      summary: Get a project by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/entries:
+    get:
+      tags: [entries]
+      summary: List entries (paginated)
+      parameters:
+        - in: query
+          name: project_id
+          schema: { type: string }
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [trap, decision, design, lesson, incident, librarian_meta, external_finding]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [DRAFT, INVESTIGATING, ACTIVE, SUPERSEDED, ARCHIVED, DUPLICATE, RESOLVED]
+        - in: query
+          name: tag
+          schema: { type: string }
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: include_superseded
+          schema: { type: boolean, default: false }
+          description: include SUPERSEDED / ARCHIVED / DUPLICATE in results
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 500 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/Entry' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+    post:
+      tags: [entries]
+      summary: Create an entry (runs synchronous enrichment, write-time secret scan)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EntryCreate' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryWithEnrichment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/SecretsDetected' }
+
+  /v1/entries/{id}:
+    get:
+      tags: [entries]
+      summary: Get an entry. Use ?as_of= for historical reconstruction.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: as_of
+          schema: { type: string, format: date-time }
+          description: |
+            RFC3339 timestamp. Reconstruct the entry's state at this point in
+            time from entry_history snapshots.
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [entries]
+      summary: Update an entry (OCC via If-Match)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: header
+          name: If-Match
+          required: true
+          schema: { type: string }
+          description: Current `version` of the entry, optionally double-quoted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EntryPatch' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: version mismatch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '422': { $ref: '#/components/responses/SecretsDetected' }
+        '428':
+          description: If-Match header required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      tags: [entries]
+      summary: Soft delete (status=ARCHIVED, valid_to=now). Idempotent.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: archived }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/entries/{id}/history:
+    get:
+      tags: [entries]
+      summary: Full snapshot history (newest first)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items: { $ref: '#/components/schemas/EntryHistory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/search:
+    post:
+      tags: [search]
+      summary: Full-text search (FTS5)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        entry: { $ref: '#/components/schemas/Entry' }
+                        score: { type: number, format: double }
+                  count: { type: integer }
+                  total: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: bad request — see code in body
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: token lacks required scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: resource already exists
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    SecretsDetected:
+      description: secret or PII detected in write payload
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      details:
+                        type: object
+                        properties:
+                          findings:
+                            type: array
+                            items: { $ref: '#/components/schemas/SecretFinding' }
+    NotImplemented:
+      description: feature not implemented in this phase
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, description: 'see docs/error-codes.md' }
+            message: { type: string }
+            details: {}
+
+    SecretFinding:
+      type: object
+      properties:
+        pattern: { type: string, example: github_token }
+        field: { type: string, example: body }
+        offset: { type: integer }
+        length: { type: integer }
+
+    Pagination:
+      type: object
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        total: { type: integer }
+        next_offset: { type: integer }
+        has_more: { type: boolean }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+        metadata: { type: string, description: 'raw JSON' }
+
+    ProjectCreate:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        metadata: { description: 'arbitrary JSON' }
+
+    Entry:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        type:
+          type: string
+          enum: [trap, decision, design, lesson, incident, librarian_meta, external_finding]
+        title: { type: string }
+        status:
+          type: string
+          enum: [DRAFT, INVESTIGATING, ACTIVE, SUPERSEDED, ARCHIVED, DUPLICATE, RESOLVED]
+        symptom: { type: string }
+        root_cause: { type: string }
+        resolution: { type: string }
+        prohibited: { type: string }
+        attempted_approaches: { type: string }
+        observed_behavior: { type: string }
+        hypotheses: { type: string }
+        body: { type: string }
+        body_format: { type: string }
+        scope: { type: string, description: 'raw JSON' }
+        metadata: { type: string, description: 'raw JSON' }
+        valid_from: { type: string, format: date-time }
+        valid_to: { type: string, format: date-time, nullable: true }
+        superseded_by: { type: string }
+        invalidation_reason: { type: string }
+        enrichment_version: { type: integer }
+        enrichment_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        created_by: { type: string }
+        created_by_role: { type: string }
+        version: { type: integer, description: 'OCC version, surfaced as ETag' }
+        tags:
+          type: array
+          items: { type: string }
+
+    EntryCreate:
+      type: object
+      required: [project_id, type, title, body]
+      properties:
+        project_id: { type: string }
+        type:
+          type: string
+          enum: [trap, decision, design, lesson, incident, librarian_meta, external_finding]
+        title: { type: string }
+        status: { type: string }
+        body: { type: string }
+        body_format: { type: string, default: markdown }
+        symptom: { type: string }
+        root_cause: { type: string }
+        resolution: { type: string }
+        prohibited: { type: string }
+        attempted_approaches: { type: string }
+        observed_behavior: { type: string }
+        hypotheses: { type: string }
+        scope: { description: 'arbitrary JSON' }
+        metadata: { description: 'arbitrary JSON' }
+        tags:
+          type: array
+          items: { type: string }
+
+    EntryWithEnrichment:
+      allOf:
+        - $ref: '#/components/schemas/Entry'
+        - type: object
+          properties:
+            enrichment:
+              type: object
+              properties:
+                version: { type: integer }
+                source: { type: string, example: heuristic }
+                tags_added:
+                  type: array
+                  items: { type: string }
+
+    EntryPatch:
+      type: object
+      description: |
+        All fields optional. `If-Match` header (current version) is required.
+        Empty string clears a field; null is treated as unset.
+      properties:
+        title: { type: string }
+        status: { type: string }
+        body: { type: string }
+        body_format: { type: string }
+        symptom: { type: string }
+        root_cause: { type: string }
+        resolution: { type: string }
+        prohibited: { type: string }
+        attempted_approaches: { type: string }
+        observed_behavior: { type: string }
+        hypotheses: { type: string }
+        scope: {}
+        metadata: {}
+        tags:
+          type: array
+          items: { type: string }
+        change_summary: { type: string }
+
+    EntryHistory:
+      type: object
+      description: Full snapshot of all mutable fields at one version.
+      properties:
+        entry_id: { type: string }
+        version: { type: integer }
+        title: { type: string }
+        status: { type: string }
+        symptom: { type: string }
+        root_cause: { type: string }
+        resolution: { type: string }
+        prohibited: { type: string }
+        attempted_approaches: { type: string }
+        observed_behavior: { type: string }
+        hypotheses: { type: string }
+        body: { type: string }
+        body_format: { type: string }
+        scope: { type: string }
+        metadata: { type: string }
+        valid_from: { type: string, format: date-time }
+        valid_to: { type: string, format: date-time, nullable: true }
+        superseded_by: { type: string }
+        invalidation_reason: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        changed_at: { type: string, format: date-time }
+        changed_by: { type: string }
+        changed_by_role: { type: string }
+        change_summary: { type: string }
+
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string, description: 'FTS5 MATCH expression' }
+        mode: { type: string, enum: [fts], default: fts }
+        top_k: { type: integer, default: 50 }
+        filters:
+          type: object
+          properties:
+            project: { type: string }
+            type: { type: string }
+            status: { type: string }
+            tag: { type: string }
+            include_superseded: { type: boolean, default: false }

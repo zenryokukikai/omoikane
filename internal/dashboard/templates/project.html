@@ -1,0 +1,26 @@
+{{define "content"}}
+<h1>{{.Project.Name}} <span class="muted">{{.Project.ID}}</span></h1>
+{{if .Project.Description}}<p>{{.Project.Description}}</p>{{end}}
+
+<h2>Entries</h2>
+{{if .Entries}}
+<table>
+  <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th><th>Tags</th><th>v</th><th>Updated</th></tr></thead>
+  <tbody>
+    {{range .Entries}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td><span class="badge">{{.Type}}</span></td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
+      <td>{{range .Tags}}<span class="badge">{{.}}</span>{{end}}</td>
+      <td class="muted">{{.Version}}</td>
+      <td class="muted">{{.UpdatedAt.Format "2006-01-02"}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No entries in this project yet.</div>
+{{end}}
+{{end}}

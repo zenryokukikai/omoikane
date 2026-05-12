@@ -1,0 +1,29 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/clusters{{if .Token}}?token={{urlq .Token}}{{end}}">Clusters</a>
+  · <a href="/situations{{if .Token}}?token={{urlq .Token}}{{end}}">Situations</a>
+</nav>
+<h1>Review queue</h1>
+<p class="muted">Entries flagged by usage feedback or pending review (DRAFT / misleading signals / negative helpfulness).</p>
+{{if .ReviewQueue}}
+<table>
+  <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th><th>Misleading</th><th>Total uses</th><th>Helpfulness</th></tr></thead>
+  <tbody>
+    {{range .ReviewQueue}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td><span class="badge">{{.Type}}</span></td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
+      <td>{{.MisleadingCount}}</td>
+      <td>{{.TotalUses}}</td>
+      <td>{{if .HelpfulnessScore}}{{printf "%.2f" (deref .HelpfulnessScore)}}{{else}}<span class="muted">—</span>{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">Review queue is empty — nothing flagged.</div>
+{{end}}
+{{end}}

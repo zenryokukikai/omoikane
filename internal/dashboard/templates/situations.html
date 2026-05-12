@@ -1,0 +1,26 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/review-queue{{if .Token}}?token={{urlq .Token}}{{end}}">Review queue</a>
+  · <a href="/clusters{{if .Token}}?token={{urlq .Token}}{{end}}">Clusters</a>
+</nav>
+<h1>Situations</h1>
+<p class="muted">Reverse-dictionary headings — plain-language situation descriptions that map to one or more entries.</p>
+{{if .Situations}}
+<table>
+  <thead><tr><th>ID</th><th>Domain</th><th>Description</th><th>Created</th></tr></thead>
+  <tbody>
+    {{range .Situations}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td class="muted">{{.Domain}}</td>
+      <td><a href="/situations/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{trunc .Description 120}}</a></td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No situations yet.</div>
+{{end}}
+{{end}}

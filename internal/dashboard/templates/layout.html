@@ -1,0 +1,25 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/style.css{{if .Token}}?token={{urlq .Token}}{{end}}">
+</head>
+<body>
+<header>
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">omoikane</a>
+  <a href="/search{{if .Token}}?token={{urlq .Token}}{{end}}" class="muted">search</a>
+  <span class="spacer"></span>
+  <form method="get" action="/search">
+    <input type="search" name="q" value="{{.Query}}" placeholder="search entries…" autocomplete="off">
+    {{if .Token}}<input type="hidden" name="token" value="{{.Token}}">{{end}}
+    <button type="submit">go</button>
+  </form>
+</header>
+<main>
+{{block "content" .}}{{end}}
+</main>
+<footer>omoikane v0.6 Phase 1 · read-only audit dashboard</footer>
+</body>
+</html>{{end}}

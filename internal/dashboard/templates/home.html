@@ -1,0 +1,48 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
+  · <a href="/index{{if .Token}}?token={{urlq .Token}}{{end}}">Index</a>
+  · <a href="/review-queue{{if .Token}}?token={{urlq .Token}}{{end}}">Review queue</a>
+  · <a href="/clusters{{if .Token}}?token={{urlq .Token}}{{end}}">Clusters</a>
+  · <a href="/situations{{if .Token}}?token={{urlq .Token}}{{end}}">Situations</a>
+</nav>
+<h1>Projects</h1>
+{{if .Projects}}
+<table>
+  <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Created</th></tr></thead>
+  <tbody>
+    {{range .Projects}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td><a href="/projects/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Name}}</a></td>
+      <td class="muted">{{.Description}}</td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No projects yet. Create one with <code>kb projects create --id … --name …</code>.</div>
+{{end}}
+
+<h2>Recent entries</h2>
+{{if .Entries}}
+<table>
+  <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th><th>v</th><th>Updated</th></tr></thead>
+  <tbody>
+    {{range .Entries}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td><span class="badge">{{.Type}}</span></td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
+      <td class="muted">{{.Version}}</td>
+      <td class="muted">{{.UpdatedAt.Format "2006-01-02"}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No entries yet.</div>
+{{end}}
+{{end}}

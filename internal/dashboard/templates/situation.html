@@ -1,0 +1,30 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/situations{{if .Token}}?token={{urlq .Token}}{{end}}">← Situations</a>
+</nav>
+{{with .Situation}}
+<p class="muted">
+  <span class="badge">{{.ID}}</span>
+  {{if .Domain}} · <span class="badge">{{.Domain}}</span>{{end}}
+  · created {{.CreatedAt.Format "2006-01-02"}}
+</p>
+<h1>{{.Description}}</h1>
+{{end}}
+<h2>Linked entries</h2>
+{{if .SituationEntries}}
+<table>
+  <thead><tr><th>Entry</th><th>Relevance</th><th>Notes</th></tr></thead>
+  <tbody>
+    {{range .SituationEntries}}
+    <tr>
+      <td><a href="/entries/{{.EntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.EntryID}}</a></td>
+      <td>{{printf "%.2f" .Relevance}}</td>
+      <td class="muted">{{.Notes}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No entries linked to this situation.</div>
+{{end}}
+{{end}}

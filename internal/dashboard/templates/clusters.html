@@ -1,0 +1,27 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/review-queue{{if .Token}}?token={{urlq .Token}}{{end}}">Review queue</a>
+  · <a href="/situations{{if .Token}}?token={{urlq .Token}}{{end}}">Situations</a>
+</nav>
+<h1>Incident clusters</h1>
+<p class="muted">Auto-grouped incidents that share symptom tokens. Promote a cluster to a trap entry when the pattern is clear, or dismiss it as noise.</p>
+{{if .Clusters}}
+<table>
+  <thead><tr><th>ID</th><th>Status</th><th>Members</th><th>Title</th><th>Updated</th></tr></thead>
+  <tbody>
+    {{range .Clusters}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td>{{.MemberCount}}</td>
+      <td><a href="/clusters/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
+      <td class="muted">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No clusters yet. Run <code>kb cluster rebuild</code> to bootstrap.</div>
+{{end}}
+{{end}}

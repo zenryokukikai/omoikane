@@ -1,0 +1,31 @@
+{{define "content"}}
+{{with .Entry}}
+<h1>History · {{.Title}} <span class="muted">{{.ID}}</span></h1>
+<p class="muted">
+  <a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">← back to current</a>
+</p>
+{{end}}
+
+{{if .History}}
+<table>
+  <thead><tr><th>v</th><th>Changed</th><th>By</th><th>Status</th><th>Title</th><th>Summary</th><th>As-of link</th></tr></thead>
+  <tbody>
+    {{range .History}}
+    <tr>
+      <td>{{.Version}}</td>
+      <td class="muted">{{.ChangedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{.ChangedBy}}{{if .ChangedByRole}} <span class="badge">{{.ChangedByRole}}</span>{{end}}</td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td>{{.Title}}</td>
+      <td class="muted">{{.ChangeSummary}}</td>
+      <td>
+        <a href="/entries/{{.EntryID}}?as_of={{urlq (.ChangedAt.Format "2006-01-02T15:04:05Z07:00")}}{{if $.Token}}&token={{urlq $.Token}}{{end}}">view</a>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No history.</div>
+{{end}}
+{{end}}

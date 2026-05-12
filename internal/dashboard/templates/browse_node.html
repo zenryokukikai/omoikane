@@ -1,0 +1,43 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">← Browse</a>
+</nav>
+{{with .BrowseNode}}
+<p class="muted">
+  <span class="badge">{{.ID}}</span>
+  {{if .ProjectID}}· <a href="/projects/{{.ProjectID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.ProjectID}}</a>{{end}}
+  {{if .ParentID}}· parent: <a href="/browse/{{.ParentID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.ParentID}}</a>{{end}}
+</p>
+<h1>{{.Name}}</h1>
+{{if .Description}}<p>{{.Description}}</p>{{end}}
+{{end}}
+
+{{if .BrowseChildren}}
+<h2>Children</h2>
+<ul class="hier">
+  {{range .BrowseChildren}}
+  <li>
+    <a href="/browse/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Name}}</a>
+    {{if .Description}}<span class="muted">— {{.Description}}</span>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{end}}
+
+{{if .BrowseEntries}}
+<h2>Entries</h2>
+<table>
+  <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th></tr></thead>
+  <tbody>
+    {{range .BrowseEntries}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td><span class="badge">{{.Type}}</span></td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

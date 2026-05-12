@@ -1,0 +1,21 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/index{{if .Token}}?token={{urlq .Token}}{{end}}">Index</a>
+  · <a href="/review-queue{{if .Token}}?token={{urlq .Token}}{{end}}">Review queue</a>
+</nav>
+<h1>Browse</h1>
+<p class="muted">Hierarchy navigator. Drill into a node to see its children and entries.</p>
+{{if .BrowseRoots}}
+<ul class="hier">
+  {{range .BrowseRoots}}
+  <li>
+    <a href="/browse/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Name}}</a>
+    {{if .Description}}<span class="muted">— {{.Description}}</span>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<div class="empty">No hierarchy nodes yet. POST to <code>/v1/browse</code> to create one.</div>
+{{end}}
+{{end}}

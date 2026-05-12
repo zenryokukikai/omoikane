@@ -1,0 +1,34 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/clusters{{if .Token}}?token={{urlq .Token}}{{end}}">← Clusters</a>
+</nav>
+{{with .Cluster}}
+<p class="muted">
+  <span class="badge">{{.ID}}</span>
+  · <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
+  · members: {{.MemberCount}}
+  · updated {{.UpdatedAt.Format "2006-01-02 15:04"}}
+  {{if .PromotedToEntryID}}· promoted to <a href="/entries/{{.PromotedToEntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.PromotedToEntryID}}</a>{{end}}
+</p>
+<h1>{{.Title}}</h1>
+{{if .Summary}}<p>{{.Summary}}</p>{{end}}
+{{end}}
+<h2>Members</h2>
+{{if .ClusterMembers}}
+<table>
+  <thead><tr><th>Entry</th><th>Similarity</th><th>Added</th><th>By</th></tr></thead>
+  <tbody>
+    {{range .ClusterMembers}}
+    <tr>
+      <td><a href="/entries/{{.EntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.EntryID}}</a></td>
+      <td>{{printf "%.2f" .Similarity}}</td>
+      <td class="muted">{{.AddedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{.AddedBy}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No members.</div>
+{{end}}
+{{end}}

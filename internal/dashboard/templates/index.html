@@ -1,0 +1,26 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
+  · group by:
+  <a href="/index?group_by=tag{{if .Token}}&token={{urlq .Token}}{{end}}">tag</a>
+  · <a href="/index?group_by=recent{{if .Token}}&token={{urlq .Token}}{{end}}">recent</a>
+  · <a href="/index?group_by=hierarchy{{if .Token}}&token={{urlq .Token}}{{end}}">hierarchy</a>
+</nav>
+<h1>Index ({{.GroupBy}})</h1>
+{{if .IndexBuckets}}
+<table>
+  <thead><tr><th>{{.GroupBy}}</th><th>Count</th></tr></thead>
+  <tbody>
+    {{range .IndexBuckets}}
+    <tr>
+      <td>{{.Label}}</td>
+      <td>{{.Count}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No entries to index yet.</div>
+{{end}}
+{{end}}

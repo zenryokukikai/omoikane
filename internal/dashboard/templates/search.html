@@ -1,0 +1,26 @@
+{{define "content"}}
+<h1>Search</h1>
+{{if .Query}}
+  <p class="muted">Results for <code>{{.Query}}</code></p>
+  {{if .Results}}
+    <table>
+      <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th><th>Score</th></tr></thead>
+      <tbody>
+        {{range .Results}}
+        <tr>
+          <td><span class="badge">{{.Entry.ID}}</span></td>
+          <td><span class="badge">{{.Entry.Type}}</span></td>
+          <td><span class="badge badge-status-{{.Entry.Status}}">{{.Entry.Status}}</span></td>
+          <td><a href="/entries/{{.Entry.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Entry.Title}}</a></td>
+          <td class="muted">{{printf "%.3f" .Score}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">No matches.</div>
+  {{end}}
+{{else}}
+  <div class="empty">Type a query in the search box above.</div>
+{{end}}
+{{end}}

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "omoikane": {
+      "command": "kb-mcp",
+      "env": {
+        "KB_CORE_URL": "http://localhost:8080",
+        "KB_TOKEN": "REPLACE_WITH_YOUR_TOKEN",
+        "KB_PROJECT_ID": ""
+      }
+    }
+  }
+}

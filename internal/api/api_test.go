@@ -268,8 +268,10 @@ func TestListPagination(t *testing.T) {
 
 func TestSearchUnsupportedMode(t *testing.T) {
 	base, tok, _ := testServer(t)
+	// As of Phase 4, mode=reasoning is supported (helpfulness-weighted
+	// re-rank). Any other mode is still 501.
 	s, _ := doJSON(t, http.MethodPost, base+"/v1/search", tok,
-		map[string]any{"query": "x", "mode": "reasoning"}, nil)
+		map[string]any{"query": "x", "mode": "frobnicate"}, nil)
 	if s != 501 {
 		t.Fatalf("expected 501, got %d", s)
 	}

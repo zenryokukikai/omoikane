@@ -9,6 +9,11 @@
 - **Phase 1 MVP**: 完了(エントリ + プロジェクト + temporal validity + OCC + 認証 + 監査 + ダッシュボード + CLI + 検索)
 - **Phase 2 reverse-index lookups**: 完了(`/v1/lookup/by-trigger` 規則層+FTS、`by-symptom`、`by-tags`、`tag_aliases`、`trigger_rules.yaml`、MCP stdio adapter)
 - **Phase 3 feedback loop**: 完了(`usage_cases` + `entry_signals` + `review_queue`、`relations` graph と auto-supersede on `conflicts_with`、`situations` 逆引き、`incident_clusters` 自動クラスタリング、`/v1/lookup/by-situation`、`helpfulness_score` ランキング、MCP `kb_feedback`/`kb_link`/`kb_relations`/`kb_lookup_by_situation`)
+- **Phase 4 hierarchy + reasoning + Wiki**: 完了(`hierarchy_nodes` + `derived_summaries`、`/v1/browse` `/v1/index` `/v1/reflect`、`?mode=reasoning`、ダッシュボード `[[T-XXXX]]` linkify + backlinks、`dist/skills/{claude-code,opencode,generic-stdio-mcp}/` 配布)
+- **Phase 5 司書コミュニティ Bootstrap**: 完了(`librarian_instances` / `chat_threads` / `librarian_chat` / `librarian_tasks` / `quartet_assignments` / `external_findings`、`/v1/librarian/*` API、`emergency_stop` キルスイッチ、8 役割 skill bundles、`librarian-runner` ハーネス。エージェント本体は委譲・スタブ)
+- **Phase 6 自律実行 + 議論クォーテット**: 完了(`entry_tiers` view、coordinator triage、quartet 提案。実エージェント発火は Phase 5 同様スタブ)
+- **Phase 7 運用機能**: 完了(`VACUUM INTO` バックアップ、dead-pool 自動アーカイブ、`llm_usage_log`、coverage/freshness メトリクス API)
+- **e2e テスト**: `test/e2e/` 配下に kb-server + CLI + MCP + librarian-runner の通し動作確認
 
 ## Phase 1 MVP の範囲
 

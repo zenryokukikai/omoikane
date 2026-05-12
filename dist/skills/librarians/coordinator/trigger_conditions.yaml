@@ -1,0 +1,24 @@
+heartbeat:
+  enabled: true
+  interval_seconds: 600
+  actions:
+    - check_budget
+    - check_review_queue_depth
+    - check_instance_heartbeats
+
+reactive:
+  - on: chat_message
+    when: "intent in (arbitration, concern)"
+    do: evaluate_for_quartet
+  - on: chat_message
+    when: "author_role == scout AND mentions 'budget'"
+    do: check_budget
+
+idle:
+  # When nothing has happened for 30 min, post a quiet status check.
+  - after_idle_seconds: 1800
+    do:
+      action: post_chat
+      payload:
+        intent: observation
+        content: "Quiet hour — queues OK, budget within bounds."

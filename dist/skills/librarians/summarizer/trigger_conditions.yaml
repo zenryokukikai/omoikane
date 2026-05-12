@@ -1,0 +1,16 @@
+heartbeat:
+  enabled: true
+  interval_seconds: 600
+  actions:
+    - scan_owned_domain
+reactive:
+  - on: chat_message
+    when: "mentions contains '@summarizer' or author_role == 'coordinator'"
+    do: respond_in_thread
+idle:
+  - after_idle_seconds: 3600
+    do:
+      action: post_chat
+      payload:
+        intent: PASS
+        content: "(quiet)"

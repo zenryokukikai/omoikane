@@ -1,0 +1,28 @@
+# Coordinator API whitelist
+# Listed here are the only Core endpoints this role may call. Anything
+# else is denied by the runner. Phase 5 = observation mode: writes are
+# limited to chat, task enqueue, and meta-entry drafts.
+
+read:
+  - GET /v1/health
+  - GET /v1/entries
+  - GET /v1/entries/{id}
+  - GET /v1/review-queue
+  - GET /v1/clusters
+  - GET /v1/librarian/instances
+  - GET /v1/librarian/tasks
+  - GET /v1/librarian/threads
+  - GET /v1/librarian/threads/{id}/messages
+  - GET /v1/librarian/quartet
+
+write:
+  - POST /v1/librarian/chat
+  - POST /v1/librarian/threads
+  - POST /v1/librarian/threads/{id}/close
+  - POST /v1/librarian/tasks
+  - POST /v1/librarian/quartet
+
+# Reserved for Phase 6+ (active mode):
+# - POST /v1/admin/proposals/{id}/approve
+# - POST /v1/admin/proposals/{id}/reject
+# - POST /v1/librarian/emergency_stop   # only when authorised by quartet

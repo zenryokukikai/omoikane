@@ -100,6 +100,52 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("write")).Delete("/browse/{id}", h.deleteHierarchyNode)
 			r.With(auth.RequireScope("read")).Get("/index", h.indexPage)
 			r.With(auth.RequireScope("read")).Post("/reflect", h.reflect)
+
+			// Phase 5 — librarian community
+			r.Route("/librarian", func(r chi.Router) {
+				r.With(auth.RequireScope("admin")).Post("/instances", h.librarianRegister)
+				r.With(auth.RequireScope("read")).Get("/instances", h.librarianList)
+				r.With(auth.RequireScope("write")).Patch("/instances/{id}", h.librarianSetStatus)
+				r.With(auth.RequireScope("write")).Post("/instances/{id}/heartbeat", h.librarianHeartbeat)
+
+				r.With(auth.RequireScope("read")).Get("/threads", h.chatListThreads)
+				r.With(auth.RequireScope("write")).Post("/threads", h.chatOpenThread)
+				r.With(auth.RequireScope("write")).Post("/threads/{id}/close", h.chatCloseThread)
+				r.With(auth.RequireScope("read")).Get("/threads/{id}/messages", h.chatList)
+				r.With(auth.RequireScope("write")).Post("/chat", h.chatPost)
+
+				r.With(auth.RequireScope("read")).Get("/tasks", h.taskList)
+				r.With(auth.RequireScope("write")).Post("/tasks", h.taskEnqueue)
+				r.With(auth.RequireScope("write")).Post("/tasks/{id}/claim", h.taskClaim)
+				r.With(auth.RequireScope("write")).Post("/tasks/{id}/complete", h.taskComplete)
+
+				r.With(auth.RequireScope("read")).Get("/quartet", h.quartetList)
+				r.With(auth.RequireScope("write")).Post("/quartet", h.quartetCreate)
+				r.With(auth.RequireScope("write")).Post("/quartet/{id}/decide", h.quartetDecide)
+
+				r.With(auth.RequireScope("read")).Get("/findings", h.findingList)
+				r.With(auth.RequireScope("write")).Post("/findings", h.findingRecord)
+				r.With(auth.RequireScope("write")).Post("/findings/{id}/correlate", h.findingCorrelate)
+
+				r.With(auth.RequireScope("admin")).Post("/emergency_stop", h.librarianEmergencyStop)
+
+				// Phase 6 — coordinator anomaly scan + quartet proposal
+				r.With(auth.RequireScope("read")).Get("/coordinator/triage", h.coordinatorTriage)
+				r.With(auth.RequireScope("write")).Post("/coordinator/propose_quartet", h.coordinatorProposeQuartet)
+			})
+
+			// Phase 6 — tier listing
+			r.With(auth.RequireScope("read")).Get("/tiers", h.tierList)
+
+			// Phase 7 — admin: backup, dead-pool, LLM usage, coverage
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(auth.RequireScope("admin"))
+				r.Post("/backup", h.adminBackup)
+				r.Get("/backups", h.adminBackupList)
+				r.Post("/dead_pool/run", h.adminDeadPool)
+				r.Get("/health/llm_usage", h.adminLLMUsage)
+				r.Get("/health/coverage", h.adminCoverage)
+			})
 		})
 	})
 }

@@ -214,3 +214,42 @@ func (s *Store) ListAgentsForHuman(ctx context.Context, humanUserID string) ([]*
 	}
 	return out, nil
 }
+
+// ListUsers returns users for the directory/profile-browse endpoints.
+// Filters:
+//   - roleFilter: "" for any role, or one of "admin"|"member"|"agent".
+//   - limit: 0 → no cap (the user table is small; callers should still
+//     pass a sane cap to keep responses bounded).
+//
+// Order is creation time ascending so newcomers appear at the bottom of
+// listings, which is the convention humans expect for "who's around"
+// directories. Use a separate query path if you need leaderboard-style
+// ordering by activity.
+func (s *Store) ListUsers(ctx context.Context, roleFilter string, limit int) ([]*User, error) {
+	q := `SELECT ` + userSelect + ` FROM users`
+	args := []any{}
+	if roleFilter != "" {
+		q += ` WHERE role = ?`
+		args = append(args, roleFilter)
+	}
+	q += ` ORDER BY created_at`
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	values, err := mapRows[User](rows, func(c rowScanner, u *User) error {
+		return scanUser(c, u)
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*User, len(values))
+	for i := range values {
+		out[i] = &values[i]
+	}
+	return out, nil
+}

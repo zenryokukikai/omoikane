@@ -51,7 +51,7 @@
     {{range .MyAgents}}
     <tr>
       <td><span class="badge">{{.ID}}</span></td>
-      <td><strong>{{.Name}}</strong></td>
+      <td><a href="/u/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}"><strong>{{.Name}}</strong></a></td>
       <td class="muted">{{.Description}}</td>
       <td class="muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
       <td class="muted">{{if .LastLoginAt}}{{.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}<em>never logged in</em>{{end}}</td>

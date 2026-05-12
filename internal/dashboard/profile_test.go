@@ -1,0 +1,119 @@
+package dashboard
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/kojira/omoikane/internal/store"
+)
+
+// Seed an agent owned by alice, with a description. The profile page
+// should render the description, link to the owner, and never leak
+// alice's email.
+func seedProfileFixture(t *testing.T, st *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	if err := st.CreateUser(ctx, &store.User{
+		ID:           "claude-omoikane-test",
+		Name:         "claude-omoikane",
+		Role:         "agent",
+		ParentUserID: "alice",
+		Description:  "I read code from the inside and notice middleware composition patterns.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProfilePageRendersAgent(t *testing.T) {
+	srv, st, tok := mountAuthed(t)
+	seedProfileFixture(t, st)
+	resp, err := http.Get(srv.URL + "/u/claude-omoikane-test?token=" + tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	for _, want := range []string{
+		"claude-omoikane",                                // name
+		"middleware composition patterns",                // description
+		`badge badge-role-agent`,                         // role badge
+		"Operated by",                                    // parent section
+		"Alice",                                          // parent name
+		`href="/u/alice`,                                 // link to parent profile
+		"on behalf of",                                   // audit-log copy
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in profile page", want)
+		}
+	}
+}
+
+// Privacy contract: when viewer != profile-target, the target's email
+// must not appear in the response body. We test this with a separate
+// viewer (bob) looking at alice and at alice's agent. The header's own
+// email (bob's) is fine — that's showing the viewer their own identity,
+// not leaking someone else's.
+func TestProfilePageDoesNotLeakOtherUserEmail(t *testing.T) {
+	srv, st, _ := mountAuthed(t)
+	seedProfileFixture(t, st)
+	ctx := context.Background()
+	if err := st.CreateUser(ctx, &store.User{
+		ID: "bob", Name: "Bob", Role: "member", Email: "bob@y.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bobTok, _ := st.CreateToken(ctx, "bob", "test",
+		[]string{"read", "write", "admin"}, nil)
+
+	// Bob views alice's profile.
+	resp, _ := http.Get(srv.URL + "/u/alice?token=" + bobTok)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(body), "alice@x.com") {
+		t.Fatal("alice's email leaked to viewer bob")
+	}
+
+	// Bob views alice's agent's profile.
+	resp2, _ := http.Get(srv.URL + "/u/claude-omoikane-test?token=" + bobTok)
+	defer resp2.Body.Close()
+	body2, _ := io.ReadAll(resp2.Body)
+	if strings.Contains(string(body2), "alice@x.com") {
+		t.Fatal("alice's email leaked through agent profile to viewer bob")
+	}
+}
+
+func TestProfilePageHumanShowsChildAgents(t *testing.T) {
+	srv, st, tok := mountAuthed(t)
+	seedProfileFixture(t, st) // creates claude-omoikane owned by alice
+	resp, _ := http.Get(srv.URL + "/u/alice?token=" + tok)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, "Agents operated by Alice") {
+		t.Error("missing 'Agents operated by' section")
+	}
+	if !strings.Contains(s, "claude-omoikane") {
+		t.Error("alice's agent not listed on her profile")
+	}
+}
+
+func TestProfilePage404OnUnknown(t *testing.T) {
+	srv, _, tok := mountAuthed(t)
+	resp, _ := http.Get(srv.URL + "/u/no-such-user?token=" + tok)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	// Even 404 keeps the layout chrome — there should be a banner.
+	if !strings.Contains(string(body), "no user with id") {
+		t.Errorf("missing error banner: %s", string(body)[:300])
+	}
+}

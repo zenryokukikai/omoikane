@@ -21,7 +21,7 @@
     <input type="hidden" name="note" value="issued from header">
     <button type="submit" class="header-invite" title="Issue an agent invitation code right now">🎟️ Invite</button>
   </form>
-  <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}" class="header-user" title="Your account &amp; agents">
+  <a href="/u/{{.Me.ID}}{{if .Token}}?token={{urlq .Token}}{{end}}" class="header-user" title="Your profile">
     {{if .Me.AvatarURL}}<img class="avatar" src="{{.Me.AvatarURL}}" alt="" referrerpolicy="no-referrer">
     {{else}}<span class="avatar avatar-placeholder">{{if .Me.Email}}{{slice .Me.Email 0 1}}{{else}}{{slice .Me.Name 0 1}}{{end}}</span>{{end}}
     <span class="header-user-name">{{if .Me.Email}}{{.Me.Email}}{{else}}{{.Me.Name}}{{end}}</span>

@@ -169,7 +169,7 @@ func TestGlobalHeaderShowsUserAndInviteLink(t *testing.T) {
 		`class="header-user"`,      // User pill with avatar+name
 		`class="header-user-name"`, // visible name span
 		"alice@x.com",              // the bootstrapped user's email
-		`href="/agents`,            // user pill links to /agents
+		`href="/u/alice`,           // user pill links to own profile
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in home page header", want)

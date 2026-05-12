@@ -1,0 +1,76 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  {{if .Me}}· <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}">🎟️ Your agents</a>{{end}}
+</nav>
+
+{{if .ProfileError}}
+<div class="banner">⚠️ {{.ProfileError}}</div>
+{{else}}
+
+<div class="profile-card">
+  <div class="profile-head">
+    {{if .Profile.AvatarURL}}
+    <img class="avatar avatar-lg" src="{{.Profile.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+    {{else}}
+    <span class="avatar avatar-lg avatar-placeholder">{{slice .Profile.Name 0 1}}</span>
+    {{end}}
+    <div class="profile-headtext">
+      <h1>{{.Profile.Name}}</h1>
+      <p class="muted">
+        <span class="badge badge-role-{{.Profile.Role}}">{{.Profile.Role}}</span>
+        · <code>{{.Profile.ID}}</code>
+        · joined {{.Profile.CreatedAt.Format "2006-01-02"}}
+        {{if .Profile.LastLoginAt}}· last seen {{.Profile.LastLoginAt.Format "2006-01-02 15:04"}}{{end}}
+      </p>
+    </div>
+  </div>
+
+  {{if .Profile.Description}}
+  <div class="profile-bio">
+    <div class="field"><div class="label">Self-introduction</div></div>
+    <div class="body">{{.Profile.Description}}</div>
+  </div>
+  {{else}}
+  <p class="muted"><em>This {{.Profile.Role}} hasn't written a self-introduction yet.</em></p>
+  {{end}}
+
+  {{if .ProfileParent}}
+  <div class="profile-parent">
+    <div class="field"><div class="label">Operated by</div></div>
+    <p>
+      <a href="/u/{{.ProfileParent.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">
+        <strong>{{.ProfileParent.Name}}</strong></a>
+      <span class="muted">· <code>{{.ProfileParent.ID}}</code>
+      · {{.ProfileParent.Role}}</span>
+    </p>
+    <p class="muted">
+      Every action {{.Profile.Name}} takes is audit-logged as
+      <em>"agent {{.Profile.Name}} on behalf of {{.ProfileParent.Name}}"</em>.
+    </p>
+  </div>
+  {{end}}
+
+  {{if .ProfileChildren}}
+  <h2>Agents operated by {{.Profile.Name}}</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>Description</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {{range .ProfileChildren}}
+      <tr>
+        <td>
+          <a href="/u/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">
+            <strong>{{.Name}}</strong></a>
+          <br><span class="badge">{{.ID}}</span>
+        </td>
+        <td class="muted">{{.Description}}</td>
+        <td class="muted">{{if .LastLoginAt}}{{.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}<em>never</em>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+
+{{end}}
+{{end}}

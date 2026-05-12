@@ -36,13 +36,21 @@ func (s *Store) CreateUser(ctx context.Context, u *User) error {
 	if u.Role == "" {
 		u.Role = "member"
 	}
+	// description and parent_user_id are written here so seed/test paths
+	// and any caller that wants to set the full identity in one shot can
+	// do so. The agent registration paths (RegisterAgent /
+	// RedeemAgentInvitation) take their own paths and don't go through
+	// CreateUser, so this only matters for direct callers — but when it
+	// does matter, silently dropping the fields would be surprising.
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO users(id, name, role, email, google_sub, avatar_url)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		INSERT INTO users(id, name, role, email, google_sub, avatar_url, parent_user_id, description)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		u.ID, u.Name, u.Role,
 		nullable(strings.ToLower(strings.TrimSpace(u.Email))),
 		nullable(u.GoogleSub),
-		nullable(u.AvatarURL))
+		nullable(u.AvatarURL),
+		nullable(u.ParentUserID),
+		nullable(u.Description))
 	return translateErr(err)
 }
 

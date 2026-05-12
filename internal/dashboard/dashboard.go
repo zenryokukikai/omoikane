@@ -62,7 +62,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	for _, name := range []string{"home", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index",
-		"chat_threads", "chat_thread", "login", "claim", "agents"} {
+		"chat_threads", "chat_thread", "login", "claim", "agents", "profile"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
 			"templates/"+name+".html")
@@ -119,6 +119,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/chat", h.chatThreadsPage)
 		r.Get("/chat/{id}", h.chatThreadPage)
 		r.Get("/agents", h.agentsPage)
+		r.Get("/u/{id}", h.profilePage)
 		r.Get("/static/style.css", h.css)
 	})
 	// Write surfaces for the dashboard (chat + agents). Form submissions
@@ -198,6 +199,12 @@ type pageCtx struct {
 	Invitations     []*store.AgentInvitation
 	MyAgents        []*store.User
 	BaseURL         string
+
+	// Profile page (/u/{id}) — public view of any user or agent
+	Profile         *store.User
+	ProfileParent   *store.User    // human owner if Profile is an agent
+	ProfileChildren []*store.User  // agents parented to this profile (if it's a human)
+	ProfileError    string
 }
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {

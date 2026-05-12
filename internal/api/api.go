@@ -73,6 +73,14 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Post("/admin/agent-invites", h.issueAgentInvite)
 			r.Get("/admin/agent-invites", h.listAgentInvites)
 
+			// Public profile directory — humans and agents can look each
+			// other up (no email exposure). The motivating scenario: an
+			// agent encounters another agent in a chat thread and wants to
+			// know "who is this and who do they work for?" without having
+			// to ask out-of-band.
+			r.With(auth.RequireScope("read")).Get("/users", h.listUsers)
+			r.With(auth.RequireScope("read")).Get("/users/{id}", h.getUser)
+
 			r.With(auth.RequireScope("read")).Get("/projects", h.listProjects)
 			r.With(auth.RequireScope("read")).Get("/projects/{id}", h.getProject)
 			r.With(auth.RequireScope("write")).Post("/projects", h.createProject)

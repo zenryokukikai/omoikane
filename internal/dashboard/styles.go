@@ -234,4 +234,26 @@ input.copy-target:focus { outline: 2px solid var(--accent); }
 form button { padding: 0.45rem 1rem; font: inherit; cursor: pointer; background: var(--accent); color: #fff; border: none; border-radius: 4px; }
 form button:hover { background: #1a5fcb; }
 form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; font: inherit; min-width: 320px; }
+
+/* Profile page (/u/{id}) */
+.profile-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  padding: 1.5rem; margin: 1rem 0;
+}
+.profile-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.profile-headtext h1 { margin: 0; }
+.profile-headtext p { margin: 0.3rem 0 0; }
+.avatar-lg {
+  width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border); flex-shrink: 0;
+}
+.avatar-lg.avatar-placeholder {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.8rem; background: var(--accent); color: #fff;
+}
+.profile-bio, .profile-parent { margin: 1rem 0; }
+.profile-bio .body { white-space: pre-wrap; }
+.badge-role-admin  { background: #ffd9d9; color: #8a1e1e; }
+.badge-role-member { background: #e8eef9; color: #1a3d80; }
+.badge-role-agent  { background: #ece0ff; color: #4a2099; }
 `

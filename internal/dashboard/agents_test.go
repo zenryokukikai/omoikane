@@ -164,11 +164,12 @@ func TestGlobalHeaderShowsUserAndInviteLink(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	s := string(body)
 	for _, want := range []string{
-		`class="header-invite"`,    // 🎟️ Invite chip
+		`class="header-invite"`,    // 🎟️ Invite chip (now a submit button)
+		`action="/agents/issue`,    // chip is a form — clicking issues a code
 		`class="header-user"`,      // User pill with avatar+name
 		`class="header-user-name"`, // visible name span
 		"alice@x.com",              // the bootstrapped user's email
-		`href="/agents`,            // both header links point at /agents
+		`href="/agents`,            // user pill links to /agents
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in home page header", want)

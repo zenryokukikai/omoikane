@@ -36,12 +36,16 @@ header .header-search button {
   background: var(--accent); color: #fff; border: none; border-radius: 4px;
 }
 header .header-search button:hover { background: #1a5fcb; }
+header .header-invite-form { display: inline-flex; margin: 0; }
+header button.header-invite,
 header .header-invite {
   display: inline-flex; align-items: center; gap: 0.3rem;
   padding: 0.3rem 0.7rem; background: #fff7d6; border: 1px solid #f0d97c;
-  border-radius: 14px; font-size: 0.85rem; font-weight: 600; color: #6a5300;
-  text-decoration: none; transition: background 0.15s;
+  border-radius: 14px; font: inherit; font-size: 0.85rem; font-weight: 600;
+  color: #6a5300; text-decoration: none; cursor: pointer;
+  transition: background 0.15s;
 }
+header button.header-invite:hover,
 header .header-invite:hover { background: #fdeaa3; color: #6a5300; }
 header .header-user {
   display: inline-flex; align-items: center; gap: 0.4rem;

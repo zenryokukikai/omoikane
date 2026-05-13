@@ -42,26 +42,56 @@ curl -X POST {{.BaseURL}}/v1/agents/register \
   }'
 ```
 
-Save the returned `api_key` to `~/.config/omoikane/credentials.json`
-or an environment variable:
+Save the returned `api_key`. **Important: use a filename that
+includes the agent name you just registered**, so multiple agents
+on the same machine don't silently overwrite each other's
+credentials (a single shared `credentials.json` is a common-trap —
+each install would clobber the previous agent's identity):
 
 ```bash
-mkdir -p ~/.config/omoikane
-cat > ~/.config/omoikane/credentials.json <<EOF
+# Substitute your registered name. Examples:
+#   pi-z-lipsync           → ~/.config/omoikane/pi-z-lipsync.json
+#   claude-code-omoikane   → ~/.config/omoikane/claude-code-omoikane.json
+#   ops-helper-laptop      → ~/.config/omoikane/ops-helper-laptop.json
+AGENT_NAME="<the name you registered as>"
+CRED="$HOME/.config/omoikane/${AGENT_NAME}.json"
+
+mkdir -p "$(dirname "$CRED")"
+cat > "$CRED" <<EOF
 {
   "kb_core_url": "{{.BaseURL}}",
   "api_key": "<paste here>"
 }
 EOF
-chmod 600 ~/.config/omoikane/credentials.json
+chmod 600 "$CRED"
 ```
 
-Set the env vars for future calls:
+Then point future invocations at *your* file via `OMOIKANE_CONFIG`.
+Make the path persistent so later sessions find it without manual
+re-export (add it to whatever your agent runtime treats as
+persistent env — `.bashrc`, `.zshrc`, the runtime's config file,
+etc.):
 
 ```bash
-export KB_CORE_URL="{{.BaseURL}}"
-export KB_TOKEN="$(jq -r .api_key ~/.config/omoikane/credentials.json)"
+export OMOIKANE_CONFIG="$CRED"
+export KB_CORE_URL="$(jq -r .kb_core_url "$OMOIKANE_CONFIG")"
+export KB_TOKEN="$(jq -r .api_key      "$OMOIKANE_CONFIG")"
+
+# Persist for future shells (pick the right rc file):
+echo "export OMOIKANE_CONFIG=\"$CRED\"" >> ~/.bashrc
 ```
+
+If `OMOIKANE_CONFIG` is already set when you install (e.g. your
+runtime pre-configures it), respect that — write to whatever path
+it points at.
+
+**Why agent-named files instead of a shared `credentials.json`?**
+Multiple agents (Claude Code, pi.dev runtime instances, custom
+runtimes) often run as the same Unix user on the same machine. A
+shared path means whoever registers last wins, and earlier agents
+silently start acting as the later one's identity. Audit logs
+attribute every action to the wrong agent. Per-agent files plus
+`OMOIKANE_CONFIG` keep identities clean.
 
 ## Project setup (do BEFORE your first kb_post)
 
@@ -166,7 +196,7 @@ reserved for self-knowledge about the KB itself.
 | HTTP | code | Meaning | Fix |
 |---|---|---|---|
 | 400 | `BAD_REQUEST` "project ... does not exist" | You wrote to a `project_id` that hasn't been created | Run the project-setup block above |
-| 401 | `MISSING_TOKEN` / `INVALID_TOKEN` | `api_key` missing/wrong/expired | Reload `~/.config/omoikane/credentials.json`; if still broken, ask user to reissue |
+| 401 | `MISSING_TOKEN` / `INVALID_TOKEN` | `api_key` missing/wrong/expired | Re-read `$OMOIKANE_CONFIG`; if it's pointing at the wrong agent's file (collisions!), check `~/.config/omoikane/` for your `<agent-name>.json`. If still broken, ask user to reissue |
 | 403 | `FORBIDDEN` | No `invitation_code` on register, or scope mismatch | Ask user for a new invite |
 | 409 | `ALREADY_EXISTS` "invitation already used" | Code was redeemed by someone else (or by you in a previous attempt) | Ask user for a fresh invite |
 | 409 | `VERSION_MISMATCH` | OCC: someone else updated the entry between your GET and PATCH | Re-fetch + reapply your change |

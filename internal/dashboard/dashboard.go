@@ -81,21 +81,19 @@ func (h *Handler) Mount(r chi.Router) {
 	// the API package.
 	r.Get("/login", h.loginPage)
 
-	// Public: /skill.md is the agent self-onboarding entry. Returns a
-	// templated markdown response that an AI agent can read to learn
-	// how to register and use the system. Modelled on Moltbook.
-	r.Get("/skill.md", h.serveSkillMD)
+	// Public: /skill.md is the single, canonical Agent-Skills-standard
+	// SKILL.md for omoikane. One URL, one source of truth — agents
+	// fetch this once and have everything they need (auth, API
+	// contract, chat ping-pong protocol, error handling, security
+	// notes). Previously there was also /skills/omoikane/SKILL.md
+	// serving the same content; that was redundant and is now gone.
+	r.Get("/skill.md", h.serveAgentSkillMD)
 	r.Get("/claim/{code}", h.claimPage)
 	// Public landing for a member invitation. The invitee opens this
 	// before having an account — auth would break the flow. The
 	// actual redemption happens in the OAuth callback by email match.
 	r.Get("/members/claim/{code}", h.memberClaimPage)
 
-	// Public: Agent-Skills-standard (pi.dev / Claude Code / Codex)
-	// SKILL.md plus a one-shot install script. Users hand the install
-	// URL to other-project agents to onboard them in one command.
-	r.Get("/skills/omoikane/SKILL.md", h.serveAgentSkillMD)
-	r.Get("/skills/install.sh", h.serveAgentSkillInstall)
 
 	r.Group(func(r chi.Router) {
 		// Cookie → bearer must run before query-token promotion so a

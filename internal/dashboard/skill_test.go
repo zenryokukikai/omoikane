@@ -13,6 +13,12 @@ import (
 	"github.com/kojira/omoikane/internal/store"
 )
 
+// /skill.md is the ONE canonical endpoint. It serves the full Agent
+// Skills spec (frontmatter, auth, API contract, chat ping-pong
+// protocol, error handling). Agents fetch it once and have
+// everything. Earlier history: there was a separate
+// /skills/omoikane/SKILL.md serving the same content + a /skill.md
+// that pointed at it. Both duplicated and drifted. Now: one URL.
 func TestServeSkillMD(t *testing.T) {
 	s := newDashStore(t)
 	h, _ := New(s, true)
@@ -36,89 +42,53 @@ func TestServeSkillMD(t *testing.T) {
 		t.Fatal("missing version header")
 	}
 
-	buf := make([]byte, 8192)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	body := string(bodyBytes)
 
-	// /skill.md is the INSTALL ENTRY POINT only. It must NOT
-	// duplicate the canonical SKILL.md content (api reference,
-	// chat protocol, etc.) — drift was a real problem when both
-	// existed. Test asserts the minimal shape:
+	// Agent-Skills-standard frontmatter first
+	if !strings.HasPrefix(body, "---\nname: omoikane\n") {
+		t.Fatalf("missing frontmatter: %s", body[:200])
+	}
+	// Full content lives here now — auth, tools, chat protocol.
 	for _, want := range []string{
-		"name: omoikane",
-		"Hello, AI agent",
-		"Install yourself as a skill",
-		"/skills/omoikane/SKILL.md", // pointer to canonical
-		"$HOME/.agents/skills/omoikane",
-		"Read the canonical skill",
+		"description:",
+		"invitation_code",
+		"by-trigger", // lookup endpoint
+		"by-symptom",
+		"prohibited",
+		"Pseudo-realtime ping-pong", // chat protocol section
+		"long-poll",                 // long-poll cursor pattern
+		"Loop prevention",           // loop guardrails
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("missing %q in skill.md", want)
+			t.Errorf("missing %q in /skill.md (canonical full spec)", want)
 		}
-	}
-	// Negative assertions — these MUST live only in the canonical
-	// /skills/omoikane/SKILL.md, not be duplicated here.
-	for _, mustNotContain := range []string{
-		"kb_lookup_by_trigger", // tool ref
-		"kb_post",              // tool ref
-		"kb_feedback",          // tool ref
-		"Pseudo-realtime",      // chat protocol section
-	} {
-		if strings.Contains(body, mustNotContain) {
-			t.Errorf("/skill.md should not duplicate canonical content (found %q)", mustNotContain)
-		}
-	}
-
-	// BaseURL substitution actually worked
-	if !strings.Contains(body, srv.URL) {
-		t.Fatalf("baseURL not substituted: %s", body[:500])
 	}
 }
 
-func TestServeAgentSkillMD(t *testing.T) {
+// The previous /skills/omoikane/SKILL.md route was removed (a single
+// /skill.md is the canonical endpoint now). This test locks that
+// the route doesn't quietly come back via copy-paste from old docs.
+func TestNoLegacySkillsOmoikaneRoute(t *testing.T) {
 	s := newDashStore(t)
 	h, _ := New(s, true)
 	r := chi.NewRouter()
 	h.Mount(r)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/skills/omoikane/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp, _ := http.Get(srv.URL + "/skills/omoikane/SKILL.md")
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
-		t.Fatalf("content-type: %s", resp.Header.Get("Content-Type"))
-	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	body := string(bodyBytes)
-
-	// Frontmatter required by Agent-Skills standard
-	if !strings.HasPrefix(body, "---\nname: omoikane\n") {
-		t.Fatalf("missing frontmatter: %s", body[:200])
-	}
-	for _, want := range []string{
-		"description:",
-		"invitation_code",
-		"by-trigger",
-		"by-symptom",
-		"prohibited",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("missing %q in agent SKILL.md", want)
-		}
-	}
-	// BaseURL substitution
-	if !strings.Contains(body, srv.URL) {
-		t.Fatalf("baseURL not substituted: %s", body[:500])
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("/skills/omoikane/SKILL.md should be 404 (replaced by /skill.md), got %d", resp.StatusCode)
 	}
 }
 
-func TestServeAgentSkillInstall(t *testing.T) {
+// /skills/install.sh used to return a `mkdir + curl` shell script
+// intended to be piped to `sh`. That's a security anti-pattern
+// (silent arbitrary-code execution against whatever URL serves) AND
+// it overreached by prescribing a specific host path. Both reasons
+// for removal; this test locks the absence so it doesn't sneak back.
+func TestNoInstallShRoute(t *testing.T) {
 	s := newDashStore(t)
 	h, _ := New(s, true)
 	r := chi.NewRouter()
@@ -131,19 +101,8 @@ func TestServeAgentSkillInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	body := string(bodyBytes)
-	if !strings.HasPrefix(body, "#!/bin/sh") {
-		t.Fatalf("missing shebang: %s", body[:50])
-	}
-	if !strings.Contains(body, srv.URL+"/skills/omoikane/SKILL.md") {
-		t.Fatalf("install URL not embedded: %s", body)
-	}
-	if !strings.Contains(body, ".agents/skills/omoikane") {
-		t.Fatalf("missing target path: %s", body)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("/skills/install.sh should be 404, got %d (a curl|sh entry point is a security anti-pattern)", resp.StatusCode)
 	}
 }
 

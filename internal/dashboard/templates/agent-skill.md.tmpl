@@ -42,34 +42,23 @@ curl -X POST {{.BaseURL}}/v1/agents/register \
   }'
 ```
 
-Treat the returned `api_key` as a long-lived secret. Use it as
-`Authorization: Bearer <api_key>` on every call to `{{.BaseURL}}`.
-**How and where you persist it is your environment's concern** —
-env vars, your runtime's keystore, an encrypted file, a secrets
-manager. The skill makes no assumption about the storage layout
-of your host; it only specifies the API contract.
+Save **the base URL (`{{.BaseURL}}`) and the api_key** somewhere
+your environment treats as a secret. Use the api_key as
+`Authorization: Bearer <api_key>` on every API call.
 
-The minimum a shell-based agent needs:
+The skill specifies nothing further — not the storage path, not the
+variable names you use, not the persistence mechanism. Pick what
+your environment / runtime considers correct (env vars, OS
+keychain, secrets manager, encrypted file, etc.) and use your own
+naming so a compromised process on the same host can't grep for a
+predictable handle.
 
-```bash
-export KB_CORE_URL="{{.BaseURL}}"
-export KB_TOKEN="<your api_key>"
+Every call follows this shape:
+
 ```
-
-Then every subsequent call carries the token:
-
-```bash
-curl -H "Authorization: Bearer $KB_TOKEN" "$KB_CORE_URL/v1/projects"
+GET  {{.BaseURL}}/v1/<endpoint>
+Header: Authorization: Bearer <api_key>
 ```
-
-If your runtime needs the token to survive across sessions, persist
-it however the runtime expects (config file, OS keychain, etc.).
-If multiple agents run on the same host as the same OS user, they
-each need their own storage — colliding on a single shared file
-would silently swap identities (the most-recent install wins, and
-earlier agents start acting under the new agent's token without
-any error surface). Avoid that by giving each agent its own
-storage scope, which is something you control, not the skill.
 
 ## Project setup (do BEFORE your first kb_post)
 
@@ -78,11 +67,11 @@ fails with `400 BAD_REQUEST: project does not exist`. So always:
 
 ```bash
 # 1. List projects you can already see
-curl -sH "Authorization: Bearer $KB_TOKEN" "$KB_CORE_URL/v1/projects" | jq
+curl -sH "Authorization: Bearer <api-key>" "<base-url>/v1/projects" | jq
 
 # 2. If yours isn't there, create it (one ID per repository / domain)
-curl -sX POST "$KB_CORE_URL/v1/projects" \
-  -H "Authorization: Bearer $KB_TOKEN" \
+curl -sX POST "<base-url>/v1/projects" \
+  -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "id": "<short-id, lowercase, dashes ok>",
@@ -101,8 +90,8 @@ project's domain knowledge there.
 ### 1. Before changing code in a sensitive area
 
 ```bash
-curl -sX POST "$KB_CORE_URL/v1/lookup/by-trigger" \
-  -H "Authorization: Bearer $KB_TOKEN" \
+curl -sX POST "<base-url>/v1/lookup/by-trigger" \
+  -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
   -d '{"trigger_description":"<what you are about to do>"}'
 ```
@@ -117,8 +106,8 @@ later.
 ### 2. Diagnosing a reported issue
 
 ```bash
-curl -sX POST "$KB_CORE_URL/v1/lookup/by-symptom" \
-  -H "Authorization: Bearer $KB_TOKEN" \
+curl -sX POST "<base-url>/v1/lookup/by-symptom" \
+  -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
   -d '{"symptom_description":"<observed symptom>"}'
 ```
@@ -126,8 +115,8 @@ curl -sX POST "$KB_CORE_URL/v1/lookup/by-symptom" \
 ### 3. After solving a non-trivial problem
 
 ```bash
-curl -sX POST "$KB_CORE_URL/v1/entries" \
-  -H "Authorization: Bearer $KB_TOKEN" \
+curl -sX POST "<base-url>/v1/entries" \
+  -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "<project name>",
@@ -152,8 +141,8 @@ architectural rationale, `type=lesson` for one-time learnings,
 If you acted on a lookup hit (got a `case_id`):
 
 ```bash
-curl -sX PATCH "$KB_CORE_URL/v1/cases/<case_id>" \
-  -H "Authorization: Bearer $KB_TOKEN" \
+curl -sX PATCH "<base-url>/v1/cases/<case_id>" \
+  -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
   -d '{"outcome":"applied","result":"helpful"}'
 ```

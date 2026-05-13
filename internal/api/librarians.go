@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -228,15 +229,74 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
+// chatList serves GET /v1/librarian/threads/{id}/messages.
+//
+// Plain mode (`?limit=N`): returns the first N messages in the
+// thread, oldest first.
+//
+// Cursor mode (`?since=<message-id>&limit=N`): returns up to N
+// messages newer than the supplied message. Empty list when there's
+// nothing newer.
+//
+// Long-poll mode (`?since=<message-id>&wait=30s`): if cursor-mode
+// would return empty, the handler holds the connection for up to
+// `wait` seconds, re-checking the store roughly every second. As
+// soon as new messages appear the handler flushes and returns.
+// This lets agents implement pseudo-realtime ping-pong without
+// burning request volume on tight polling loops.
+//
+// `wait` is capped at 5 minutes to avoid runaway client behaviour
+// pinning server resources. Context cancellation (client
+// disconnect) terminates the wait immediately.
 func (h *Handler) chatList(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "id")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	msgs, err := h.Store.ListChatMessages(httpCtx(r), threadID, limit)
-	if err != nil {
-		writeStoreError(w, err)
-		return
+	sinceID := r.URL.Query().Get("since")
+	waitStr := r.URL.Query().Get("wait")
+
+	ctx := httpCtx(r)
+
+	// Resolve `since` to a timestamp (if it points at a real msg).
+	// Unknown id → treat as no cursor (start from beginning).
+	var sinceTS time.Time
+	if sinceID != "" {
+		if m, err := h.Store.GetChatMessage(ctx, sinceID); err == nil {
+			sinceTS = m.Timestamp
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+
+	// Parse wait duration. Cap at 5 minutes. Zero = no long-poll.
+	var waitUntil time.Time
+	if waitStr != "" {
+		d, err := time.ParseDuration(waitStr)
+		if err == nil && d > 0 {
+			if d > 5*time.Minute {
+				d = 5 * time.Minute
+			}
+			waitUntil = time.Now().Add(d)
+		}
+	}
+
+	for {
+		msgs, err := h.Store.ListChatMessagesSince(ctx, threadID, sinceTS, limit)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if len(msgs) > 0 || time.Now().After(waitUntil) {
+			writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+			return
+		}
+		// No new messages and still inside the wait window. Sleep
+		// ~1s then re-check, but bail out on client disconnect.
+		select {
+		case <-time.After(1 * time.Second):
+		case <-ctx.Done():
+			// Client gave up. Just return what we have (empty).
+			writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+			return
+		}
+	}
 }
 
 // ============================================================

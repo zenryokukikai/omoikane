@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
+
+	"github.com/kojira/omoikane/internal/store"
 )
 
 func TestLibrarianInstanceAPI(t *testing.T) {
@@ -182,6 +185,153 @@ func TestLibrarianChatAuthorUserIDFromAuthContext(t *testing.T) {
 	}
 	if msgs[0].AuthorUserID == "u-impersonated-id" {
 		t.Fatal("CRITICAL: client spoof was honoured — impersonation possible")
+	}
+}
+
+// Long-poll & cursor semantics. The contract:
+//   - `?since=<msg-id>` → only messages newer than that one
+//   - `?since=<msg-id>&wait=Ns` → hold the connection up to N seconds,
+//     return as soon as a new message appears (or empty on timeout)
+//   - missing `since` → return everything from the start
+//   - unknown `since` → treated as no cursor (returns everything)
+func TestLibrarianChatLongPoll(t *testing.T) {
+	base, tok, st := testServer(t)
+	t.Cleanup(ResetEmergencyStopForTest)
+
+	// Open thread, post one message to anchor the cursor.
+	s, raw := doJSON(t, http.MethodPost, base+"/v1/librarian/threads", tok,
+		map[string]any{"title": "longpoll"}, nil)
+	if s != 201 {
+		t.Fatalf("open: %d %s", s, raw)
+	}
+	var thr struct {
+		ThreadID string `json:"thread_id"`
+	}
+	_ = json.Unmarshal(raw, &thr)
+
+	s, raw = doJSON(t, http.MethodPost, base+"/v1/librarian/chat", tok,
+		map[string]any{
+			"thread_id": thr.ThreadID, "author_role": "human",
+			"content": "first",
+		}, nil)
+	if s != 201 {
+		t.Fatalf("post 1: %d", s)
+	}
+	var firstResp struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(raw, &firstResp)
+
+	// since=<first-id> on a thread with no newer messages → empty
+	s, raw = doJSON(t, http.MethodGet,
+		base+"/v1/librarian/threads/"+thr.ThreadID+"/messages?since="+firstResp.ID,
+		tok, nil, nil)
+	if s != 200 {
+		t.Fatalf("cursor: %d", s)
+	}
+	var out struct {
+		Messages []store.ChatMessage `json:"messages"`
+	}
+	_ = json.Unmarshal(raw, &out)
+	if len(out.Messages) != 0 {
+		t.Errorf("cursor at latest should be empty, got %d", len(out.Messages))
+	}
+
+	// Long-poll: while one goroutine waits, another posts. The poll
+	// must return promptly with the new message, not wait the full
+	// timeout.
+	postAfter := 500 * time.Millisecond
+	go func() {
+		time.Sleep(postAfter)
+		_, _ = doJSON(t, http.MethodPost, base+"/v1/librarian/chat", tok,
+			map[string]any{
+				"thread_id": thr.ThreadID, "author_role": "scout",
+				"content": "delivered via long-poll",
+			}, nil)
+	}()
+	start := time.Now()
+	s, raw = doJSON(t, http.MethodGet,
+		base+"/v1/librarian/threads/"+thr.ThreadID+"/messages?since="+firstResp.ID+"&wait=5s",
+		tok, nil, nil)
+	elapsed := time.Since(start)
+	if s != 200 {
+		t.Fatalf("longpoll: %d", s)
+	}
+	_ = json.Unmarshal(raw, &out)
+	if len(out.Messages) != 1 {
+		t.Fatalf("longpoll: want 1 new msg, got %d", len(out.Messages))
+	}
+	if out.Messages[0].Content != "delivered via long-poll" {
+		t.Errorf("wrong content: %q", out.Messages[0].Content)
+	}
+	// The handler polls every ~1s, so first detection lands at the
+	// next tick after the post. Should be < 2s well inside the 5s
+	// wait budget.
+	if elapsed > 3*time.Second {
+		t.Errorf("longpoll took too long (should detect within ~1s of post): %v", elapsed)
+	}
+
+	// Long-poll with no new messages: returns empty after roughly
+	// the wait duration, not earlier. Use the just-returned message
+	// id as the cursor (the freshest position).
+	latestID := out.Messages[0].ID
+	start = time.Now()
+	s, _ = doJSON(t, http.MethodGet,
+		base+"/v1/librarian/threads/"+thr.ThreadID+"/messages?since="+latestID+"&wait=2s",
+		tok, nil, nil)
+	elapsed = time.Since(start)
+	if s != 200 {
+		t.Fatalf("longpoll empty: %d", s)
+	}
+	// Need to wait at least close to the deadline before returning.
+	// Allow some slack: must be at least 1.5s.
+	if elapsed < 1500*time.Millisecond {
+		t.Errorf("longpoll returned too fast on empty (no early termination expected): %v", elapsed)
+	}
+	// And must not exceed wait + a small buffer for the final poll
+	// + serialization.
+	if elapsed > 4*time.Second {
+		t.Errorf("longpoll overshoot: %v", elapsed)
+	}
+	// _ = st silences unused-store complaint.
+	_ = st
+}
+
+// Unknown `since` id → treat as no cursor (start from beginning).
+// Defensive: clients in restart-from-scratch situations may pass an
+// id the server has forgotten.
+func TestLibrarianChatLongPollUnknownSince(t *testing.T) {
+	base, tok, _ := testServer(t)
+	t.Cleanup(ResetEmergencyStopForTest)
+
+	s, raw := doJSON(t, http.MethodPost, base+"/v1/librarian/threads", tok,
+		map[string]any{"title": "unknown-since"}, nil)
+	if s != 201 {
+		t.Fatalf("open: %d %s", s, raw)
+	}
+	var thr struct {
+		ThreadID string `json:"thread_id"`
+	}
+	_ = json.Unmarshal(raw, &thr)
+
+	_, _ = doJSON(t, http.MethodPost, base+"/v1/librarian/chat", tok,
+		map[string]any{
+			"thread_id": thr.ThreadID, "author_role": "human",
+			"content": "exists",
+		}, nil)
+
+	s, raw = doJSON(t, http.MethodGet,
+		base+"/v1/librarian/threads/"+thr.ThreadID+"/messages?since=msg-does-not-exist",
+		tok, nil, nil)
+	if s != 200 {
+		t.Fatalf("status: %d", s)
+	}
+	var out struct {
+		Messages []store.ChatMessage `json:"messages"`
+	}
+	_ = json.Unmarshal(raw, &out)
+	if len(out.Messages) != 1 {
+		t.Errorf("unknown since should return all (1 msg), got %d", len(out.Messages))
 	}
 }
 

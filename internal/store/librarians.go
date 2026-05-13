@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -319,14 +320,24 @@ func (s *Store) PostChatMessage(ctx context.Context, m *ChatMessage) (string, er
 	if m.Mentions == "" {
 		m.Mentions = encodeMentions(ExtractMentions(m.Content))
 	}
+	// Explicit nanosecond-precision timestamp. The schema's DEFAULT
+	// CURRENT_TIMESTAMP only has second precision, which made the
+	// long-poll cursor (`WHERE timestamp > ?`) silently drop any
+	// message posted in the same second as the previous one. Go's
+	// time.Now().UTC() serialised by the sqlite driver preserves
+	// nanoseconds, so cursors are reliable.
+	if m.Timestamp.IsZero() {
+		m.Timestamp = time.Now().UTC()
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO librarian_chat(id, thread_id, author_role, author_instance_id,
-		    author_user_id, reply_to, mentions, intent, content, related_entries,
-		    input_tokens, output_tokens, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, nullable(m.ThreadID), m.AuthorRole, nullable(m.AuthorInstanceID),
-		nullable(m.AuthorUserID), nullable(m.ReplyTo), nullable(m.Mentions),
-		nullable(m.Intent), m.Content, nullable(m.RelatedEntries),
+		INSERT INTO librarian_chat(id, thread_id, timestamp, author_role,
+		    author_instance_id, author_user_id, reply_to, mentions, intent,
+		    content, related_entries, input_tokens, output_tokens, metadata)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, nullable(m.ThreadID), m.Timestamp, m.AuthorRole,
+		nullable(m.AuthorInstanceID), nullable(m.AuthorUserID),
+		nullable(m.ReplyTo), nullable(m.Mentions), nullable(m.Intent),
+		m.Content, nullable(m.RelatedEntries),
 		m.InputTokens, m.OutputTokens, nullable(m.Metadata))
 	if err != nil {
 		return "", translateErr(err)
@@ -335,17 +346,39 @@ func (s *Store) PostChatMessage(ctx context.Context, m *ChatMessage) (string, er
 }
 
 func (s *Store) ListChatMessages(ctx context.Context, threadID string, limit int) ([]*ChatMessage, error) {
+	return s.ListChatMessagesSince(ctx, threadID, time.Time{}, limit)
+}
+
+// ListChatMessagesSince returns messages newer than `sinceTS` in the
+// thread, ordered by timestamp ASC. Pass a zero time to get all
+// messages (same as ListChatMessages). The strict `>` comparison
+// means passing the timestamp of your last-seen message reliably
+// excludes that message from the new batch.
+func (s *Store) ListChatMessagesSince(ctx context.Context, threadID string, sinceTS time.Time, limit int) ([]*ChatMessage, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, COALESCE(thread_id,''), timestamp, author_role,
-		       COALESCE(author_instance_id,''), COALESCE(author_user_id,''),
-		       COALESCE(reply_to,''), COALESCE(mentions,''), COALESCE(intent,''),
-		       content, COALESCE(related_entries,''), input_tokens, output_tokens,
-		       COALESCE(metadata,'')
-		FROM librarian_chat WHERE thread_id = ?
-		ORDER BY timestamp ASC LIMIT ?`, threadID, limit)
+	var rows *sql.Rows
+	var err error
+	if sinceTS.IsZero() {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, COALESCE(thread_id,''), timestamp, author_role,
+			       COALESCE(author_instance_id,''), COALESCE(author_user_id,''),
+			       COALESCE(reply_to,''), COALESCE(mentions,''), COALESCE(intent,''),
+			       content, COALESCE(related_entries,''), input_tokens, output_tokens,
+			       COALESCE(metadata,'')
+			FROM librarian_chat WHERE thread_id = ?
+			ORDER BY timestamp ASC LIMIT ?`, threadID, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, COALESCE(thread_id,''), timestamp, author_role,
+			       COALESCE(author_instance_id,''), COALESCE(author_user_id,''),
+			       COALESCE(reply_to,''), COALESCE(mentions,''), COALESCE(intent,''),
+			       content, COALESCE(related_entries,''), input_tokens, output_tokens,
+			       COALESCE(metadata,'')
+			FROM librarian_chat WHERE thread_id = ? AND timestamp > ?
+			ORDER BY timestamp ASC LIMIT ?`, threadID, sinceTS, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -363,6 +396,28 @@ func (s *Store) ListChatMessages(ctx context.Context, threadID string, limit int
 		out[i] = &values[i]
 	}
 	return out, nil
+}
+
+// GetChatMessage returns one message by id. Used by the long-poll
+// endpoint to resolve a client-supplied `since` message id to its
+// timestamp so the cursor query can use a SARGable comparison.
+func (s *Store) GetChatMessage(ctx context.Context, id string) (*ChatMessage, error) {
+	var m ChatMessage
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, COALESCE(thread_id,''), timestamp, author_role,
+		       COALESCE(author_instance_id,''), COALESCE(author_user_id,''),
+		       COALESCE(reply_to,''), COALESCE(mentions,''), COALESCE(intent,''),
+		       content, COALESCE(related_entries,''), input_tokens, output_tokens,
+		       COALESCE(metadata,'')
+		FROM librarian_chat WHERE id = ?`, id).Scan(
+		&m.ID, &m.ThreadID, &m.Timestamp, &m.AuthorRole,
+		&m.AuthorInstanceID, &m.AuthorUserID, &m.ReplyTo, &m.Mentions,
+		&m.Intent, &m.Content, &m.RelatedEntries, &m.InputTokens,
+		&m.OutputTokens, &m.Metadata)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	return &m, nil
 }
 
 // ============================================================

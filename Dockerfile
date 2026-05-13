@@ -33,12 +33,21 @@ WORKDIR /src
 # Cache module downloads in a separate layer so source-only changes
 # don't bust the dep cache.
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 COPY . .
 # sqlite_fts5 tag is mandatory — without it, FTS index creation in
 # migration 002 errors at startup ("no such module: fts5").
-RUN CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags='-s -w' \
-    -trimpath -o /out/kb-server ./cmd/kb-server
+#
+# BuildKit cache mounts persist Go's compiled-package cache + module
+# cache across docker builds. Without them every `docker build`
+# recompiles the dependency tree from scratch (~70s); with them the
+# incremental build after a source-only change is ~5-10s. The cache
+# survives until you `docker builder prune`.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags='-s -w' \
+        -trimpath -o /out/kb-server ./cmd/kb-server
 
 FROM alpine:3.20
 RUN apk add --no-cache sqlite ca-certificates tzdata wget su-exec && \

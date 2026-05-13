@@ -55,14 +55,14 @@ func encodeMentions(tags []string) string {
 
 // LibrarianInstance is one running (or paused) librarian.
 type LibrarianInstance struct {
-	InstanceID    string
-	Role          string
-	SkillVersion  string
-	AgentRuntime  string
-	Status        string
-	StartedAt     time.Time
-	HeartbeatAt   *time.Time
-	Metadata      string
+	InstanceID   string     `json:"instance_id"`
+	Role         string     `json:"role"`
+	SkillVersion string     `json:"skill_version,omitempty"`
+	AgentRuntime string     `json:"agent_runtime,omitempty"`
+	Status       string     `json:"status"`
+	StartedAt    time.Time  `json:"started_at"`
+	HeartbeatAt  *time.Time `json:"heartbeat_at,omitempty"`
+	Metadata     string     `json:"metadata,omitempty"`
 }
 
 // ValidLibrarianRole reports whether r is one of the 8 canonical roles.
@@ -193,36 +193,36 @@ func (s *Store) ListLibrarianInstances(ctx context.Context, role, status string)
 // ============================================================
 
 type ChatThread struct {
-	ThreadID       string
-	Title          string
-	Intent         string
-	Status         string
-	OpenedAt       time.Time
-	ClosedAt       *time.Time
-	Summary        string
-	RelatedEntries string
-	Metadata       string
+	ThreadID       string     `json:"thread_id"`
+	Title          string     `json:"title,omitempty"`
+	Intent         string     `json:"intent,omitempty"`
+	Status         string     `json:"status"`
+	OpenedAt       time.Time  `json:"opened_at"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
+	Summary        string     `json:"summary,omitempty"`
+	RelatedEntries string     `json:"related_entries,omitempty"`
+	Metadata       string     `json:"metadata,omitempty"`
 }
 
 type ChatMessage struct {
-	ID               string
-	ThreadID         string
-	Timestamp        time.Time
-	AuthorRole       string
-	AuthorInstanceID string
+	ID               string    `json:"id"`
+	ThreadID         string    `json:"thread_id,omitempty"`
+	Timestamp        time.Time `json:"timestamp"`
+	AuthorRole       string    `json:"author_role"`
+	AuthorInstanceID string    `json:"author_instance_id,omitempty"`
 	// AuthorUserID is the users.id of whoever actually posted this
 	// message — the auth-context source of truth. Empty for legacy
 	// messages written before migration 012. The API layer fills this
 	// in from the bearer token; clients can't set it themselves.
-	AuthorUserID   string
-	ReplyTo        string
-	Mentions       string
-	Intent         string
-	Content        string
-	RelatedEntries string
-	InputTokens    int
-	OutputTokens   int
-	Metadata       string
+	AuthorUserID   string `json:"author_user_id,omitempty"`
+	ReplyTo        string `json:"reply_to,omitempty"`
+	Mentions       string `json:"mentions,omitempty"`
+	Intent         string `json:"intent,omitempty"`
+	Content        string `json:"content"`
+	RelatedEntries string `json:"related_entries,omitempty"`
+	InputTokens    int    `json:"input_tokens,omitempty"`
+	OutputTokens   int    `json:"output_tokens,omitempty"`
+	Metadata       string `json:"metadata,omitempty"`
 }
 
 func (s *Store) OpenThread(ctx context.Context, t *ChatThread) (string, error) {
@@ -370,18 +370,18 @@ func (s *Store) ListChatMessages(ctx context.Context, threadID string, limit int
 // ============================================================
 
 type LibrarianTask struct {
-	TaskID       string
-	Role         string
-	Title        string
-	Description  string
-	Priority     int
-	Status       string
-	AssignedTo   string
-	CreatedAt    time.Time
-	StartedAt    *time.Time
-	CompletedAt  *time.Time
-	Result       string
-	Metadata     string
+	TaskID      string     `json:"task_id"`
+	Role        string     `json:"role"`
+	Title       string     `json:"title"`
+	Description string     `json:"description,omitempty"`
+	Priority    int        `json:"priority,omitempty"`
+	Status      string     `json:"status"`
+	AssignedTo  string     `json:"assigned_to,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Result      string     `json:"result,omitempty"`
+	Metadata    string     `json:"metadata,omitempty"`
 }
 
 func (s *Store) EnqueueTask(ctx context.Context, t *LibrarianTask) (string, error) {
@@ -508,18 +508,18 @@ func (s *Store) ListTasks(ctx context.Context, role, status string, limit int) (
 // ============================================================
 
 type QuartetAssignment struct {
-	ID           string
-	Topic        string
-	ThreadID     string
-	Participant1 string
-	Participant2 string
-	Participant3 string
-	Judge        string
-	Status       string
-	Decision     string
-	CreatedAt    time.Time
-	DecidedAt    *time.Time
-	Metadata     string
+	ID           string     `json:"id"`
+	Topic        string     `json:"topic"`
+	ThreadID     string     `json:"thread_id,omitempty"`
+	Participant1 string     `json:"participant_1"`
+	Participant2 string     `json:"participant_2"`
+	Participant3 string     `json:"participant_3"`
+	Judge        string     `json:"judge"`
+	Status       string     `json:"status"`
+	Decision     string     `json:"decision,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DecidedAt    *time.Time `json:"decided_at,omitempty"`
+	Metadata     string     `json:"metadata,omitempty"`
 }
 
 func (s *Store) CreateQuartet(ctx context.Context, q *QuartetAssignment) (string, error) {
@@ -612,16 +612,16 @@ func (s *Store) ListQuartets(ctx context.Context, status string, limit int) ([]*
 // ============================================================
 
 type ExternalFinding struct {
-	ID          string
-	AgentLens   string
-	InstanceID  string
-	SourceURL   string
-	SourceTitle string
-	Excerpt     string
-	Relevance   float64
-	Tags        string
-	CreatedAt   time.Time
-	Metadata    string
+	ID          string    `json:"id"`
+	AgentLens   string    `json:"agent_lens"`
+	InstanceID  string    `json:"instance_id,omitempty"`
+	SourceURL   string    `json:"source_url,omitempty"`
+	SourceTitle string    `json:"source_title,omitempty"`
+	Excerpt     string    `json:"excerpt,omitempty"`
+	Relevance   float64   `json:"relevance,omitempty"`
+	Tags        string    `json:"tags,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Metadata    string    `json:"metadata,omitempty"`
 }
 
 func (s *Store) RecordFinding(ctx context.Context, f *ExternalFinding) (string, error) {

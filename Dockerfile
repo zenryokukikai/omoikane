@@ -10,6 +10,13 @@
 # full list). The /data volume is the only stateful surface — bind
 # mount or named-volume it in docker-compose.
 #
+# Permissions model: an entrypoint script runs as root just long
+# enough to chown /data (so a bind-mounted host directory becomes
+# writable regardless of host UID), then drops privileges to `kb`
+# (UID 100) via su-exec. This avoids the "readonly database" failure
+# that happens when the host bind-mount is owned by a different UID
+# than the in-container user.
+#
 # Build:
 #   docker build -t omoikane .
 # Run (example):
@@ -34,14 +41,32 @@ RUN CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags='-s -w' \
     -trimpath -o /out/kb-server ./cmd/kb-server
 
 FROM alpine:3.20
-RUN apk add --no-cache sqlite ca-certificates tzdata wget && \
+RUN apk add --no-cache sqlite ca-certificates tzdata wget su-exec && \
     addgroup -S kb && adduser -S kb -G kb && \
     mkdir -p /data && chown kb:kb /data
 COPY --from=build /out/kb-server /usr/local/bin/kb-server
-USER kb
+# Entrypoint chowns /data on startup (handles host bind-mount UID
+# mismatch) then drops to the kb user.
+COPY <<'EOF' /usr/local/bin/entrypoint.sh
+#!/bin/sh
+# Run as root only long enough to fix /data ownership for whatever
+# host UID owns the bind-mounted volume. Then drop to kb (UID 100)
+# via su-exec — same effect as USER kb in the Dockerfile, but
+# applied AFTER the chown.
+set -e
+if [ "$(id -u)" = "0" ]; then
+    chown -R kb:kb /data 2>/dev/null || true
+    exec su-exec kb:kb /usr/local/bin/kb-server "$@"
+else
+    # Already non-root (e.g. user ran with --user) — just exec.
+    exec /usr/local/bin/kb-server "$@"
+fi
+EOF
+RUN chmod +x /usr/local/bin/entrypoint.sh
+# Don't set USER — we need root briefly for the chown. The entrypoint
+# drops to kb itself.
 VOLUME ["/data"]
 ENV KB_DB_PATH=/data/kb.db
 ENV KB_HTTP_ADDR=:8080
 EXPOSE 8080
-# wget is used by docker-compose healthcheck; remove if you don't need it.
-ENTRYPOINT ["/usr/local/bin/kb-server"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

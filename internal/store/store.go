@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,10 @@ var migrationFS fs.FS = migrationsFS
 
 type Store struct {
 	db *sql.DB
+	// dataDir is the directory containing the SQLite file. Used as the
+	// root for non-SQL persistent state — currently just attachment
+	// blobs at <dataDir>/attachments/<hash[:2]>/<hash[2:4]>/<hash>.
+	dataDir string
 }
 
 // Open opens the SQLite DB at path with WAL mode and runs pending
@@ -46,7 +51,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, dataDir: filepath.Dir(path)}
 	if err := s.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -58,6 +63,10 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // DB exposes the underlying handle for tests.
 func (s *Store) DB() *sql.DB { return s.db }
+
+// DataDir returns the directory containing the SQLite file. Used by
+// non-SQL persistence (attachment blobs).
+func (s *Store) DataDir() string { return s.dataDir }
 
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (

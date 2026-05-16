@@ -11,6 +11,11 @@ var (
 	ErrAlreadyExists   = errors.New("store: already exists")
 	ErrInvalidInput    = errors.New("store: invalid input")
 	ErrVersionMismatch = errors.New("store: optimistic-lock version mismatch")
+	// ErrCorrupt is returned when a row's referenced backing data is
+	// missing or unreadable (e.g. attachment row exists but the blob
+	// file is gone). Should be rare — surfaces filesystem damage or
+	// out-of-band deletion.
+	ErrCorrupt = errors.New("store: corrupt (row exists but backing data is missing)")
 )
 
 // EntryType — v0.6 includes librarian_meta and external_finding for

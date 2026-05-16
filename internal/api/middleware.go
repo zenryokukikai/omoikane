@@ -104,9 +104,22 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 }
 
 // LimitBody installs a per-request size cap. Reads past max return a 413.
-func LimitBody(max int64) func(http.Handler) http.Handler {
+//
+// `exemptPathPrefixes` lets specific routes opt out of this cap. The
+// motivating case is /v1/attachments, which has a much larger
+// per-route cap installed at the sub-route level. Without an
+// exemption, the smaller root-level cap would shadow the larger
+// per-route one (http.MaxBytesReader composes by taking the
+// minimum).
+func LimitBody(max int64, exemptPathPrefixes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, p := range exemptPathPrefixes {
+				if strings.HasPrefix(r.URL.Path, p) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
 			if r.Body != nil {
 				r.Body = http.MaxBytesReader(w, r.Body, max)
 			}

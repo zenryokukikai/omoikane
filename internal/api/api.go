@@ -37,6 +37,12 @@ type Handler struct {
 
 	// Agent registration policy
 	RegisterOpen bool // KB_REGISTER_OPEN=1 disables invite-code requirement
+
+	// AttachmentMaxBytes caps the body size on /v1/attachments POST.
+	// Default (set by server.go) is 50MB; root-level LimitBody exempts
+	// /v1/attachments so this per-route cap is the only one in effect
+	// there.
+	AttachmentMaxBytes int64
 }
 
 // Mount registers the Phase 1 surface on r under /v1. Process-wide middleware
@@ -203,6 +209,23 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Get("/health/llm_usage", h.adminLLMUsage)
 				r.Get("/health/coverage", h.adminCoverage)
 			})
+		})
+
+		// Attachments — separate group with its own LimitBody (much
+		// larger than the default request body cap). The root-level
+		// LimitBody in server.go exempts /v1/attachments specifically
+		// so this per-route cap is the one in effect.
+		r.Group(func(r chi.Router) {
+			r.Use(auth.SessionCookieToBearer(sessionCookieName))
+			r.Use(authMW.Authenticate)
+			max := h.AttachmentMaxBytes
+			if max <= 0 {
+				max = 50 << 20
+			}
+			r.Use(LimitBody(max))
+			r.With(auth.RequireScope("write")).Post("/attachments", h.postAttachment)
+			r.With(auth.RequireScope("read")).Get("/attachments/{id}", h.getAttachment)
+			r.With(auth.RequireScope("read")).Get("/attachments/{id}/content", h.getAttachmentContent)
 		})
 	})
 }

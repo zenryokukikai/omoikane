@@ -199,6 +199,7 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 		logger.Info("oauth.google configured", "redirect", apiH.OAuthGoogle.(*oauth.Google).RedirectURI)
 	}
 	apiH.RegisterOpen = cfg.RegisterOpen
+	apiH.AttachmentMaxBytes = cfg.AttachmentMaxBytes
 	dashH, err := newDashboard(st, cfg.DashboardOpen)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)
@@ -211,7 +212,11 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 	root.Use(api.AccessLog(logger))
 	root.Use(api.Audit(st, logger))
 	if cfg.RequestBodyMax > 0 {
-		root.Use(api.LimitBody(cfg.RequestBodyMax))
+		// /v1/attachments has its own (larger) per-route cap; exempt
+		// it from the root-level small-body cap so the two don't fight.
+		// MaxBytesReader composes by taking the minimum, so without
+		// the exemption the larger per-route cap would have no effect.
+		root.Use(api.LimitBody(cfg.RequestBodyMax, "/v1/attachments"))
 	}
 	apiH.Mount(root)
 	dashH.Mount(root)

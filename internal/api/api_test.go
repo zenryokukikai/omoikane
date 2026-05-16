@@ -59,6 +59,48 @@ func testServer(t *testing.T) (base, tok string, st *store.Store) {
 	return srv.URL, tok, st
 }
 
+// testServerWithAttachmentCap is a variant of testServer that lets a
+// test pin the attachment size cap. Useful for exercising the 413
+// path without uploading megabytes of payload.
+func testServerWithAttachmentCap(t *testing.T, attMax int64) (base, tok string, st *store.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := st.CreateUser(context.Background(),
+		&store.User{ID: "admin", Name: "admin", Role: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err = st.CreateToken(context.Background(), "admin", "test",
+		[]string{"read", "write", "admin"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := &Handler{
+		Store:              st,
+		Enricher:           enrich.New("", "", "", "", logger),
+		SecretsMode:        config.SecretsEnforce,
+		Logger:             logger,
+		AttachmentMaxBytes: attMax,
+	}
+	r := chi.NewRouter()
+	r.Use(RequestID)
+	r.Use(Recoverer(logger))
+	r.Use(Audit(st, logger))
+	h.Mount(r)
+
+	srv := httptest.NewServer(r)
+	t.Cleanup(func() {
+		srv.Close()
+		_ = st.Close()
+	})
+	return srv.URL, tok, st
+}
+
 func doJSON(t *testing.T, method, url, tok string, body any, headers map[string]string) (int, []byte) {
 	t.Helper()
 	var rdr io.Reader

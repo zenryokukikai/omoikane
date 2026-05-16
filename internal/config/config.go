@@ -26,6 +26,7 @@ type Config struct {
 	DBPath              string
 	DashboardOpen       bool
 	RequestBodyMax      int64
+	AttachmentMaxBytes  int64 // KB_ATTACHMENT_MAX_BYTES (default 50MB). Applied to /v1/attachments POST only.
 	LLMProvider         string
 	LLMModel            string
 	LLMAPIKey           string
@@ -69,6 +70,15 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("KB_REQUEST_BODY_MAX: %w", err)
 	}
 	c.RequestBodyMax = bodyMax
+
+	// 50MB default — large enough for typical screenshots / charts /
+	// short clips, small enough that a malicious or buggy uploader
+	// can't trivially exhaust disk in a single request.
+	attMax, err := envInt64("KB_ATTACHMENT_MAX_BYTES", 50<<20)
+	if err != nil {
+		return nil, fmt.Errorf("KB_ATTACHMENT_MAX_BYTES: %w", err)
+	}
+	c.AttachmentMaxBytes = attMax
 
 	budget, err := envFloat("KB_LLM_MONTHLY_BUDGET_USD", 0)
 	if err != nil {

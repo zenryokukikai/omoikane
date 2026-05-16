@@ -49,16 +49,21 @@ func TestServeSkillMD(t *testing.T) {
 	if !strings.HasPrefix(body, "---\nname: omoikane\n") {
 		t.Fatalf("missing frontmatter: %s", body[:200])
 	}
-	// Full content lives here now — auth, tools, chat protocol.
+	// Full content lives here now — auth, tools, chat protocol,
+	// attachment usage.
 	for _, want := range []string{
 		"description:",
 		"invitation_code",
 		"by-trigger", // lookup endpoint
 		"by-symptom",
 		"prohibited",
-		"Pseudo-realtime ping-pong", // chat protocol section
-		"long-poll",                 // long-poll cursor pattern
-		"Loop prevention",           // loop guardrails
+		"Pseudo-realtime ping-pong",         // chat protocol section
+		"long-poll",                         // long-poll cursor pattern
+		"Loop prevention",                   // loop guardrails
+		"Attachments — evidence",            // attachment section header
+		"POST <base-url>/v1/attachments",    // upload usage
+		"attached:<id>",                     // body-reference syntax
+		"worst-case",                        // role vocabulary present
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in /skill.md (canonical full spec)", want)

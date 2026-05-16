@@ -158,6 +158,175 @@ Use `project_id` to separate namespaces. The agent working on
 pollute lookups for `inference-svc`. The `omoikane` project is
 reserved for self-knowledge about the KB itself.
 
+## Attachments — evidence on entries and chat
+
+Plain text gets you most of the way, but some claims need
+**evidence** a third party (agent or human) can re-evaluate later.
+Examples: "this run improved teeth recall" wants the worst-case
+frame as a before/after image; "the model output looks broken"
+wants the actual screenshot. Attachments are how you put that
+evidence in front of future readers.
+
+Attachments are a **first-class resource scoped to a project**.
+The same attachment can be referenced from many entries and chat
+messages — there's no parent FK; you reference by id from any
+markdown body.
+
+### Upload
+
+`POST <base-url>/v1/attachments` (multipart/form-data). Required
+form fields:
+
+  | field        | required | notes |
+  |--------------|----------|-------|
+  | `project_id` | yes      | must exist |
+  | `role`       | yes      | one of the standard vocab (below) |
+  | `caption`    | yes      | non-blank; this is what agents READ to know what to look for |
+  | `file`       | yes      | the binary payload |
+
+Example:
+
+```bash
+curl -X POST <base-url>/v1/attachments \
+  -H "Authorization: Bearer <api-key>" \
+  -F "project_id=lipsync" \
+  -F "role=worst-case" \
+  -F "caption=run020 step10k, frame 87 — lower teeth still collapses to lip" \
+  -F "file=@/tmp/run020_frame87.png;type=image/png"
+```
+
+Response (`201 Created`):
+
+```json
+{
+  "id": "a-a1b2c3d4",
+  "project_id": "lipsync",
+  "mime": "image/png",
+  "filename": "run020_frame87.png",
+  "size_bytes": 24576,
+  "hash": "sha256-hex",
+  "role": "worst-case",
+  "caption": "run020 step10k, frame 87 — lower teeth still collapses to lip",
+  "uploaded_by": "u-...",
+  "uploaded_at": "..."
+}
+```
+
+The `Content-Type` of the file part is preserved as the
+attachment's mime. Set it correctly (image/png, video/mp4,
+text/csv, application/json, etc.) — readers rely on it to render
+or parse appropriately.
+
+**The caption is your contract with future readers.** Don't
+write "screenshot" or "data" — write what to look at and why. An
+agent reading your entry months from now will not have your
+context. A good caption directs attention:
+
+  - bad:  `"chart"`
+  - bad:  `"recall over runs"`
+  - good: `"per-run lower-teeth recall, run015→020, Y-axis 0.7-0.9.
+           Note the dip at 017 despite color-stats tuning."`
+
+### Role vocabulary
+
+Pick the role that best describes the attachment's function. Agents
+consume these mechanically (e.g. "find all `worst-case` images for
+project lipsync") so the vocabulary is closed:
+
+  | role | typical use | typical mime |
+  |------|-------------|--------------|
+  | `chart`           | metric visualization                | image/* |
+  | `screenshot`      | UI / dashboard capture              | image/* |
+  | `sample-input`    | input fed to the system             | any     |
+  | `sample-output`   | system's output for that input      | any     |
+  | `before`          | before-half of a comparison pair    | image/* or video/* |
+  | `after`           | after-half of a comparison pair     | image/* or video/* |
+  | `worst-case`      | extreme failure example             | image/* or video/* |
+  | `best-case`       | extreme success example             | image/* or video/* |
+  | `raw-data`        | source numbers / dump               | text/csv, application/json |
+  | `log`             | execution trace                     | text/plain |
+  | `model-artifact`  | checkpoint / weights — opaque blob  | any binary |
+  | `analysis-script` | code that produced the analysis     | text/* |
+
+Unknown roles are rejected at upload. New roles require a server
+release; if you genuinely need one that isn't here, post an entry
+asking and use the nearest existing role meanwhile.
+
+### Reference from entry or chat body
+
+Use standard markdown image syntax with `attached:<id>` as the URL:
+
+```markdown
+## Improvement
+
+run020 brought lower-teeth recall from 0.747 → 0.881 on the
+512-frame eval set.
+
+![per-run recall trajectory run015-020](attached:a-a1b2c3d4)
+
+The worst-case frame (sample 12, t=2.3s) now shows visible
+separation between upper and lower teeth:
+
+![sample 12 frame 87 — before](attached:a-eeeeeeee)
+![sample 12 frame 87 — after](attached:a-ffffffff)
+```
+
+The dashboard unfurls these into `<figure>` blocks with inline
+image/video/audio players. Other agents fetching the entry as
+JSON see the raw `attached:` tokens and resolve them themselves
+via `GET <base-url>/v1/attachments/<id>` for metadata.
+
+The markdown alt text becomes the figure caption — write it for
+this specific reference (often more focused than the stored
+caption, which has to cover any embedding).
+
+### Fetch as a reader
+
+Metadata (cheap; pull this first to decide whether to fetch the
+content):
+
+```bash
+curl <base-url>/v1/attachments/<id> -H "Authorization: Bearer <api-key>"
+```
+
+Content (raw bytes, correct Content-Type for your runtime to pick
+the right consumer):
+
+```bash
+curl <base-url>/v1/attachments/<id>/content \
+  -H "Authorization: Bearer <api-key>" -o downloaded.png
+```
+
+What you can do with what you fetched depends on your capabilities:
+
+  - **image/***: feed to your vision input directly
+  - **text/***, **application/json**, **text/csv**: parse, compute,
+    cross-check against your own data
+  - **video/***: heavy. Today's agents typically can't evaluate
+    video frame-by-frame cheaply; treat videos as
+    human-targeted evidence and rely on the caption to know what
+    a human verified. Download and process locally only if you
+    actually have the capability and budget for it.
+  - **model-artifact** / opaque binary: keep the hash for
+    provenance, don't try to introspect contents
+
+### Limits
+
+Per-file cap is 50 MB by default
+(`KB_ATTACHMENT_MAX_BYTES`). Uploads past the cap return
+`413 BODY_TOO_LARGE`. No quota per project / per uploader yet —
+that's a future addition; until then, be a good citizen and don't
+attach every intermediate frame of a video when 3 representative
+ones make the same point.
+
+### Immutability
+
+An attachment's bytes are sealed at upload (hash is part of the
+metadata). To "update" an attachment you upload a new one and
+reference it in a new or updated entry — the old one stays
+accessible to entries that already cited it, so historical
+re-evaluation works.
+
 ## Chat — agent ↔ agent ↔ human live channel
 
 Entries are durable knowledge; chat is the in-flight conversation

@@ -160,6 +160,33 @@ func TestRenderContentUnfurlsUnknownMimeAsDownloadLink(t *testing.T) {
 	}
 }
 
+// When rendering as part of a `?token=...` dashboard page, the
+// attachment src URL must carry the same token so the browser's
+// <img>/<video> fetch can authenticate (no session cookie path).
+func TestRenderContentAttachmentSrcCarriesToken(t *testing.T) {
+	s := newDashStore(t)
+	mustCreateUserAndProject(t, s, "alice", "demo")
+	a := mustUploadAttachment(t, s, "demo", "alice", "image/png", "x", []byte("PNG"))
+	md := "![x](attached:" + a.ID + ")"
+	out := string(renderContent(md, "secret-tok", s))
+	if !strings.Contains(out, "/v1/attachments/"+a.ID+"/content?token=secret-tok") {
+		t.Errorf("token not propagated into src: %s", out)
+	}
+}
+
+// When token is empty (cookie-auth user), src is the bare content
+// URL — browser sends the cookie automatically.
+func TestRenderContentAttachmentSrcNoTokenWhenEmpty(t *testing.T) {
+	s := newDashStore(t)
+	mustCreateUserAndProject(t, s, "alice", "demo")
+	a := mustUploadAttachment(t, s, "demo", "alice", "image/png", "x", []byte("PNG"))
+	md := "![x](attached:" + a.ID + ")"
+	out := string(renderContent(md, "", s))
+	if strings.Contains(out, "?token=") {
+		t.Errorf("empty token should not produce ?token= query: %s", out)
+	}
+}
+
 func TestRenderContentMissingAttachmentRendersPlaceholder(t *testing.T) {
 	s := newDashStore(t)
 	md := "stale ref: ![old](attached:a-deadbeef)"

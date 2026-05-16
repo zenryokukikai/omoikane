@@ -171,6 +171,38 @@ func TestPostAttachmentRejectsMissingProject(t *testing.T) {
 	}
 }
 
+// GET /v1/attachments/{id}/content must accept the `?token=` query
+// param so dashboard-rendered <img>/<video> src URLs can authenticate
+// without a session cookie (the cookie path works too — this is the
+// alternative for users on the `?token=` dashboard mode).
+func TestGetAttachmentContentAcceptsQueryToken(t *testing.T) {
+	base, tok, st := testServer(t)
+	seedAttachmentAPIFixture(t, st)
+	_, body := uploadAttachment(t, base, tok, map[string]string{
+		"project_id": "demo", "role": "chart", "caption": "x",
+	}, "file", "x.png", "image/png", []byte("PNG"))
+	var a struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(body, &a)
+
+	// Same URL, no Authorization header — only ?token=.
+	resp, _ := http.Get(base + "/v1/attachments/" + a.ID + "/content?token=" + tok)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("query-token GET should succeed, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "image/png" {
+		t.Errorf("Content-Type: got %q", got)
+	}
+	// metadata endpoint same
+	resp2, _ := http.Get(base + "/v1/attachments/" + a.ID + "?token=" + tok)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("query-token metadata GET should succeed, got %d", resp2.StatusCode)
+	}
+}
+
 func TestPostAttachmentRequiresAuth(t *testing.T) {
 	base, _, st := testServer(t)
 	seedAttachmentAPIFixture(t, st)

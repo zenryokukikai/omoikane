@@ -217,6 +217,11 @@ func (h *Handler) Mount(r chi.Router) {
 		// so this per-route cap is the one in effect.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.SessionCookieToBearer(sessionCookieName))
+			// Allow ?token=... on GETs so dashboard-rendered <img>/
+			// <video> src URLs work when the user is on the
+			// `?token=` (non-cookie) dashboard auth path. POST is
+			// excluded — uploads must use Bearer or session cookie.
+			r.Use(auth.AllowQueryTokenForGET)
 			r.Use(authMW.Authenticate)
 			max := h.AttachmentMaxBytes
 			if max <= 0 {

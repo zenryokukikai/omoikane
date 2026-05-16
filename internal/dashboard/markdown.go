@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"html/template"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -109,7 +110,7 @@ func renderContent(text, token string, s *store.Store) template.HTML {
 				return `<span class="muted">[missing attachment ` +
 					template.HTMLEscapeString(id) + `]</span>`
 			}
-			return attachmentHTML(a, alt)
+			return attachmentHTML(a, alt, token)
 		})
 	}
 
@@ -130,8 +131,18 @@ var attachedImgRE = regexp.MustCompile(
 // chose it for this specific reference, but fall back to the stored
 // caption so a bare `![](attached:a-xxx)` still has agent-readable
 // metadata in the rendered page.
-func attachmentHTML(a *store.Attachment, altFromMarkdown string) string {
+//
+// `token` is the dashboard's request token (passed via ?token= on
+// the parent page URL). When non-empty it gets appended to the
+// attachment content URL so the browser's <img>/<video> fetch can
+// authenticate without a session cookie — necessary for users who
+// load the dashboard via `?token=` instead of the OAuth cookie
+// path.
+func attachmentHTML(a *store.Attachment, altFromMarkdown, token string) string {
 	src := "/v1/attachments/" + a.ID + "/content"
+	if token != "" {
+		src += "?token=" + url.QueryEscape(token)
+	}
 	caption := altFromMarkdown
 	if caption == "" {
 		caption = a.Caption

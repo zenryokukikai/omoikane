@@ -192,9 +192,10 @@ type pageCtx struct {
 	GroupBy        string
 
 	// Phase 5 — chat
-	ChatThreads  []*store.ChatThread
-	ChatThread   *store.ChatThread
-	ChatMessages []*store.ChatMessage
+	ChatThreads      []*store.ChatThread
+	ChatThread       *store.ChatThread
+	ChatMessages     []*store.ChatMessage
+	ChatStatusFilter string // "OPEN" default, "CLOSED", or "" (= all). Used by chat_threads.html to render the filter UI.
 
 	// Phase A — login page
 	GoogleEnabled bool
@@ -581,7 +582,21 @@ func (h *Handler) claimPage(w http.ResponseWriter, r *http.Request) {
 // ----------------------------------------------------------------------
 
 func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status") // "" = all
+	// Default view hides closed / archived threads — they're typically
+	// post-mortem state (the live phase has ended). To browse the
+	// archive, append `?status=CLOSED` or `?status=all` explicitly.
+	//
+	// This is the "soft-delete" surface for chat: closing a thread
+	// with a summary like "superseded by entry T-XXX" makes it
+	// disappear from the default /chat listing while staying
+	// reachable by direct URL and via the all-status query.
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		status = "OPEN"
+	}
+	if status == "all" {
+		status = "" // store treats empty as no filter
+	}
 	threads, err := h.Store.ListThreads(r.Context(), status, 100)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -590,6 +605,7 @@ func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {
 	pc := h.renderCtx(r)
 	pc.Title = "omoikane — chat"
 	pc.ChatThreads = threads
+	pc.ChatStatusFilter = status
 	h.render(w, "chat_threads", pc)
 }
 

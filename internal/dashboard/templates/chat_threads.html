@@ -8,6 +8,15 @@
 <h1>Chat threads</h1>
 <p class="muted">司書 8 役 + 人間が同じスレッドに書き込めます。人間は <code>author_role=human</code> として参加します。</p>
 
+<p class="muted chat-status-filter">
+  Showing:
+  {{if eq .ChatStatusFilter "OPEN"}}<strong>OPEN</strong>{{else}}<a href="/chat?status=OPEN{{if .Token}}&amp;token={{urlq .Token}}{{end}}">OPEN</a>{{end}}
+  ·
+  {{if eq .ChatStatusFilter "CLOSED"}}<strong>CLOSED</strong>{{else}}<a href="/chat?status=CLOSED{{if .Token}}&amp;token={{urlq .Token}}{{end}}">CLOSED</a>{{end}}
+  ·
+  {{if eq .ChatStatusFilter ""}}<strong>ALL</strong>{{else}}<a href="/chat?status=all{{if .Token}}&amp;token={{urlq .Token}}{{end}}">ALL</a>{{end}}
+</p>
+
 <details class="chat-newthread" open>
   <summary><strong>New thread</strong></summary>
   <form method="post" action="/chat/new{{if .Token}}?token={{urlq .Token}}{{end}}">

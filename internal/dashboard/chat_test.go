@@ -53,6 +53,51 @@ func TestChatThreadsPage(t *testing.T) {
 	}
 }
 
+// /chat defaults to OPEN threads. CLOSED threads are hidden from the
+// default listing — they're the soft-delete bucket. `?status=CLOSED`
+// or `?status=all` brings them back. This is the chat-side answer to
+// "logical delete": close a thread with a summary like "superseded
+// by L-XXX" and it disappears from default view but stays
+// reachable.
+func TestChatThreadsDefaultHidesClosed(t *testing.T) {
+	s := newDashStore(t)
+	srv := mount(t, s, true)
+	ctx := context.Background()
+
+	openID, _ := s.OpenThread(ctx, &store.ChatThread{Title: "alive thread"})
+	closedID, _ := s.OpenThread(ctx, &store.ChatThread{Title: "dead thread"})
+	_ = s.CloseThread(ctx, closedID, "superseded by L-FAKE")
+
+	// Default → only OPEN visible
+	_, body := get(t, srv, "/chat", "")
+	bs := string(body)
+	if !strings.Contains(bs, "alive thread") {
+		t.Errorf("default view missing the OPEN thread:\n%s", bs[:600])
+	}
+	if strings.Contains(bs, "dead thread") {
+		t.Errorf("default view should hide CLOSED thread but it leaked:\n%s", bs[:600])
+	}
+
+	// ?status=CLOSED → only CLOSED visible
+	_, body = get(t, srv, "/chat?status=CLOSED", "")
+	bs = string(body)
+	if strings.Contains(bs, "alive thread") {
+		t.Errorf("CLOSED filter leaked OPEN thread")
+	}
+	if !strings.Contains(bs, "dead thread") {
+		t.Errorf("CLOSED filter should show CLOSED thread")
+	}
+
+	// ?status=all → both visible
+	_, body = get(t, srv, "/chat?status=all", "")
+	bs = string(body)
+	if !strings.Contains(bs, "alive thread") || !strings.Contains(bs, "dead thread") {
+		t.Errorf("ALL filter should show both threads")
+	}
+
+	_ = openID
+}
+
 func TestChatThreadNotFound(t *testing.T) {
 	s := newDashStore(t)
 	srv := mount(t, s, true)

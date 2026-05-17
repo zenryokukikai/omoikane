@@ -252,6 +252,8 @@ func (h *Handler) getEntry(w http.ResponseWriter, r *http.Request) {
 			writeStoreError(w, err)
 			return
 		}
+		userID := r.Header.Get("X-Audit-User")
+		_ = h.Store.RecordAccess(httpCtx(r), []string{e.ID}, userID, store.AccessSourceGet, "")
 		writeJSON(w, http.StatusOK, e)
 		return
 	}
@@ -260,6 +262,11 @@ func (h *Handler) getEntry(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	// Passive access logging — direct GET counts as a "this entry was
+	// surfaced" event. Best-effort; non-fatal. as_of fetches are also
+	// logged (the historical version was still surfaced).
+	userID := r.Header.Get("X-Audit-User")
+	_ = h.Store.RecordAccess(httpCtx(r), []string{e.ID}, userID, store.AccessSourceGet, "")
 	// ETag tied to version for OCC-aware clients.
 	w.Header().Set("ETag", `"`+strconv.Itoa(e.Version)+`"`)
 	writeJSON(w, http.StatusOK, e)

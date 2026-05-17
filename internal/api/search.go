@@ -96,6 +96,16 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		"total":   total,
 		"mode":    defaultMode(req.Mode),
 	}
+	// Passive access logging — every entry surfaced via search counts as
+	// a "the agent saw this" event. Best-effort; non-fatal.
+	if len(results) > 0 {
+		ids := make([]string, len(results))
+		for i, sr := range results {
+			ids[i] = sr.Entry.ID
+		}
+		userID := r.Header.Get("X-Audit-User")
+		_ = h.Store.RecordAccess(httpCtx(r), ids, userID, store.AccessSourceSearch, req.Query)
+	}
 	// Opt-in chat search. Chat results live in a separate field so
 	// existing clients (which read only `results`) are unaffected.
 	// The shape is documented in SKILL.md "Searching chat (opt-in)".

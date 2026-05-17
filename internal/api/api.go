@@ -116,7 +116,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("read")).Post("/lookup/by-tags", h.lookupByTags)
 			r.With(auth.RequireScope("read")).Post("/lookup/by-situation", h.lookupBySituation)
 
-			// Phase 3 — usage cases (feedback loop)
+			// Phase 3 — usage cases (legacy feedback loop with case_id state)
 			r.With(auth.RequireScope("write")).Post("/cases", h.createCase)
 			r.With(auth.RequireScope("write")).Patch("/cases/{id}", h.patchCase)
 			r.With(auth.RequireScope("read")).Get("/cases/{id}", h.getCase)
@@ -124,6 +124,13 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("read")).Get("/entries/{id}/signals", h.entrySignals)
 			r.With(auth.RequireScope("read")).Get("/entries/{id}/relations", h.listEntryRelations)
 			r.With(auth.RequireScope("read")).Get("/review-queue", h.reviewQueue)
+
+			// Migration 016 — stateless feedback + engagement view.
+			// /v1/feedback is the new agent-facing path: entry_id + signal,
+			// no case_id state. /v1/entries/{id}/engagement exposes
+			// reference_count_30d, per-signal totals, and a composed score.
+			r.With(auth.RequireScope("write")).Post("/feedback", h.postFeedback)
+			r.With(auth.RequireScope("read")).Get("/entries/{id}/engagement", h.getEntryEngagement)
 
 			// Phase 3 — relations
 			r.With(auth.RequireScope("write")).Post("/relations", h.createRelation)

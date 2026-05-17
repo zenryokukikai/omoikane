@@ -69,6 +69,11 @@ func TestServeSkillMD(t *testing.T) {
 		"Status reports of training",        // the lipsync-induced specific anti-example
 		"Searching chat (opt-in)",           // chat search opt-in section
 		`"include_chat":true`,               // opt-in flag documentation
+		`POST "<base-url>/v1/feedback"`,     // stateless feedback endpoint
+		`"signal":"helpful"`,                // example signal in feedback
+		"surfaced_gap",                      // the unusual 6th signal
+		"reference_count_30d",               // passive signal exposed
+		"engagement",                        // engagement endpoint mention
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in /skill.md (canonical full spec)", want)

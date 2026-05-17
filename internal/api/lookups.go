@@ -65,6 +65,7 @@ func (h *Handler) lookupByTrigger(w http.ResponseWriter, r *http.Request) {
 		includeProhibited: req.IncludeProhibited,
 		createCases:       req.CreateCases,
 		triggerQuery:      req.TriggerDescription,
+		source:            store.AccessSourceLookupByTrigger,
 	})
 	writeJSON(w, http.StatusOK, out)
 }
@@ -101,6 +102,7 @@ func (h *Handler) lookupBySymptom(w http.ResponseWriter, r *http.Request) {
 		includeProhibited: req.IncludeProhibited,
 		createCases:       req.CreateCases,
 		triggerQuery:      req.SymptomDescription,
+		source:            store.AccessSourceLookupBySymptom,
 	})
 	writeJSON(w, http.StatusOK, out)
 }
@@ -137,6 +139,7 @@ func (h *Handler) lookupByTags(w http.ResponseWriter, r *http.Request) {
 		includeProhibited: req.IncludeProhibited,
 		createCases:       req.CreateCases,
 		triggerQuery:      strings.Join(req.Tags, ","),
+		source:            store.AccessSourceLookupByTags,
 	})
 	writeJSON(w, http.StatusOK, out)
 }
@@ -173,6 +176,7 @@ func (h *Handler) lookupBySituation(w http.ResponseWriter, r *http.Request) {
 		includeProhibited: req.IncludeProhibited,
 		createCases:       req.CreateCases,
 		triggerQuery:      req.SituationDescription,
+		source:            store.AccessSourceLookupBySituation,
 	})
 	writeJSON(w, http.StatusOK, out)
 }
@@ -188,6 +192,11 @@ type lookupCtx struct {
 	includeProhibited bool
 	createCases       bool
 	triggerQuery      string
+	// source is the access_log source label (e.g. "lookup_by_trigger").
+	// Each lookup handler sets this so buildLookupResponse can record one
+	// access_log row per surviving match. Without this, lookup hits would
+	// be invisible to /v1/feedback callers and to reference_count_30d.
+	source string
 }
 
 // buildLookupResponse expands LookupHit IDs into full match objects by
@@ -269,6 +278,20 @@ func (h *Handler) buildLookupResponse(r *http.Request, c lookupCtx) lookupRespon
 			}
 		}
 		out.Matches = append(out.Matches, m)
+	}
+	// Record passive access — one row per surviving match. Failures are
+	// non-fatal: a logging hiccup must not break the lookup response.
+	// We intentionally log AFTER project/status filtering so the log
+	// reflects what the caller actually saw.
+	if c.source != "" && len(out.Matches) > 0 {
+		ids := make([]string, len(out.Matches))
+		for i, m := range out.Matches {
+			ids[i] = m.EntryID
+		}
+		userID := r.Header.Get("X-Audit-User")
+		if err := h.Store.RecordAccess(httpCtx(r), ids, userID, c.source, c.triggerQuery); err != nil {
+			h.Logger.Warn("access log failed", "source", c.source, "err", err)
+		}
 	}
 	return out
 }

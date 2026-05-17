@@ -100,8 +100,9 @@ Look at every `prohibited` field in the response. If a hit's
 `prohibited` matches what you were planning to do, **abort and
 re-plan**.
 
-If a hit returns a `case_id`, save it so you can report the outcome
-later.
+Every match has an `entry_id`. If a hit ends up shaping what you do —
+applied it, found it stale, found it wrong, or it surfaced a gap in
+your own model — file a one-line feedback (step 4 below).
 
 ### 2. Diagnosing a reported issue
 
@@ -138,18 +139,57 @@ architectural rationale, `type=lesson` for one-time learnings,
 
 ### 4. Close the feedback loop
 
-If you acted on a lookup hit (got a `case_id`):
+If an entry you saw (in a lookup, a search, or a direct fetch)
+shaped what you did or you noticed something wrong with it, file
+**one line** of feedback:
 
 ```bash
-curl -sX PATCH "<base-url>/v1/cases/<case_id>" \
+curl -sX POST "<base-url>/v1/feedback" \
   -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
-  -d '{"outcome":"applied","result":"helpful"}'
+  -d '{"entry_id":"L-XXXXXX","signal":"helpful"}'
 ```
 
-Values: `outcome` = applied | considered_rejected | ignored,
-`result` = helpful | partially_helpful | not_helpful | misleading |
-unknown.
+`signal` is one of:
+
+| signal | when to use |
+|---|---|
+| `helpful` | You applied this entry's content / it directly solved your task. |
+| `confirmed` | Already knew the content; it reinforced what you were going to do. |
+| `outdated` | Factually correct once, but no longer matches current state. |
+| `wrong` | Factually incorrect. |
+| `incomplete` | Correct, but important context is missing. File this with `context` describing what's missing. |
+| `surfaced_gap` | Reading it revealed a gap in YOUR model — you didn't know what you didn't know. |
+
+Optional `context` (free text) is highly encouraged for `outdated` /
+`wrong` / `incomplete` / `surfaced_gap` — it's what makes the feedback
+actionable for the next reader. Keep it short: one sentence.
+
+You don't need to track any state between calls. `entry_id` is in
+every search / lookup response. Feedback is fire-and-forget.
+
+You can file feedback on the same entry multiple times over your
+agent's lifetime — saying "helpful" today and "outdated" three months
+later is the right behaviour, not a problem.
+
+**Passive signal:** every lookup/search/get is logged server-side
+(no agent action needed). The result is visible at
+`GET /v1/entries/<id>/engagement` along with feedback counts:
+
+```bash
+curl "<base-url>/v1/entries/<id>/engagement" \
+  -H "Authorization: Bearer <api-key>"
+```
+
+Returns `reference_count_30d`, per-signal totals, and an
+`engagement_score` (~ -1 to +1, smoothed) you can use to triage
+suspect entries.
+
+> Legacy: `POST /v1/cases` + `PATCH /v1/cases/<id>` still exists for
+> callers that need the richer trace (per-query, judged-by, evidence
+> attachments). Use it if you specifically want that. For ordinary
+> "this helped" / "this is wrong" feedback, `/v1/feedback` is shorter
+> and stateless.
 
 ## Cross-project knowledge
 
@@ -697,5 +737,7 @@ The error envelope is always:
   - `PATCH /v1/entries/<id>` — update an entry (needs `If-Match: <version>`)
   - `POST /v1/lookup/by-{trigger,symptom,situation,tags}` — retrieval
   - `POST /v1/search` — full-text search
-  - `POST /v1/cases` / `PATCH /v1/cases/<id>` — feedback loop
+  - `POST /v1/feedback` — one-line feedback (preferred)
+  - `GET  /v1/entries/<id>/engagement` — reference counts + feedback aggregate
+  - `POST /v1/cases` / `PATCH /v1/cases/<id>` — legacy feedback loop with case_id
   - `POST /v1/relations` / `DELETE /v1/relations?from_id=…&to_id=…&rel_type=…` — graph edges

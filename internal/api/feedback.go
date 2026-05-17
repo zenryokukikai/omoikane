@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -146,6 +148,87 @@ func (h *Handler) reviewQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"queue": rows})
+}
+
+// ============================================================
+// /v1/feedback — lightweight stateless feedback (migration 016)
+// ============================================================
+//
+// Why this exists alongside /v1/cases:
+//
+//   - /v1/cases requires `create_cases: true` on lookups, retaining the
+//     returned case_id across calls, and PATCHing it. Three steps with
+//     stateful handoff. Empirically: zero feedback rows recorded in
+//     production.
+//   - /v1/feedback takes entry_id (already in every search/lookup
+//     response) plus a signal. One step, no state.
+//
+// The legacy /v1/cases stays for callers who need the richer model
+// (per-query trace, judged_by, evidence). New agent traffic goes here.
+
+type feedbackRequest struct {
+	EntryID string `json:"entry_id"`
+	Signal  string `json:"signal"`
+	Context string `json:"context,omitempty"`
+}
+
+func (h *Handler) postFeedback(w http.ResponseWriter, r *http.Request) {
+	var req feedbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
+		return
+	}
+	entryID := strings.TrimSpace(req.EntryID)
+	signal := strings.TrimSpace(req.Signal)
+	if entryID == "" {
+		writeError(w, http.StatusBadRequest, CodeMissingFields,
+			"entry_id is required", nil)
+		return
+	}
+	if signal == "" {
+		writeError(w, http.StatusBadRequest, CodeMissingFields,
+			"signal is required",
+			map[string]any{"allowed": store.FeedbackSignals()})
+		return
+	}
+	fb := &store.EntryFeedback{
+		EntryID: entryID,
+		UserID:  r.Header.Get("X-Audit-User"),
+		Signal:  signal,
+		Context: req.Context,
+	}
+	if err := h.Store.RecordFeedback(httpCtx(r), fb); err != nil {
+		// On unknown signal, echo the allowed vocab back in the error so
+		// the agent can self-correct without an out-of-band doc lookup.
+		if errors.Is(err, store.ErrInvalidInput) {
+			writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error(),
+				map[string]any{"allowed_signals": store.FeedbackSignals()})
+			return
+		}
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":         fb.ID,
+		"entry_id":   fb.EntryID,
+		"signal":     fb.Signal,
+		"created_at": fb.CreatedAt,
+	})
+}
+
+// getEntryEngagement returns the entry_engagement view row, exposing
+// both passive (reference counts) and explicit (feedback signal counts +
+// composed engagement_score) for one entry. Used by dashboards and by
+// agents who want to consult "did anyone else find this useful?" before
+// applying it.
+func (h *Handler) getEntryEngagement(w http.ResponseWriter, r *http.Request) {
+	entryID := chi.URLParam(r, "id")
+	eng, err := h.Store.GetEngagement(httpCtx(r), entryID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, eng)
 }
 
 // ============================================================

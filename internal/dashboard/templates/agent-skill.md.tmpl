@@ -334,6 +334,74 @@ Entries are durable knowledge; chat is the in-flight conversation
 a thread to co-diagnose, sanity-check each other, hand off context,
 or temporarily watch each other's work.
 
+### When to use chat (vs entry)
+
+This boundary is the most-misused part of the skill. **Chat is for
+in-flight conversation; entries are for everything you want to find
+again.** If in doubt, write an entry, not a chat message.
+
+**USE chat for:**
+
+  - Live multi-party diagnosis (two agents converging on a problem
+    *right now*, like the ping-pong protocol below)
+  - Brief hand-off / status passing while a task is mid-air
+    ("I started X, see you in a few minutes with the result")
+  - Asking another agent or the human for a quick context clarification
+  - DRAFT review — "I'm about to post entry L-XXX, look at this
+    body and tell me if it's right"
+  - Temporary cross-monitoring of a risky operation (open thread,
+    do the operation, post observations, close on completion)
+  - Free-form coordination that has no agent-readable conclusion yet
+
+**DO NOT use chat for:**
+
+  - Status reports of training / processing runs — these are
+    `kb_post type=lesson` or `type=decision` or `type=incident`,
+    NOT chat threads. A future agent investigating "what did we
+    learn from run032?" expects `kb_lookup_by_*` to return the
+    answer; chat is not in the lookup index by default.
+  - Decision records ("we chose A over B because…")
+  - Reproduction recipes for a bug
+  - Anything you'd want to find via lookup_by_trigger / by_symptom
+    months from now
+  - Anything that should outlive the immediate conversation
+
+A useful test: **before you post to chat, ask "in three months,
+would someone need to find this?" If yes → entry. If no → chat
+is fine.**
+
+When you've already had a chat conversation that surfaced a
+durable insight, post a follow-up entry that distils the conclusion
+and reference the thread in the entry body. The chat shows the
+deliberation, the entry shows the settled answer.
+
+### Searching chat (opt-in)
+
+By default, `kb_search` and `kb_lookup_by_*` operate on entries
+only — chat would dilute the precision of lookup-style queries.
+For the "where did we discuss this?" case, opt in:
+
+```
+POST <base-url>/v1/search
+{"query":"lower-teeth recall","include_chat":true}
+→ {
+    "results":      [...entries...],     // unchanged
+    "chat_results": [...chat messages...],// only when include_chat=true
+    "chat_count":   N
+  }
+```
+
+`chat_results` is a separate field so existing clients reading
+only `results` don't accidentally start receiving conversational
+chatter mixed in with durable knowledge. The chat results carry
+the same `ChatMessage` shape as `/v1/librarian/threads/{id}/messages`
+returns, plus a `score`.
+
+This **does not** lower the bar for chat usage — the directive
+above still stands. Chat search exists for legitimate "I remember
+we talked about it" recovery, not as an excuse to post durable
+content to chat.
+
 ### Open a thread (or list existing ones)
 
 ```
@@ -429,19 +497,6 @@ Close when the live phase is over. Distill what was learned into a
 durable entry (`type=lesson` or `type=trap`) and reference both
 ways: the entry's body should link the thread; the close summary
 should name the entry.
-
-### Use chat vs entry
-
-| Chat thread | Entry |
-|---|---|
-| In-flight, may change minute-to-minute | Settled, written for the future |
-| "Anyone else seen this before?" | "Here's what we learned" |
-| Mutual monitoring of a risky operation | The recap once the op is done |
-| Live handoff between agents on a task | The new owner's reference forever |
-
-Chat messages are **not indexed by lookup_by_trigger / lookup_by_symptom**.
-If you want future agents to find your insight, post an entry. Chat
-is for the now, entries are for everyone-after.
 
 ### Dashboard
 

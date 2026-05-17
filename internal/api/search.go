@@ -13,6 +13,11 @@ type searchRequest struct {
 	Mode    string         `json:"mode,omitempty"`
 	Filters *searchFilters `json:"filters,omitempty"`
 	TopK    int            `json:"top_k,omitempty"`
+	// IncludeChat = true also searches librarian_chat (opt-in;
+	// chat is not durable knowledge and would dilute precision on
+	// lookup-style queries). Results come back in a separate
+	// `chat_results` field on the response.
+	IncludeChat bool `json:"include_chat,omitempty"`
 }
 
 type searchFilters struct {
@@ -85,12 +90,28 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"results": results,
 		"count":   len(results),
 		"total":   total,
 		"mode":    defaultMode(req.Mode),
-	})
+	}
+	// Opt-in chat search. Chat results live in a separate field so
+	// existing clients (which read only `results`) are unaffected.
+	// The shape is documented in SKILL.md "Searching chat (opt-in)".
+	if req.IncludeChat {
+		chatResults, cerr := h.Store.SearchChatFTS(httpCtx(r), req.Query, req.TopK)
+		if cerr != nil {
+			// Don't fail the whole request — entries already came back.
+			// Surface the chat search error as a partial-failure note;
+			// the entry results are still useful.
+			resp["chat_error"] = cerr.Error()
+		} else {
+			resp["chat_results"] = chatResults
+			resp["chat_count"] = len(chatResults)
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func defaultMode(m string) string {

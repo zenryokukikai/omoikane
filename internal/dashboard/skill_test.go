@@ -64,6 +64,11 @@ func TestServeSkillMD(t *testing.T) {
 		"POST <base-url>/v1/attachments",    // upload usage
 		"attached:<id>",                     // body-reference syntax
 		"worst-case",                        // role vocabulary present
+		"When to use chat (vs entry)",       // directive chat-vs-entry section
+		"DO NOT use chat for",               // negative directives spelled out
+		"Status reports of training",        // the lipsync-induced specific anti-example
+		"Searching chat (opt-in)",           // chat search opt-in section
+		`"include_chat":true`,               // opt-in flag documentation
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in /skill.md (canonical full spec)", want)

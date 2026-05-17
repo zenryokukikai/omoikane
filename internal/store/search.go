@@ -14,6 +14,65 @@ type SearchResult struct {
 	Score float64 `json:"score"`
 }
 
+// ChatSearchResult is one chat message returned by an FTS search.
+// Score uses the same convention as SearchResult (larger == more
+// relevant; we negate bm25). The full ChatMessage is embedded so
+// callers don't need a second query to display author / thread.
+type ChatSearchResult struct {
+	Message *ChatMessage `json:"message"`
+	Score   float64      `json:"score"`
+}
+
+// SearchChatFTS runs FTS5 against librarian_chat_fts. Chat search is
+// opt-in (controlled by the API's include_chat flag) — chat is not
+// searched by default because lookup-style queries want durable
+// knowledge (entries), and chat traffic would dilute precision.
+//
+// `limit` caps the number of results; 0 means "use a sensible default"
+// (50). No project / status filter yet — chat threads don't have a
+// project_id, and OPEN/CLOSED filtering happens at the thread level
+// (a future extension can join chat_threads and filter on status).
+func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*ChatSearchResult, error) {
+	if strings.TrimSpace(q) == "" {
+		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.id, COALESCE(m.thread_id,''), m.timestamp, m.author_role,
+		       COALESCE(m.author_instance_id,''), COALESCE(m.author_user_id,''),
+		       COALESCE(m.reply_to,''), COALESCE(m.mentions,''),
+		       COALESCE(m.intent,''), m.content, COALESCE(m.related_entries,''),
+		       m.input_tokens, m.output_tokens, COALESCE(m.metadata,''),
+		       -bm25(librarian_chat_fts) AS score
+		FROM librarian_chat m
+		JOIN librarian_chat_fts f ON f.rowid = m.rowid
+		WHERE librarian_chat_fts MATCH ?
+		ORDER BY score DESC
+		LIMIT ?`, q, limit)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	values, err := mapRows[ChatSearchResult](rows, func(c rowScanner, r *ChatSearchResult) error {
+		r.Message = &ChatMessage{}
+		return c.Scan(&r.Message.ID, &r.Message.ThreadID, &r.Message.Timestamp,
+			&r.Message.AuthorRole, &r.Message.AuthorInstanceID, &r.Message.AuthorUserID,
+			&r.Message.ReplyTo, &r.Message.Mentions, &r.Message.Intent,
+			&r.Message.Content, &r.Message.RelatedEntries,
+			&r.Message.InputTokens, &r.Message.OutputTokens, &r.Message.Metadata,
+			&r.Score)
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ChatSearchResult, len(values))
+	for i := range values {
+		out[i] = &values[i]
+	}
+	return out, nil
+}
+
 // SearchFTS runs FTS5 against entries_fts with optional filters and pagination.
 // Returns matched entries plus total match count (for pagination).
 func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*SearchResult, int, error) {

@@ -21,15 +21,29 @@ type AgentInvitation struct {
 	ExpiresAt      time.Time
 	UsedAt         *time.Time
 	UsedByAgent    string
+	// LibrarianRole, when non-empty, marks this invite as creating a
+	// librarian-side agent (cataloger, curator, ...). At redemption the
+	// agent user gets this role and its token receives the `librarian`
+	// scope. Empty = ordinary agent invite.
+	LibrarianRole  string
 }
 
 // CreateAgentInvitation mints a fresh invitation under the supplied
 // human user. The returned code is what they hand to the prospective
 // agent; the inviter's user_id will become the agent's parent_user_id
 // at redemption time.
-func (s *Store) CreateAgentInvitation(ctx context.Context, inviterUserID, note string) (*AgentInvitation, error) {
+//
+// librarianRole is optional. When non-empty it must be in
+// ValidLibrarianRoles. Passing a role here is the only way to mint a
+// token that can register a librarian instance — there is no path to
+// upgrade an ordinary agent into a librarian after the fact.
+func (s *Store) CreateAgentInvitation(ctx context.Context, inviterUserID, note, librarianRole string) (*AgentInvitation, error) {
 	if inviterUserID == "" {
 		return nil, fmt.Errorf("%w: inviter required", ErrInvalidInput)
+	}
+	if librarianRole != "" && !ValidLibrarianRoles[librarianRole] {
+		return nil, fmt.Errorf("%w: librarian_role %q is not one of %v",
+			ErrInvalidInput, librarianRole, LibrarianRoleSlice())
 	}
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -38,9 +52,9 @@ func (s *Store) CreateAgentInvitation(ctx context.Context, inviterUserID, note s
 	code := hex.EncodeToString(b[:])
 	exp := time.Now().Add(InviteCodeTTL).UTC()
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_invitations(code, inviter_user_id, note, expires_at)
-		VALUES (?, ?, ?, ?)`,
-		code, inviterUserID, nullable(note), exp)
+		INSERT INTO agent_invitations(code, inviter_user_id, note, expires_at, librarian_role)
+		VALUES (?, ?, ?, ?, ?)`,
+		code, inviterUserID, nullable(note), exp, nullable(librarianRole))
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -52,15 +66,15 @@ func (s *Store) CreateAgentInvitation(ctx context.Context, inviterUserID, note s
 // decide whether the code is still usable.
 func (s *Store) GetAgentInvitation(ctx context.Context, code string) (*AgentInvitation, error) {
 	var (
-		inv       AgentInvitation
-		usedAt    nullTimeBox
+		inv    AgentInvitation
+		usedAt nullTimeBox
 	)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT code, inviter_user_id, COALESCE(note,''), created_at, expires_at,
-		       used_at, COALESCE(used_by_agent,'')
+		       used_at, COALESCE(used_by_agent,''), COALESCE(librarian_role,'')
 		FROM agent_invitations WHERE code = ?`, code).Scan(
 		&inv.Code, &inv.InviterUserID, &inv.Note,
-		&inv.CreatedAt, &inv.ExpiresAt, &usedAt, &inv.UsedByAgent)
+		&inv.CreatedAt, &inv.ExpiresAt, &usedAt, &inv.UsedByAgent, &inv.LibrarianRole)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -76,7 +90,7 @@ func (s *Store) GetAgentInvitation(ctx context.Context, code string) (*AgentInvi
 func (s *Store) ListAgentInvitations(ctx context.Context, inviterUserID string) ([]*AgentInvitation, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT code, inviter_user_id, COALESCE(note,''), created_at, expires_at,
-		       used_at, COALESCE(used_by_agent,'')
+		       used_at, COALESCE(used_by_agent,''), COALESCE(librarian_role,'')
 		FROM agent_invitations WHERE inviter_user_id = ? ORDER BY created_at DESC LIMIT 200`,
 		inviterUserID)
 	if err != nil {
@@ -85,7 +99,7 @@ func (s *Store) ListAgentInvitations(ctx context.Context, inviterUserID string) 
 	values, err := mapRows[AgentInvitation](rows, func(c rowScanner, inv *AgentInvitation) error {
 		var usedAt nullTimeBox
 		if err := c.Scan(&inv.Code, &inv.InviterUserID, &inv.Note,
-			&inv.CreatedAt, &inv.ExpiresAt, &usedAt, &inv.UsedByAgent); err != nil {
+			&inv.CreatedAt, &inv.ExpiresAt, &usedAt, &inv.UsedByAgent, &inv.LibrarianRole); err != nil {
 			return err
 		}
 		if usedAt.Valid {
@@ -125,14 +139,15 @@ func (s *Store) RedeemAgentInvitation(ctx context.Context, code, name, descripti
 	defer tx.Rollback()
 
 	var (
-		inviterUserID string
-		expiresAt     time.Time
-		usedAt        nullTimeBox
+		inviterUserID  string
+		expiresAt      time.Time
+		usedAt         nullTimeBox
+		librarianRole  string
 	)
 	err = tx.QueryRowContext(ctx, `
-		SELECT inviter_user_id, expires_at, used_at
+		SELECT inviter_user_id, expires_at, used_at, COALESCE(librarian_role,'')
 		FROM agent_invitations WHERE code = ?`, code).Scan(
-		&inviterUserID, &expiresAt, &usedAt)
+		&inviterUserID, &expiresAt, &usedAt, &librarianRole)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -143,19 +158,29 @@ func (s *Store) RedeemAgentInvitation(ctx context.Context, code, name, descripti
 		return nil, fmt.Errorf("%w: invitation expired", ErrNotFound)
 	}
 
-	// Create agent user with parent already set
+	// Create agent user with parent already set, and the librarian role
+	// (if any) carried over from the invite. Once written here it's
+	// authoritative; the agent cannot self-promote.
 	uid, err := newUserID()
 	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO users(id, name, role, description, parent_user_id)
-		VALUES (?, ?, 'agent', ?, ?)`,
-		uid, name, nullable(description), inviterUserID); err != nil {
+		INSERT INTO users(id, name, role, description, parent_user_id, librarian_role)
+		VALUES (?, ?, 'agent', ?, ?, ?)`,
+		uid, name, nullable(description), inviterUserID, nullable(librarianRole)); err != nil {
 		return nil, translateErr(err)
 	}
 
-	// Mint API token
+	// Mint API token. Librarian-side agents get the `librarian` scope
+	// alongside read/write so they can call POST /v1/librarian/instances
+	// without holding `admin`. The scope is the ONLY thing that gates
+	// librarian endpoints — librarian_role is for role-consistency
+	// checks, not authorisation.
+	scopes := "read,write"
+	if librarianRole != "" {
+		scopes = "read,write,librarian"
+	}
 	plain, err := GenerateToken()
 	if err != nil {
 		return nil, err
@@ -163,7 +188,7 @@ func (s *Store) RedeemAgentInvitation(ctx context.Context, code, name, descripti
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO api_tokens(token_hash, user_id, name, scopes, token_type)
 		VALUES (?, ?, ?, ?, 'api')`,
-		HashToken(plain), uid, name, "read,write"); err != nil {
+		HashToken(plain), uid, name, scopes); err != nil {
 		return nil, translateErr(err)
 	}
 

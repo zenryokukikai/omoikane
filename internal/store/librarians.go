@@ -78,6 +78,29 @@ func ValidLibrarianRole(r string) bool {
 	return false
 }
 
+// LibrarianRoleSlice returns the canonical roles as a sorted slice.
+// Used to echo the allowed list in error responses so callers can
+// self-correct without a doc lookup.
+func LibrarianRoleSlice() []string {
+	return []string{
+		"cataloger", "conservator", "coordinator", "curator",
+		"detective", "judge", "scout", "summarizer",
+	}
+}
+
+// ValidLibrarianRoles is a map view of the canonical roles for
+// constant-time membership tests. Kept in sync with ValidLibrarianRole.
+var ValidLibrarianRoles = map[string]bool{
+	"coordinator": true,
+	"cataloger":   true,
+	"curator":     true,
+	"detective":   true,
+	"conservator": true,
+	"scout":       true,
+	"summarizer":  true,
+	"judge":       true,
+}
+
 // ValidChatAuthor is the broader set of accepted `author_role` values
 // on `librarian_chat`. In addition to the 8 librarians, "human" is
 // allowed so the user (Z-axis observer per design.md §24) can join the

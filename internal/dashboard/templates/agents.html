@@ -39,6 +39,24 @@
     <label>Note (optional, for your reference)
       <input type="text" name="note" placeholder="e.g. lipsync agent, customer-support bot, …">
     </label>
+    <label>Librarian role
+      <select name="librarian_role">
+        <option value="">— none (ordinary agent, read+write only) —</option>
+        <option value="coordinator">coordinator 🎛️ — queue health / liveness / budget / escalation</option>
+        <option value="cataloger">cataloger 🗂️ — tags / hierarchy / situations</option>
+        <option value="curator">curator 🩺 — status / supersede / conflict resolution</option>
+        <option value="detective">detective 🔍 — clusters / relations discovery</option>
+        <option value="conservator">conservator 🛡️ — enrichment drift / dead pool / schema</option>
+        <option value="scout">scout 🛰️ — external findings + ingest proposals</option>
+        <option value="summarizer">summarizer 📝 — thread closure summaries</option>
+        <option value="judge">judge ⚖️ — quartet decisions / Z-axis ruling</option>
+      </select>
+    </label>
+    <p class="muted" style="margin-top: -0.5em; font-size: 0.9em;">
+      Pick a role only for librarian-side agents. The redeemed token gets the
+      <code>librarian</code> scope and the agent's user record permanently
+      carries that role (it cannot self-promote later).
+    </p>
     <button type="submit">Issue code</button>
   </form>
 </details>
@@ -66,11 +84,12 @@
 <h2>Your invitation codes</h2>
 {{if .Invitations}}
 <table>
-  <thead><tr><th>Code</th><th>Note</th><th>Created</th><th>Expires</th><th>Status</th></tr></thead>
+  <thead><tr><th>Code</th><th>Role</th><th>Note</th><th>Created</th><th>Expires</th><th>Status</th></tr></thead>
   <tbody>
     {{range .Invitations}}
     <tr>
       <td><code>{{.Code}}</code></td>
+      <td>{{if .LibrarianRole}}<span class="badge">{{.LibrarianRole}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       <td class="muted">{{.Note}}</td>
       <td class="muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
       <td class="muted">{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>

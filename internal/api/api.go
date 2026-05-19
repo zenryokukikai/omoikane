@@ -167,7 +167,12 @@ func (h *Handler) Mount(r chi.Router) {
 
 			// Phase 5 — librarian community
 			r.Route("/librarian", func(r chi.Router) {
-				r.With(auth.RequireScope("admin")).Post("/instances", h.librarianRegister)
+				// Register-instance is the librarian's "claim my seat" call.
+				// It uses the dedicated `librarian` scope (granted only to
+				// tokens issued from a librarian_role invite), NOT `admin`.
+				// This carves out a permission lane for librarian agents
+				// distinct from full server admins.
+				r.With(auth.RequireScope("librarian")).Post("/instances", h.librarianRegister)
 				r.With(auth.RequireScope("read")).Get("/instances", h.librarianList)
 				r.With(auth.RequireScope("write")).Patch("/instances/{id}", h.librarianSetStatus)
 				r.With(auth.RequireScope("write")).Post("/instances/{id}/heartbeat", h.librarianHeartbeat)

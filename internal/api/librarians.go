@@ -45,7 +45,41 @@ func (h *Handler) librarianRegister(w http.ResponseWriter, r *http.Request) {
 	if !store.ValidLibrarianRole(req.Role) {
 		writeError(w, http.StatusBadRequest, CodeBadRequest,
 			"role must be one of coordinator|cataloger|curator|detective|conservator|scout|summarizer|judge",
-			map[string]any{"got": req.Role})
+			map[string]any{"got": req.Role, "allowed": store.LibrarianRoleSlice()})
+		return
+	}
+	// Role-consistency check.
+	// - Librarian-scoped users (issued via librarian_role invite) MUST
+	//   register the role they were issued for. A cataloger token
+	//   cannot register as curator.
+	// - Admin-scoped users may register any role (manual operations,
+	//   tests, bootstrap before the first librarian invite exists).
+	// - Anything else: forbidden.
+	tok := auth.FromContext(r.Context())
+	if tok == nil || tok.UserID == "" {
+		writeError(w, http.StatusUnauthorized, CodeInvalidToken,
+			"librarian registration requires an authenticated user", nil)
+		return
+	}
+	u, err := h.Store.GetUser(httpCtx(r), tok.UserID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	switch {
+	case u.LibrarianRole != "":
+		if u.LibrarianRole != req.Role {
+			writeError(w, http.StatusForbidden, CodeForbidden,
+				"role mismatch: token user is bound to a different librarian role",
+				map[string]any{"token_role": u.LibrarianRole, "request_role": req.Role})
+			return
+		}
+	case store.HasScope(tok.Scopes, "admin"):
+		// Admin manual path — allowed for any role.
+	default:
+		writeError(w, http.StatusForbidden, CodeForbidden,
+			"this token cannot register a librarian instance: it has neither a "+
+				"librarian_role nor admin scope", nil)
 		return
 	}
 	id, err := h.Store.RegisterLibrarianInstance(httpCtx(r), &store.LibrarianInstance{

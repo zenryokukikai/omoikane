@@ -12,7 +12,7 @@ func TestCreateAndGetAgentInvitation(t *testing.T) {
 	ctx := context.Background()
 	_ = s.CreateUser(ctx, &User{ID: "alice", Name: "Alice"})
 
-	inv, err := s.CreateAgentInvitation(ctx, "alice", "for lipsync project")
+	inv, err := s.CreateAgentInvitation(ctx, "alice", "for lipsync project", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestCreateAndGetAgentInvitation(t *testing.T) {
 
 func TestCreateAgentInvitationValidation(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateAgentInvitation(context.Background(), "", "x"); !errors.Is(err, ErrInvalidInput) {
+	if _, err := s.CreateAgentInvitation(context.Background(), "", "x", ""); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("empty inviter: %v", err)
 	}
 }
@@ -46,7 +46,7 @@ func TestRedeemAgentInvitationHappyPath(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	_ = s.CreateUser(ctx, &User{ID: "alice", Name: "Alice"})
-	inv, _ := s.CreateAgentInvitation(ctx, "alice", "")
+	inv, _ := s.CreateAgentInvitation(ctx, "alice", "", "")
 
 	reg, err := s.RedeemAgentInvitation(ctx, inv.Code, "claude-x", "test agent")
 	if err != nil {
@@ -85,7 +85,7 @@ func TestRedeemAgentInvitationReuse(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	_ = s.CreateUser(ctx, &User{ID: "alice", Name: "Alice"})
-	inv, _ := s.CreateAgentInvitation(ctx, "alice", "")
+	inv, _ := s.CreateAgentInvitation(ctx, "alice", "", "")
 
 	if _, err := s.RedeemAgentInvitation(ctx, inv.Code, "a1", ""); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestRedeemAgentInvitationExpired(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	_ = s.CreateUser(ctx, &User{ID: "alice", Name: "Alice"})
-	inv, _ := s.CreateAgentInvitation(ctx, "alice", "")
+	inv, _ := s.CreateAgentInvitation(ctx, "alice", "", "")
 	// Backdate expiry
 	if _, err := s.DB().Exec(
 		`UPDATE agent_invitations SET expires_at = datetime('now','-1 hour') WHERE code = ?`,
@@ -122,7 +122,7 @@ func TestRedeemAgentInvitationEmptyName(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	_ = s.CreateUser(ctx, &User{ID: "alice", Name: "Alice"})
-	inv, _ := s.CreateAgentInvitation(ctx, "alice", "")
+	inv, _ := s.CreateAgentInvitation(ctx, "alice", "", "")
 	if _, err := s.RedeemAgentInvitation(ctx, inv.Code, "", ""); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("empty name: %v", err)
 	}
@@ -134,9 +134,9 @@ func TestListAgentInvitations(t *testing.T) {
 	_ = s.CreateUser(ctx, &User{ID: "alice", Name: "Alice"})
 	_ = s.CreateUser(ctx, &User{ID: "bob", Name: "Bob"})
 
-	_, _ = s.CreateAgentInvitation(ctx, "alice", "first")
-	_, _ = s.CreateAgentInvitation(ctx, "alice", "second")
-	_, _ = s.CreateAgentInvitation(ctx, "bob", "bob's")
+	_, _ = s.CreateAgentInvitation(ctx, "alice", "first", "")
+	_, _ = s.CreateAgentInvitation(ctx, "alice", "second", "")
+	_, _ = s.CreateAgentInvitation(ctx, "bob", "bob's", "")
 
 	a, _ := s.ListAgentInvitations(ctx, "alice")
 	if len(a) != 2 {

@@ -116,13 +116,19 @@ func (h *Handler) agentRegister(w http.ResponseWriter, r *http.Request) {
 
 type issueInviteRequest struct {
 	Note string `json:"note,omitempty"`
+	// LibrarianRole, when non-empty, mints a librarian-side invite.
+	// The redeemed token gets the `librarian` scope and the agent user
+	// records its role permanently (see store.RedeemAgentInvitation).
+	// Empty mints an ordinary agent invite (read+write scope only).
+	LibrarianRole string `json:"librarian_role,omitempty"`
 }
 
 type issueInviteResponse struct {
-	Code         string `json:"code"`
-	ExpiresAt    string `json:"expires_at"`
-	RegisterURL  string `json:"register_url"`
-	Instructions string `json:"instructions"`
+	Code          string `json:"code"`
+	ExpiresAt     string `json:"expires_at"`
+	RegisterURL   string `json:"register_url"`
+	Instructions  string `json:"instructions"`
+	LibrarianRole string `json:"librarian_role,omitempty"`
 }
 
 func (h *Handler) issueAgentInvite(w http.ResponseWriter, r *http.Request) {
@@ -138,20 +144,34 @@ func (h *Handler) issueAgentInvite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	inv, err := h.Store.CreateAgentInvitation(httpCtx(r), tok.UserID, req.Note)
+	role := strings.TrimSpace(req.LibrarianRole)
+	if role != "" && !store.ValidLibrarianRoles[role] {
+		writeError(w, http.StatusBadRequest, CodeBadRequest,
+			"librarian_role not recognised",
+			map[string]any{"got": role, "allowed": store.LibrarianRoleSlice()})
+		return
+	}
+	inv, err := h.Store.CreateAgentInvitation(httpCtx(r), tok.UserID, req.Note, role)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	base := h.publicBase(r)
+	instructions := "Give the code to your agent. The agent calls " +
+		"POST " + base + "/v1/agents/register with " +
+		"{name, description, invitation_code}. " +
+		"On redemption the agent is automatically adopted under your account."
+	if role != "" {
+		instructions += " This invite is scoped to librarian role '" + role +
+			"'. The redeemed token will hold the `librarian` scope and the " +
+			"agent's user record will permanently carry that role."
+	}
 	writeJSON(w, http.StatusCreated, issueInviteResponse{
-		Code:        inv.Code,
-		ExpiresAt:   inv.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
-		RegisterURL: base + "/v1/agents/register",
-		Instructions: "Give the code to your agent. The agent calls " +
-			"POST " + base + "/v1/agents/register with " +
-			"{name, description, invitation_code}. " +
-			"On redemption the agent is automatically adopted under your account.",
+		Code:          inv.Code,
+		ExpiresAt:     inv.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		RegisterURL:   base + "/v1/agents/register",
+		Instructions:  instructions,
+		LibrarianRole: role,
 	})
 }
 

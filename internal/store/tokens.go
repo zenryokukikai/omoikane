@@ -60,13 +60,14 @@ const userSelect = `
 	id, name, role, created_at,
 	COALESCE(email,''), COALESCE(google_sub,''),
 	COALESCE(avatar_url,''), last_login_at, email_verified_at,
-	COALESCE(parent_user_id,''), COALESCE(description,'')`
+	COALESCE(parent_user_id,''), COALESCE(description,''),
+	COALESCE(librarian_role,'')`
 
 func scanUser(r scanOne, u *User) error {
 	var last, verified nullTimeBox
 	if err := r.Scan(&u.ID, &u.Name, &u.Role, &u.CreatedAt,
 		&u.Email, &u.GoogleSub, &u.AvatarURL, &last, &verified,
-		&u.ParentUserID, &u.Description); err != nil {
+		&u.ParentUserID, &u.Description, &u.LibrarianRole); err != nil {
 		return err
 	}
 	if last.Valid {

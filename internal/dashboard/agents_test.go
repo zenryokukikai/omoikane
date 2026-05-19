@@ -61,7 +61,7 @@ func TestAgentsPageWithAuth(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed some state: an invite + an adopted agent
-	inv, _ := st.CreateAgentInvitation(ctx, "alice", "test invite")
+	inv, _ := st.CreateAgentInvitation(ctx, "alice", "test invite", "")
 	reg, _ := st.RedeemAgentInvitation(ctx, inv.Code, "test-agent", "doing tests")
 	_ = reg
 
@@ -185,12 +185,12 @@ func TestGlobalHeaderShowsUserAndInviteLink(t *testing.T) {
 func TestAgentsListMultiple(t *testing.T) {
 	srv, st, tok := mountAuthed(t)
 	ctx := context.Background()
-	_, _ = st.CreateAgentInvitation(ctx, "alice", "first")
-	_, _ = st.CreateAgentInvitation(ctx, "alice", "second")
-	_, _ = st.CreateAgentInvitation(ctx, "alice", "third")
+	_, _ = st.CreateAgentInvitation(ctx, "alice", "first", "")
+	_, _ = st.CreateAgentInvitation(ctx, "alice", "second", "")
+	_, _ = st.CreateAgentInvitation(ctx, "alice", "third", "")
 	// Also one from a different user — should NOT appear
 	_ = st.CreateUser(ctx, &store.User{ID: "bob", Name: "Bob"})
-	_, _ = st.CreateAgentInvitation(ctx, "bob", "bobs invite — should not show")
+	_, _ = st.CreateAgentInvitation(ctx, "bob", "bobs invite — should not show", "")
 
 	resp, _ := http.Get(srv.URL + "/agents?token=" + tok)
 	defer resp.Body.Close()

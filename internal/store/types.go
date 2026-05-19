@@ -158,10 +158,21 @@ type User struct {
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
 	ParentUserID    string     `json:"parent_user_id,omitempty"` // for agent users — the human who owns them
 	Description     string     `json:"description,omitempty"`
+	// LibrarianRole is non-empty only for agent users that hold a
+	// dedicated librarian seat (cataloger, curator, …). Set at invite
+	// redemption when the invite carried a librarian_role. Drives both
+	// authorisation (token gets the `librarian` scope) and the role-
+	// consistency check on POST /v1/librarian/instances.
+	LibrarianRole   string     `json:"librarian_role,omitempty"`
 	// password_hash deliberately omitted from the struct — never read into
 	// app memory unless the password-verification code path needs it
 	// (Phase B). Keeping it out reduces accidental leak surface.
 }
+
+// The canonical list of librarian roles lives in librarians.go alongside
+// the existing ValidLibrarianRole(r string) bool predicate, which we
+// reuse so the two paths can't drift. LibrarianRoleSlice (defined there)
+// gives the same list as a sorted []string for error-response echoes.
 
 type APIToken struct {
 	TokenHash  string     `json:"-"`

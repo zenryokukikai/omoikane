@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kojira/omoikane/internal/auth"
+	"github.com/kojira/omoikane/internal/store"
 )
 
 // ----------------------------------------------------------------------
@@ -44,7 +45,13 @@ func (h *Handler) agentsIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	note := strings.TrimSpace(r.FormValue("note"))
-	inv, err := h.Store.CreateAgentInvitation(r.Context(), tok.UserID, note)
+	role := strings.TrimSpace(r.FormValue("librarian_role"))
+	if role != "" && !store.ValidLibrarianRoles[role] {
+		h.renderAgentsPage(w, r, tok.UserID, "",
+			"unknown librarian_role: "+role)
+		return
+	}
+	inv, err := h.Store.CreateAgentInvitation(r.Context(), tok.UserID, note, role)
 	if err != nil {
 		h.renderAgentsPage(w, r, tok.UserID, "", "failed to issue: "+err.Error())
 		return

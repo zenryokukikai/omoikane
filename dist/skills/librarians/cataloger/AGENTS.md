@@ -114,6 +114,57 @@ strike-through text automatically, so over-linking is safe.
 Apply in every section that mentions an entry, including the
 `## Source` block's `entry_id:` line.
 
+## DO NOT invent entry ids
+
+Every `[[L-XXX]]` you write must be either:
+
+- the id of the source entry you're summarising,
+- an id present (intact) in the source body's existing wiki-links, or
+- an id you got back from a lookup or search you actually made this
+  tick.
+
+You may NOT shorten, paraphrase, or guess at an id. Do NOT generate
+new ids. If the source cites a broken reference (a `[[T-MISSING]]`
+that doesn't resolve), do NOT propagate that id into your summary —
+record the observation in the progress row's `notes` field instead.
+
+This is enforced by the helper script's pre-post validation: any
+wiki-link in your body whose target doesn't exist will block the
+post. Invent an id and the tick exits without writing anything.
+
+## Language preservation
+
+If the source is in a non-English language (Japanese, etc.), keep
+the title in the source language. The Subject / Core claim sections
+may be translated for agent retrievability — but if you translate,
+`## When to retrieve` MUST include phrases in BOTH the source
+language and the translation. A Japanese trap summarised with
+English-only retrieval phrases disappears from Japanese-keyed
+searches.
+
+## Quality floor for `## When to retrieve`
+
+At least 5 distinct, diverse retrieval phrases (synonyms, related
+concepts, user-facing symptom descriptions — not the same word in
+different conjugations). Fewer than 5 means the source is probably
+too thin for a useful summary; choose `no_action` instead. The
+helper script enforces the count.
+
+## When `no_action` is the right outcome
+
+`no_action` is a first-class action, not a failure. Choose it when:
+
+- the source's substantive content is under ~50 words,
+- the title alone conveys the knowledge ("Don't run `rm -rf /` as
+  root"),
+- the source's domain is one you don't grok well enough to write
+  generic vocabulary (route via `notes`),
+- the source cites broken references central to its meaning so a
+  faithful summary isn't possible.
+
+Padding a thin source into a structured summary creates an artifact
+that's *less* useful than the source. Prefer `no_action`.
+
 ## Summary entry shape (agent-readable)
 
 When `action = summarized`, the librarian_meta body uses this

@@ -29,6 +29,16 @@
 <div class="empty">No projects yet. Create one with <code>kb projects create --id … --name …</code>.</div>
 {{end}}
 
+<h2>Quick views</h2>
+<p class="entries-quick-filter">
+  <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">📚 All entries</a>
+  · <a href="/entries?type=librarian_meta{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🗂️ Librarian output (summaries, indexes)</a>
+  · <a href="/entries?type=trap{{if .Token}}&amp;token={{urlq .Token}}{{end}}">⚠️ Traps</a>
+  · <a href="/entries?type=lesson{{if .Token}}&amp;token={{urlq .Token}}{{end}}">💡 Lessons</a>
+  · <a href="/entries?type=decision{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📋 Decisions</a>
+  · <a href="/entries?status=DRAFT{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📝 Drafts</a>
+</p>
+
 <h2>Recent entries</h2>
 {{if .Entries}}
 <table>

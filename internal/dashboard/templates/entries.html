@@ -8,6 +8,18 @@
 
 <h1>Entries</h1>
 
+<p class="entries-quick-filter">
+  <strong>Quick views:</strong>
+  <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">all</a>
+  · <a href="/entries?type=librarian_meta{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🗂️ librarian output</a>
+  · <a href="/entries?type=trap{{if .Token}}&amp;token={{urlq .Token}}{{end}}">⚠️ traps</a>
+  · <a href="/entries?type=lesson{{if .Token}}&amp;token={{urlq .Token}}{{end}}">💡 lessons</a>
+  · <a href="/entries?type=decision{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📋 decisions</a>
+  · <a href="/entries?type=design{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🏗️ designs</a>
+  · <a href="/entries?type=incident{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🚨 incidents</a>
+  · <a href="/entries?status=DRAFT{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📝 drafts</a>
+</p>
+
 <form method="get" action="/entries" class="entries-filter">
   {{if .Token}}<input type="hidden" name="token" value="{{.Token}}">{{end}}
   <label>type

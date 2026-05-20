@@ -157,3 +157,58 @@ func TestHomeNavIncludesEntries(t *testing.T) {
 		t.Error("home page should link to /entries from the subnav")
 	}
 }
+
+// Home page should also surface the common type filters as quick-view
+// links so users don't have to know URL params. This is the discovery
+// path for "where do I see librarian summaries".
+func TestHomeQuickViewLinks(t *testing.T) {
+	s := newDashStore(t)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, _ := http.Get(srv.URL + "/")
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, link := range []string{
+		`href="/entries?type=librarian_meta`,
+		`href="/entries?type=trap`,
+		`href="/entries?type=lesson`,
+		`href="/entries?status=DRAFT`,
+	} {
+		if !strings.Contains(body, link) {
+			t.Errorf("home page should include quick-view link %q", link)
+		}
+	}
+}
+
+// /entries page should also surface quick filter chips at the top so
+// even users who landed without a token-bearing URL can navigate.
+func TestEntriesPageQuickViewChips(t *testing.T) {
+	s := newDashStore(t)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, _ := http.Get(srv.URL + "/entries")
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	if !strings.Contains(body, "Quick views:") {
+		t.Error("/entries should label the chip row 'Quick views:'")
+	}
+	for _, link := range []string{
+		`href="/entries?type=librarian_meta`,
+		`href="/entries?type=trap`,
+		`href="/entries?type=lesson`,
+	} {
+		if !strings.Contains(body, link) {
+			t.Errorf("/entries should include quick-view chip %q", link)
+		}
+	}
+}

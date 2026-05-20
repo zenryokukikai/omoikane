@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,7 +67,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	pages := map[string]*template.Template{}
 	for _, name := range []string{"home", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
-		"browse", "browse_node", "index",
+		"browse", "browse_node", "index", "entries",
 		"chat_threads", "chat_thread", "login", "claim", "agents", "profile",
 		"members", "member_claim"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
@@ -118,6 +119,7 @@ func (h *Handler) Mount(r chi.Router) {
 		}
 		r.Get("/", h.home)
 		r.Get("/projects/{id}", h.project)
+		r.Get("/entries", h.entriesList)
 		r.Get("/entries/{id}", h.entry)
 		r.Get("/entries/{id}/history", h.history)
 		r.Get("/search", h.search)
@@ -232,6 +234,13 @@ type pageCtx struct {
 	NewMemberCode     string                  // populated when ?new=<code> is set after issue
 	ClaimInvitation   *store.MemberInvitation // for /members/claim/{code}
 	ClaimInviter      *store.User
+
+	// Entries list page (/entries) — filterable index over all entries.
+	// EntriesTotal lets the template show "showing N of M total" without
+	// rendering the whole corpus. EntriesFilter echoes the active filter
+	// back so the form preserves user input across navigation.
+	EntriesTotal  int
+	EntriesFilter store.EntryFilter
 }
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {
@@ -267,6 +276,51 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 	pc.Projects = ps
 	pc.Entries = entries
 	h.render(w, "home", pc)
+}
+
+// entriesList renders a filterable list of entries. Filters accepted via
+// query params (each optional):
+//   ?type=<lesson|trap|decision|design|incident|librarian_meta|external_finding>
+//   ?project=<id>
+//   ?status=<DRAFT|ACTIVE|SUPERSEDED|ARCHIVED|...>
+//   ?tag=<tag>
+//   ?q=<full-text>
+//   ?limit=<N> (default 100, max 500)
+//   ?include_superseded=true
+//
+// Useful URLs for the librarian flow:
+//   /entries?type=librarian_meta              — every librarian's output
+//   /entries?type=librarian_meta&tag=cataloger — cataloger's output only
+//   /entries?type=trap                        — every trap in the corpus
+//   /entries?project=lipsync                  — lipsync's full corpus
+func (h *Handler) entriesList(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filter := store.EntryFilter{
+		ProjectID:         q.Get("project"),
+		Type:              q.Get("type"),
+		Status:            q.Get("status"),
+		Tag:               q.Get("tag"),
+		Query:             q.Get("q"),
+		IncludeSuperseded: q.Get("include_superseded") == "true",
+	}
+	limit := 100
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+	filter.Limit = limit
+	entries, total, err := h.Store.ListEntries(r.Context(), filter)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — entries"
+	pc.Entries = entries
+	pc.EntriesTotal = total
+	pc.EntriesFilter = filter
+	h.render(w, "entries", pc)
 }
 
 func (h *Handler) project(w http.ResponseWriter, r *http.Request) {

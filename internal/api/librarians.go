@@ -255,6 +255,18 @@ func (h *Handler) librarianSetStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// librarianGet returns one instance's full state. Used by the per-tick
+// emergency-stop check so a librarian can decide whether to act.
+func (h *Handler) librarianGet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	inst, err := h.Store.GetLibrarianInstance(httpCtx(r), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, inst)
+}
+
 func (h *Handler) librarianList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	list, err := h.Store.ListLibrarianInstances(httpCtx(r), q.Get("role"), q.Get("status"))

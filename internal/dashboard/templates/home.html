@@ -1,6 +1,7 @@
 {{define "content"}}
 <nav class="subnav">
-  <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
+  <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">Entries</a>
+  · <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
   · <a href="/index{{if .Token}}?token={{urlq .Token}}{{end}}">Index</a>
   · <a href="/chat{{if .Token}}?token={{urlq .Token}}{{end}}">💬 Chat</a>
   · <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}">🤖 Agents</a>

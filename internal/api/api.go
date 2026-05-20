@@ -174,6 +174,7 @@ func (h *Handler) Mount(r chi.Router) {
 				// distinct from full server admins.
 				r.With(auth.RequireScope("librarian")).Post("/instances", h.librarianRegister)
 				r.With(auth.RequireScope("read")).Get("/instances", h.librarianList)
+				r.With(auth.RequireScope("read")).Get("/instances/{id}", h.librarianGet)
 				r.With(auth.RequireScope("write")).Patch("/instances/{id}", h.librarianSetStatus)
 				r.With(auth.RequireScope("write")).Post("/instances/{id}/heartbeat", h.librarianHeartbeat)
 

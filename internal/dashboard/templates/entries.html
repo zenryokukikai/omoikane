@@ -1,0 +1,79 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
+  · <a href="/index{{if .Token}}?token={{urlq .Token}}{{end}}">Index</a>
+  · <a href="/search{{if .Token}}?token={{urlq .Token}}{{end}}">Search</a>
+</nav>
+
+<h1>Entries</h1>
+
+<form method="get" action="/entries" class="entries-filter">
+  {{if .Token}}<input type="hidden" name="token" value="{{.Token}}">{{end}}
+  <label>type
+    <select name="type">
+      <option value=""        {{if eq .EntriesFilter.Type ""}}selected{{end}}>(any)</option>
+      <option value="lesson"          {{if eq .EntriesFilter.Type "lesson"}}selected{{end}}>lesson</option>
+      <option value="trap"            {{if eq .EntriesFilter.Type "trap"}}selected{{end}}>trap</option>
+      <option value="decision"        {{if eq .EntriesFilter.Type "decision"}}selected{{end}}>decision</option>
+      <option value="design"          {{if eq .EntriesFilter.Type "design"}}selected{{end}}>design</option>
+      <option value="incident"        {{if eq .EntriesFilter.Type "incident"}}selected{{end}}>incident</option>
+      <option value="librarian_meta"  {{if eq .EntriesFilter.Type "librarian_meta"}}selected{{end}}>librarian_meta</option>
+      <option value="external_finding" {{if eq .EntriesFilter.Type "external_finding"}}selected{{end}}>external_finding</option>
+    </select>
+  </label>
+  <label>project
+    <input type="text" name="project" value="{{.EntriesFilter.ProjectID}}" placeholder="(any)" size="14">
+  </label>
+  <label>status
+    <select name="status">
+      <option value=""           {{if eq .EntriesFilter.Status ""}}selected{{end}}>(any)</option>
+      <option value="DRAFT"      {{if eq .EntriesFilter.Status "DRAFT"}}selected{{end}}>DRAFT</option>
+      <option value="ACTIVE"     {{if eq .EntriesFilter.Status "ACTIVE"}}selected{{end}}>ACTIVE</option>
+      <option value="SUPERSEDED" {{if eq .EntriesFilter.Status "SUPERSEDED"}}selected{{end}}>SUPERSEDED</option>
+      <option value="ARCHIVED"   {{if eq .EntriesFilter.Status "ARCHIVED"}}selected{{end}}>ARCHIVED</option>
+      <option value="RESOLVED"   {{if eq .EntriesFilter.Status "RESOLVED"}}selected{{end}}>RESOLVED</option>
+    </select>
+  </label>
+  <label>tag
+    <input type="text" name="tag" value="{{.EntriesFilter.Tag}}" placeholder="(any)" size="12">
+  </label>
+  <label>q
+    <input type="text" name="q" value="{{.EntriesFilter.Query}}" placeholder="full-text" size="20">
+  </label>
+  <label class="checkbox-inline">
+    <input type="checkbox" name="include_superseded" value="true" {{if .EntriesFilter.IncludeSuperseded}}checked{{end}}>
+    include SUPERSEDED
+  </label>
+  <button type="submit">Filter</button>
+</form>
+
+<p class="muted">
+  Showing <strong>{{len .Entries}}</strong> of <strong>{{.EntriesTotal}}</strong> matching entries.
+  {{if .Entries}}{{if (lt (len .Entries) .EntriesTotal)}}
+    <span class="muted">(raise <code>?limit=</code> to see more, max 500)</span>
+  {{end}}{{end}}
+</p>
+
+{{if .Entries}}
+<table>
+  <thead><tr>
+    <th>ID</th><th>Type</th><th>Status</th><th>Project</th><th>Title</th><th>Updated</th>
+  </tr></thead>
+  <tbody>
+    {{range .Entries}}
+    <tr>
+      <td><span class="badge">{{.ID}}</span></td>
+      <td class="muted">{{.Type}}</td>
+      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
+      <td class="muted">{{.ProjectID}}</td>
+      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}"><strong>{{.Title}}</strong></a></td>
+      <td class="muted">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No entries match the current filter.</div>
+{{end}}
+{{end}}

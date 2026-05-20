@@ -154,6 +154,29 @@ func (s *Store) SetLibrarianStatus(ctx context.Context, instanceID, status strin
 	return nil
 }
 
+// GetLibrarianInstance returns one instance by id, or ErrNotFound. Used
+// by the emergency-stop check at the start of each librarian tick.
+func (s *Store) GetLibrarianInstance(ctx context.Context, instanceID string) (*LibrarianInstance, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT instance_id, role, COALESCE(skill_version,''), COALESCE(agent_runtime,''),
+		       status, started_at, heartbeat_at, COALESCE(metadata,'')
+		FROM librarian_instances WHERE instance_id = ?`, instanceID)
+	var (
+		i  LibrarianInstance
+		hb sql.NullTime
+	)
+	err := row.Scan(&i.InstanceID, &i.Role, &i.SkillVersion, &i.AgentRuntime,
+		&i.Status, &i.StartedAt, &hb, &i.Metadata)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	if hb.Valid {
+		t := hb.Time
+		i.HeartbeatAt = &t
+	}
+	return &i, nil
+}
+
 func (s *Store) RecordHeartbeat(ctx context.Context, instanceID string) error {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,

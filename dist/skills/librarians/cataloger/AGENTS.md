@@ -102,6 +102,18 @@ One action per tick.
 
 ---
 
+## Wiki-link rule (apply across the whole summary body)
+
+Every entry id you mention by name — the source you're summarizing,
+related entries, follow-up references — MUST appear as `[[T-XXX]]`,
+not as bare `T-XXX`. The dashboard renders `[[…]]` as a live
+clickable link to that entry's page; bare ids stay inert text. The
+dashboard renders dead `[[T-XXX]]` (target doesn't exist) as muted
+strike-through text automatically, so over-linking is safe.
+
+Apply in every section that mentions an entry, including the
+`## Source` block's `entry_id:` line.
+
 ## Summary entry shape (agent-readable)
 
 When `action = summarized`, the librarian_meta body uses this
@@ -112,27 +124,30 @@ generic vocabulary, no source-author jargon.
 # <generic subject — 5–10 words>
 
 ## Subject
-<1-sentence statement of what this entry is about, written so an
-agent unfamiliar with the source domain can understand it>
+[[<source_entry_id>]] describes <1-sentence statement of what this
+entry is about>, written so an agent unfamiliar with the source
+domain can understand it.
 
 ## Core claim
 <2–3 sentences. What an agent would learn from reading the source.
-State the claim, not the narrative.>
+State the claim, not the narrative. Use [[T-XXX]] for any entry
+references.>
 
 ## When to retrieve
 <retrieval triggers — comma-separated phrases an agent searching
 might type to land on this. Be generous; this is the index entry
-for future-agent searches.>
+for future-agent searches. NO wiki-links here; flat list of
+phrases.>
 
 ## Domain
 <broader topic — ML training, auth, deployment, taxonomy, ...>
 
 ## Caveats
 <known scope limits, contradictions, where this doesn't apply. If
-none, write "None known.">
+none, write "None known." Use [[T-XXX]] for any related entries.>
 
 ## Source
-- entry_id: L-XXXXX
+- entry_id: [[L-XXXXX]]
 - type: <trap|lesson|decision|design|incident>
 - enrichment_version: <N>
 ```

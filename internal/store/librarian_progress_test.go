@@ -118,6 +118,59 @@ func TestNextUnprocessedEntryProjectFilter(t *testing.T) {
 	}
 }
 
+// Cataloger's backlog must NEVER include librarian_meta. Without
+// this exclusion, every cataloger tick that produces a new
+// librarian_meta DRAFT adds one item to its own backlog and the
+// drain never converges. (This regressed in production: the drain
+// loop ran 9 ticks against a starting backlog of 111, produced 9
+// summary DRAFTs, and the reported backlog was still 111 after.)
+func TestNextUnprocessedEntryExcludesLibrarianMetaForCataloger(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_ = s.CreateProject(ctx, &Project{ID: "p", Name: "P"})
+	// Create one librarian_meta (should be invisible to cataloger).
+	_, _ = s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "librarian_meta",
+		Title: "a cataloger summary", Body: "x", Status: "ACTIVE",
+	})
+	// And one trap that cataloger SHOULD see.
+	trapID, _ := s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "trap",
+		Title: "real source", Body: "x", Status: "ACTIVE",
+	})
+	got, err := s.NextUnprocessedEntry(ctx, "cataloger", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != trapID {
+		t.Errorf("cataloger should pick trap (%s), got %s", trapID, got.ID)
+	}
+	// And the BacklogSize must match — counter and pop must agree.
+	n, _ := s.BacklogSize(ctx, "cataloger", "")
+	if n != 1 {
+		t.Errorf("cataloger backlog should be 1 (trap only, not librarian_meta), got %d", n)
+	}
+}
+
+// Curator IS allowed to see librarian_meta in its backlog —
+// promoting DRAFTs is its job. Verify the exclusion is role-scoped.
+func TestNextUnprocessedEntryCuratorSeesLibrarianMeta(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_ = s.CreateProject(ctx, &Project{ID: "p", Name: "P"})
+	metaID, _ := s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "librarian_meta",
+		Title: "draft summary", Body: "x", Status: "DRAFT",
+	})
+	got, err := s.NextUnprocessedEntry(ctx, "curator", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != metaID {
+		t.Errorf("curator should see librarian_meta DRAFTs, got %s", got.ID)
+	}
+}
+
 // SUPERSEDED / ARCHIVED entries are intentionally excluded from the
 // backlog — re-processing settled entries just churns.
 func TestNextUnprocessedEntrySkipsSupersededAndArchived(t *testing.T) {

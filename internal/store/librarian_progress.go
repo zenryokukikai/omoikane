@@ -21,15 +21,38 @@ type LibrarianProgress struct {
 	Notes         string    `json:"notes,omitempty"`
 }
 
+// excludedTypesForRole returns the entry types that a given role's
+// backlog should NEVER surface. The most important case: cataloger
+// must not summarise other librarians' summaries — if librarian_meta
+// were in the backlog, every cataloger tick that produced a new
+// librarian_meta DRAFT would add one row to its own backlog,
+// neutralising the drain. Other roles have different exclusion
+// needs: curator wants to see librarian_meta DRAFTs (so it can
+// decide whether to promote them); detective wants to see them too
+// (cluster discovery). So this is role-specific.
+//
+// Empty slice = no exclusions (process every status-eligible entry).
+func excludedTypesForRole(role string) []string {
+	switch role {
+	case "cataloger":
+		// Cataloger summarises source knowledge, not other
+		// librarians' outputs. Excluding librarian_meta also keeps
+		// scout's external_finding outputs in scope (cataloger
+		// SHOULD organise those — they're raw signal, not summaries).
+		return []string{"librarian_meta"}
+	}
+	return nil
+}
+
 // NextUnprocessedEntry returns the oldest entry that has no
 // librarian_progress row for the given role. Returns ErrNotFound when
 // the role has caught up to current (no backlog left).
 //
 // The status filter accepts ACTIVE and DRAFT by default; SUPERSEDED /
 // ARCHIVED / DUPLICATE entries are excluded because re-processing
-// them would just churn — they're already settled. If a caller needs
-// to backfill processing of historically-archived entries they can
-// extend this query later.
+// them would just churn — they're already settled. Per-role type
+// exclusions (see excludedTypesForRole) drop e.g. librarian_meta from
+// cataloger's backlog so it doesn't recursively summarise itself.
 //
 // Projects optionally filters by project_id (empty = all projects).
 func (s *Store) NextUnprocessedEntry(ctx context.Context, role, projectID string) (*Entry, error) {
@@ -47,6 +70,14 @@ func (s *Store) NextUnprocessedEntry(ctx context.Context, role, projectID string
 	if projectID != "" {
 		q += ` AND e.project_id = ?`
 		args = append(args, projectID)
+	}
+	if excluded := excludedTypesForRole(role); len(excluded) > 0 {
+		placeholders := make([]string, len(excluded))
+		for i, t := range excluded {
+			placeholders[i] = "?"
+			args = append(args, t)
+		}
+		q += ` AND e.type NOT IN (` + strings.Join(placeholders, ",") + `)`
 	}
 	q += ` ORDER BY e.created_at ASC LIMIT 1`
 
@@ -153,7 +184,9 @@ func (s *Store) ListProgress(ctx context.Context, role, instanceID string, limit
 // BacklogSize returns the count of entries with no librarian_progress
 // row for the given role — i.e. how much work this role has
 // outstanding. Cheap query; used by coordinator's triage and by
-// dashboards.
+// dashboards. Honours the same per-role type exclusions as
+// NextUnprocessedEntry so the displayed "X remaining" matches what
+// the role would actually pull.
 func (s *Store) BacklogSize(ctx context.Context, role, projectID string) (int, error) {
 	if !ValidLibrarianRole(role) {
 		return 0, fmt.Errorf("%w: role %q", ErrInvalidInput, role)
@@ -169,6 +202,14 @@ func (s *Store) BacklogSize(ctx context.Context, role, projectID string) (int, e
 	if projectID != "" {
 		q += ` AND e.project_id = ?`
 		args = append(args, projectID)
+	}
+	if excluded := excludedTypesForRole(role); len(excluded) > 0 {
+		placeholders := make([]string, len(excluded))
+		for i, t := range excluded {
+			placeholders[i] = "?"
+			args = append(args, t)
+		}
+		q += ` AND e.type NOT IN (` + strings.Join(placeholders, ",") + `)`
 	}
 	var n int
 	err := s.db.QueryRowContext(ctx, q, args...).Scan(&n)

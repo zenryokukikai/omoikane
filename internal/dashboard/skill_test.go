@@ -79,6 +79,7 @@ func TestServeSkillMD(t *testing.T) {
 		"kb-lookup-trigger.sh",
 		"kb-feedback.sh",
 		"OMOIKANE_BASE_URL",                 // shared env-var contract
+		"/samples/agent-helpers/kb-post-entry.sh", // exact fetch path
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in /skill.md (canonical full spec)", want)
@@ -106,6 +107,64 @@ func TestNoLegacySkillsOmoikaneRoute(t *testing.T) {
 // /skills/install.sh used to return a `mkdir + curl` shell script
 // intended to be piped to `sh`. That's a security anti-pattern
 // (silent arbitrary-code execution against whatever URL serves) AND
+// Sample helper scripts (kb-post-entry.sh, etc.) are served from the
+// same origin as /skill.md so agents don't need a second trust hop
+// (GitHub raw). Confirm:
+//   - the three documented scripts are reachable
+//   - they have the right content-type
+//   - traversal attempts return 404
+//   - other .sh names return 404
+//
+// Why: a dialog-sdk agent fetched a GitHub raw URL and got 404
+// (commit propagation timing), then gave up. The same-origin fetch
+// removes that whole failure mode.
+func TestSampleHelpersServed(t *testing.T) {
+	s := newDashStore(t)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	for _, name := range []string{
+		"kb-post-entry.sh",
+		"kb-lookup-trigger.sh",
+		"kb-feedback.sh",
+	} {
+		resp, err := http.Get(srv.URL + "/samples/agent-helpers/" + name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("%s: status %d", name, resp.StatusCode)
+		}
+		if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/x-shellscript") {
+			t.Errorf("%s: content-type %s", name, resp.Header.Get("Content-Type"))
+		}
+		buf := make([]byte, 256)
+		n, _ := resp.Body.Read(buf)
+		_ = resp.Body.Close()
+		// Files start with the shebang.
+		if !strings.HasPrefix(string(buf[:n]), "#!/usr/bin/env bash") {
+			t.Errorf("%s: missing shebang at start: %q", name, string(buf[:n]))
+		}
+	}
+
+	// Unknown name → 404, not a server error.
+	resp, _ := http.Get(srv.URL + "/samples/agent-helpers/nonexistent.sh")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown name should 404, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	// Non-.sh extension → 404 (the route refuses anything else).
+	resp, _ = http.Get(srv.URL + "/samples/agent-helpers/kb-post-entry.txt")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("non-.sh suffix should 404, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+}
+
 // it overreached by prescribing a specific host path. Both reasons
 // for removal; this test locks the absence so it doesn't sneak back.
 func TestNoInstallShRoute(t *testing.T) {

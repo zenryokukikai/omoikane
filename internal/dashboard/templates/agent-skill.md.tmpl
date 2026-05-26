@@ -722,33 +722,72 @@ from any shell, any language, any runtime. But agents have repeatedly
 gotten stuck constructing large inline JSON one-liners (shell quoting
 hell), then couldn't verify whether the POST actually succeeded, and
 gave up on omoikane. If your runtime supports bash + jq + curl, the
-following sample scripts remove that pain:
+following sample scripts remove that pain.
 
-  - **kb-post-entry.sh** — POST /v1/entries with safe JSON
-    construction. Each field via `--flag` or `--flag-file`; success
-    prints `recorded: T-XXXXXX <dashboard-url>` (one line, easy
-    to parse).
-  - **kb-lookup-trigger.sh** — POST /v1/lookup/by-trigger before a
-    sensitive action; prints one block per hit with `prohibited`,
-    `resolution`, and the dashboard URL.
-  - **kb-feedback.sh** — POST /v1/feedback so future ranking improves.
-
-Source: `dist/samples/agent-helpers/` in the omoikane repo
-(<https://github.com/kojira/omoikane>). They are **samples** — copy
-into your runtime's preferred location, adapt the env-var names if
-your runtime's conventions differ, and verify they work in your
-environment. The skill spec doesn't mandate any path.
-
-They share an env contract:
+### Fetch directly from this server (same origin, no second trust hop)
 
 ```
-export OMOIKANE_BASE_URL=https://kb.zenryoku.work
+curl -sSO <base-url>/samples/agent-helpers/kb-post-entry.sh
+curl -sSO <base-url>/samples/agent-helpers/kb-lookup-trigger.sh
+curl -sSO <base-url>/samples/agent-helpers/kb-feedback.sh
+chmod +x kb-*.sh
+```
+
+These are MIT-licensed sample code embedded in the omoikane binary,
+served with `content-type: text/x-shellscript`. No auth required —
+they don't carry any secrets. The source-of-truth versions live at
+`dist/samples/agent-helpers/` in the repo
+(<https://github.com/kojira/omoikane>) if you want to read them
+before running.
+
+### What they do
+
+- **kb-post-entry.sh** — POST /v1/entries with safe JSON
+  construction. Each field via `--flag` or `--flag-file`; success
+  prints `recorded: T-XXXXXX <dashboard-url>` (one line, easy to
+  parse).
+- **kb-lookup-trigger.sh** — POST /v1/lookup/by-trigger before a
+  sensitive action; prints one block per hit with `prohibited`,
+  `resolution`, and the dashboard URL.
+- **kb-feedback.sh** — POST /v1/feedback so future ranking
+  improves.
+
+### Shared env contract
+
+```
+export OMOIKANE_BASE_URL=<base-url>
 export OMOIKANE_API_KEY=<your bearer token>
 ```
 
 Pick any other variable names you want — the scripts read these two
 exact names, but if your runtime stores credentials under different
-names you can edit the scripts in one place each.
+names you can edit the scripts in one place each. They are
+**samples** — copy them into whatever path your runtime treats as a
+working directory, edit freely. The skill spec doesn't mandate any
+path.
+
+### Example: post a long-bodied trap
+
+```
+cat > /tmp/body.md <<'BODY'
+## What happened
+...
+## Resolution
+...
+BODY
+
+./kb-post-entry.sh \
+  --project lipsync \
+  --type trap \
+  --title "Realtime recording must not use AVFoundation full-screen capture" \
+  --symptom-file /tmp/symptom.md \
+  --root-cause-file /tmp/root-cause.md \
+  --resolution-file /tmp/resolution.md \
+  --prohibited-file /tmp/prohibited.md \
+  --body-file /tmp/body.md \
+  --tags "realtime,recording,avfoundation,screencapturekit"
+# → recorded: T-XXXXXX <base-url>/entries/T-XXXXXX
+```
 
 If you hit any error from the scripts you don't understand, fall back
 to raw curl per the sections above — the scripts are a convenience,

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/kojira/omoikane/dist/samples"
 	"github.com/kojira/omoikane/internal/auth"
 	"github.com/kojira/omoikane/internal/store"
 )
@@ -94,6 +96,14 @@ func (h *Handler) Mount(r chi.Router) {
 	// notes). Previously there was also /skills/omoikane/SKILL.md
 	// serving the same content; that was redundant and is now gone.
 	r.Get("/skill.md", h.serveAgentSkillMD)
+
+	// Public sample helper scripts (no auth — these are read-only
+	// sample shell scripts that an agent reading skill.md may want
+	// to fetch from the same origin to avoid a second trust boundary
+	// at GitHub. They're MIT-licensed sample copy. The on-disk
+	// source remains under dist/samples/agent-helpers/ for browsers
+	// who prefer to read them in the repo.
+	r.Get("/samples/agent-helpers/{name}", h.serveSampleHelper)
 	r.Get("/claim/{code}", h.claimPage)
 	// Public landing for a member invitation. The invitee opens this
 	// before having an account — auth would break the flow. The
@@ -782,6 +792,32 @@ func firstNonEmpty(ss ...string) string {
 func (h *Handler) css(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	_, _ = w.Write([]byte(stylesheet))
+}
+
+// serveSampleHelper serves one of the sample helper shell scripts
+// embedded in the binary. Public (no auth required) — the scripts
+// are MIT-licensed sample code, not credentials.
+//
+// Only files ending in .sh under agent-helpers/ are served; anything
+// else returns 404. The chi {name} param is path-cleaned to defend
+// against `../` traversal attempts.
+func (h *Handler) serveSampleHelper(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	// Defence in depth: chi already prevents `..` in segment values,
+	// but path.Clean + suffix check is a cheap second layer.
+	if name != path.Base(name) || !strings.HasSuffix(name, ".sh") {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := samples.AgentHelpers.ReadFile("agent-helpers/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.Header().Set("Content-Disposition", `inline; filename="`+name+`"`)
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = w.Write(data)
 }
 
 func (h *Handler) render(w http.ResponseWriter, page string, data any) {

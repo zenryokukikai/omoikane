@@ -11,9 +11,20 @@ others filter.
 - **incident clusters** — group entries by symptom-text similarity
   to surface clusters of `type=incident` or `type=trap` that may be
   one underlying problem.
-- **relations discovery** — propose new `relations` edges
-  (`derived_from`, `conflicts_with`, `related_to`,
-  `similar_to`).
+- **relations discovery** — propose new `relations` edges. The store
+  accepts exactly these `rel_type` values:
+  `related`, `duplicate_of`, `conflicts_with`, `see_also`,
+  `depends_on` (plus `supersedes` / `resolved_by`, which are
+  curator/system outcomes — you do not propose those). Do NOT invent
+  `rel_type`s like `similar_to`/`related_to`/`derived_from`; the
+  store rejects them.
+- **semantic duplicate discovery** — find entries carrying the same
+  actionable knowledge but missing a `duplicate_of` edge, especially
+  across paraphrase and **language**. The server's symptom-similarity
+  is lexical and scores cross-language pairs at 0; the semantic
+  judgement is yours. Search with translated key terms (single
+  tokens / unspaced phrases for Japanese, plus English equivalents),
+  issue 3–5 queries, pool, then judge.
 - **external findings** — record signals observed in chat or
   external sources via `POST /v1/librarian/findings` and correlate
   them to existing entries.
@@ -39,8 +50,11 @@ Act when **any** of:
 
 - Three or more entries share symptom text >= 60% similar within a
   rolling 14-day window.
-- A new entry's `symptom` text matches an existing entry's at 85%+
-  but no `similar_to` edge exists.
+- Two entries carry the **same actionable knowledge** (same trap /
+  decision / lesson) but have no `duplicate_of` edge — even if they
+  share little or no surface text, including when they are in
+  different languages. Lexical similarity will NOT trigger this; your
+  semantic read must.
 - A new `decision` entry contradicts the `prohibited` field of an
   existing ACTIVE `trap` — propose a `conflicts_with` edge.
 - An external `finding` correlates with an existing entry by tag and
@@ -63,6 +77,11 @@ If no triggers for 6 consecutive heartbeats, post `intent=PASS`.
      "rel_type": "conflicts_with",
      "evidence": "L-A.prohibited mentions X; L-B.body recommends X",
      "confidence": 0.8 }
+   { "kind": "new_relation", "from": "T-EN", "to": "T-JA",
+     "rel_type": "duplicate_of",
+     "evidence": "same symptom/root_cause/fix across en/ja: both are
+                  the landmark-vs-rectangle mask mismatch",
+     "confidence": 0.9 }
    { "kind": "new_cluster", "title": "...",
      "member_entries": ["...","...","..."],
      "evidence": "shared symptom: ..." }
@@ -96,6 +115,7 @@ If no triggers for 6 consecutive heartbeats, post `intent=PASS`.
 | problem | route to |
 |---|---|
 | status / supersede / conflict resolution | `@curator` |
+| duplicate resolution (merge / pick canonical) | `@curator` |
 | tag merges, hierarchy | `@cataloger` |
 | enrichment drift, dead pool | `@conservator` |
 | external source proposals | `@scout` |
@@ -124,7 +144,10 @@ If no triggers for 6 consecutive heartbeats, post `intent=PASS`.
 - [ ] Within `daily_token_ceiling`?
 - [ ] `cooldown_between_actions_seconds` elapsed?
 - [ ] I am NOT responding to my own chat post?
-- [ ] If proposing a `conflicts_with`: did I mention `@curator`?
+- [ ] If proposing a `conflicts_with` or `duplicate_of`: did I
+      mention `@curator` (they resolve / merge)?
 - [ ] If proposing a cluster: did I list >= 3 candidate entries?
+- [ ] For a cross-language `duplicate_of`: did I cite the shared
+      claim, not just surface tokens?
 
 If any item fails, skip the action half of the tick.

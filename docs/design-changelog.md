@@ -11,7 +11,55 @@
 
 ---
 
-## v0.7(2026-05-12)
+## v0.8(2026-05-29)
+
+### 背景
+
+司書を実運用に乗せる過程で2つの設計判断が必要になった:
+
+1. **重複・類似の判定をどこで行うか。** サーバ側のクラスタリング
+   (`BuildIncidentClusters`) は symptom トークンの Jaccard 類似度で、
+   `type='incident'` 限定・本番では既定無効。これは語彙的一致しか見ず、
+   言い換えや**言語をまたぐ重複**(同一事象の日本語 trap と英語 trap は
+   トークンが一致しない)を構造的に取りこぼす。多言語 KB では致命的。
+2. **司書の実行粒度。** 役割定義は per-tick(1 件処理)だが、1 件ごとに
+   ランタイムを cold-start するのは非効率。
+
+### 変更点
+
+- §20.2(incident/クラスタリング): サーバのクラスタリングは「粗い候補
+  生成器」であり、**意味的な重複・関連判定は detective 司書(LLM)が担う**
+  ことを明記。detective は search で候補を集め `duplicate_of`/`related`/
+  `conflicts_with` 等を DRAFT 提案(Phase 5 非破壊)。
+- §17 司書ランナー: **tick(役割契約の単位)と session(バッチ実行)**の
+  区別を追記。session は複数 tick をバッチ実行してよいが、(a) 各エントリ
+  独立判定、(b) progress/heartbeat は tick 単位、を守る。
+- 司書 bundle(`dist/skills/librarians/`): detective に意味的重複発見と
+  正準 rel_type(`related|duplicate_of|conflicts_with|see_also|depends_on`)
+  を反映。従来 bundle が挙げていた `derived_from`/`related_to`/`similar_to`
+  は store が受け付けない不正値だったため修正。cataloger にバッチ session
+  の節を追加。
+
+### 設計判断の根拠
+
+- **サーバは dumb な infra に保つ**(`KB_LLM_PROVIDER` 既定無効)。LLM を
+  サーバのホットパスに入れない方針は不変。よって意味判定は agent 層へ。
+  これは「各層は下層に対し Z 軸俯瞰者」という既存原則とも整合(detective が
+  エントリ群を俯瞰し判定)。
+- **detective は Type II 最小化(過剰提案)**を維持。提案は DRAFT で非破壊
+  なので過剰提案の害は無く、害が出るのは誤提案を *実行* した時=curator の
+  ゲート済み判断。detective を保守化すると conservator/curator との Type
+  I/II 分業が崩れ真のパターンが埋もれる。
+- **バッチは役割契約に持ち込まない**。スケジューラ/workspace の関心事と
+  して分離し、bundle は per-tick のまま単一の正に保つ。
+
+### 影響範囲
+
+- 既存実装(サーバ)への変更なし。クラスタリングジョブは現状のまま
+  (粗い候補生成器として位置づけ直しただけ)。
+- detective の runnable workspace はこの設計に合わせて実装(リポジトリ外、
+  ローカル検証後に本番投入)。
+- Phase 計画への影響なし(Phase 5 観察モードの枠内)。
 
 ### 背景
 

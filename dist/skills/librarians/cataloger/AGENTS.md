@@ -26,6 +26,33 @@ recency-based heartbeats. See "Trigger conditions" below.
 
 ---
 
+## Ticks and sessions (batching)
+
+A **tick** is the unit of work: pull one backlog entry, decide one
+action, record progress + heartbeat. Everything in this file is
+written per-tick, and that contract is unchanged.
+
+A **session** is one runtime invocation (e.g. one `pi --print` run).
+A session MAY batch many ticks: loop tick → tick → … up to a cap
+(e.g. 30 entries) or until the backlog drains, then exit. Batching
+is purely an efficiency/scheduling concern that lives in the runtime
+/ scheduler, not in the role contract.
+
+Two rules keep batching safe:
+- **Each entry is judged independently.** A batch is for throughput,
+  not cross-entry synthesis — entry K's summary must not be coloured
+  by entries 1..K-1 in the same session. Treat every tick as a fresh
+  read.
+- **Progress + heartbeat per tick**, not per session, so the audit
+  trail and liveness signal stay accurate mid-batch.
+
+The scheduler decides cap and cadence (see the runtime workspace, not
+this bundle). With batching, the scheduler only needs to fire often
+enough to catch newly-arrived entries, since each session already
+drains a batch.
+
+---
+
 ## Trigger conditions
 
 ### Heartbeat — backlog drain (proactive)

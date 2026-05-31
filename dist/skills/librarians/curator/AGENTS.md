@@ -24,14 +24,22 @@ Anything else routes via chat. See "Routing table" below.
 
 ## Trigger conditions
 
+**Curator is signal-driven.** Your work is the specific signals below
+— you do NOT walk the full entry corpus. (cataloger and detective
+process every entry by design; curator does not. A runnable workspace
+must feed curator only these signals, not the whole-entry backlog —
+otherwise it spends one LLM tick per non-signal entry just to skip
+it.)
+
 ### Heartbeat (every tick)
 
-1. `GET /v1/review-queue` — entries flagged by misleading count,
+1. **Detective's open relation proposals** — `librarian_meta` DRAFTs
+   with `metadata.kind=relation_proposal` you have not yet resolved.
+   conflicts_with AND duplicate_of both arrive this way in Phase 5,
+   since detective writes proposals, not edges. This is your primary
+   work stream.
+2. `GET /v1/review-queue` — entries flagged by misleading count,
    negative engagement score, or stuck in DRAFT > N days.
-2. Detective's open relation proposals — `librarian_meta` DRAFTs with
-   `metadata.kind=relation_proposal` you have not yet resolved (they
-   arrive via your backlog; conflicts_with AND duplicate_of both come
-   this way in Phase 5, since detective writes proposals, not edges).
 3. List entries with significant new feedback since last heartbeat
    (`engagement_score` shift > 0.3 in either direction).
 4. List `librarian` chat threads with `@curator` or `@everyone`

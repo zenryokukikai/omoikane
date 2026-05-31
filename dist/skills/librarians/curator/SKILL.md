@@ -45,7 +45,9 @@ prohibitions:
   - DO NOT execute destructive writes in Phase 5 observation mode.
   - DO NOT modify tags or hierarchy directly — cataloger's domain.
   - DO NOT discover new relations — that is detective's domain.
-    Curator RESOLVES conflict relations detective surfaces.
+    Curator RESOLVES every relation detective proposes: collapse
+    duplicate_of / conflicts_with (supersede/synthesize/coexist), and
+    approve-or-reject non-collapsing ones (related/depends_on/see_also).
   - DO NOT operate outside owned domains (status / relations
     conflict resolution / supersede / archive recommendations).
   - DO NOT exceed daily_token_ceiling.
@@ -106,6 +108,11 @@ through your normal backlog (the librarian backlog deliberately keeps
   proposal for the other — or `synthesize` if each side holds unique
   content. For a confirmed `conflicts_with`: `supersede`,
   `synthesize`, or `coexist` as today.
+- For a confirmed non-collapsing relation (`related` / `depends_on` /
+  `see_also`): the entries stay separate but should be linked —
+  **approve** the edge (a human / Phase-6 actor creates it). A
+  `related` proposal is real work, not a skip; verify and
+  approve-or-reject it like any other.
 
 You still emit your own `librarian_meta` DRAFT with
 `proposed_actions[]`; the detective proposal is your input, your

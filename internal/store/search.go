@@ -7,6 +7,50 @@ import (
 	"strings"
 )
 
+// sanitizeFTSQuery turns a user's free-text search into a safe FTS5
+// MATCH expression. The search API is a keyword search, NOT an exposed
+// FTS5 query language: callers type things like "train-inference",
+// `foo:bar`, "mask AND", or `"unterminated` and expect a search, not a
+// 500. Passing those straight to MATCH makes FTS5 parse them as query
+// syntax (column filters, boolean operators, phrase quotes, NEAR(...))
+// and raise a syntax error.
+//
+// We defuse that by splitting on whitespace and wrapping every token as
+// a quoted FTS5 string literal (doubling any embedded quote). A quoted
+// token is matched literally — `-`, `:`, `(`, `AND`, etc. lose their
+// special meaning. Tokens are AND-ed (all must appear), matching the
+// previous default semantics for multi-word queries. A trailing `*` on
+// a bare token is preserved as a prefix match, since prefix search is a
+// useful and safe capability to keep.
+//
+// Returns "" when the input has no usable tokens; callers treat that as
+// ErrInvalidInput (same as an empty query).
+func sanitizeFTSQuery(q string) string {
+	fields := strings.Fields(q)
+	if len(fields) == 0 {
+		return ""
+	}
+	tokens := make([]string, 0, len(fields))
+	for _, f := range fields {
+		// Preserve an intentional trailing-* prefix search on an
+		// otherwise-simple token (letters/digits). Anything fancier is
+		// treated as a literal phrase.
+		prefix := ""
+		core := f
+		if strings.HasSuffix(f, "*") {
+			stem := strings.TrimSuffix(f, "*")
+			if stem != "" && !strings.ContainsAny(stem, `"`) {
+				core = stem
+				prefix = "*"
+			}
+		}
+		// Quote as an FTS5 string, doubling embedded quotes.
+		escaped := strings.ReplaceAll(core, `"`, `""`)
+		tokens = append(tokens, `"`+escaped+`"`+prefix)
+	}
+	return strings.Join(tokens, " AND ")
+}
+
 // SearchResult is an entry paired with its FTS relevance score. Score is the
 // negation of SQLite's bm25() so larger == more relevant from the caller's
 // perspective.
@@ -34,7 +78,8 @@ type ChatSearchResult struct {
 // project_id, and OPEN/CLOSED filtering happens at the thread level
 // (a future extension can join chat_threads and filter on status).
 func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*ChatSearchResult, error) {
-	if strings.TrimSpace(q) == "" {
+	match := sanitizeFTSQuery(q)
+	if match == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
 	if limit <= 0 || limit > 500 {
@@ -51,7 +96,7 @@ func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*Chat
 		JOIN librarian_chat_fts f ON f.rowid = m.rowid
 		WHERE librarian_chat_fts MATCH ?
 		ORDER BY score DESC
-		LIMIT ?`, q, limit)
+		LIMIT ?`, match, limit)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -77,11 +122,12 @@ func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*Chat
 // SearchFTS runs FTS5 against entries_fts with optional filters and pagination.
 // Returns matched entries plus total match count (for pagination).
 func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*SearchResult, int, error) {
-	if strings.TrimSpace(q) == "" {
+	match := sanitizeFTSQuery(q)
+	if match == "" {
 		return nil, 0, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
 	conds := []string{"entries_fts MATCH ?"}
-	args := []any{q}
+	args := []any{match}
 	if f.ProjectID != "" {
 		conds = append(conds, "e.project_id = ?")
 		args = append(args, f.ProjectID)

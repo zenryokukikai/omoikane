@@ -9,6 +9,7 @@
 <body>
 <header>
   <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">omoikane</a>
+  <a href="/journal{{if .Token}}?token={{urlq .Token}}{{end}}" class="nav-journal">Journal</a>
   <a href="/search{{if .Token}}?token={{urlq .Token}}{{end}}" class="muted">search</a>
   <span class="spacer"></span>
   <form method="get" action="/search" class="header-search">

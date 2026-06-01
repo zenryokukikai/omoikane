@@ -35,6 +35,8 @@ header {
 }
 header a { text-decoration: none; color: var(--fg); font-weight: 600; }
 header a:hover { color: var(--accent); }
+header a.nav-journal { color: var(--accent); font-weight: 600; }
+header a.nav-journal:hover { color: var(--accent-strong); text-decoration: underline; }
 header .spacer { flex: 1; }
 header form { display: inline-flex; gap: 0.25rem; }
 header input[type=search] {

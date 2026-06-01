@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{.Title}}</title>
-  <link rel="stylesheet" href="/static/style.css{{if .Token}}?token={{urlq .Token}}{{end}}">
+  <link rel="stylesheet" href="/static/style.css?v={{assetVersion}}{{if .Token}}&amp;token={{urlq .Token}}{{end}}">
 </head>
 <body>
 <header>

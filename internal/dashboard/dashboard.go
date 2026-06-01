@@ -70,6 +70,16 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		// appVersion lets layout.html's footer show the running version
 		// on every page without threading it through each handler's data.
 		"appVersion": version.String,
+		// assetVersion busts the browser CSS cache on each deploy. The
+		// stylesheet is served with a 4h max-age, so without a changing
+		// URL a redeploy leaves stale CSS in browsers. Tie the URL to the
+		// build (git SHA, or app semver for un-stamped local builds).
+		"assetVersion": func() string {
+			if version.Build != "" && version.Build != "dev" {
+				return version.Build
+			}
+			return version.App
+		},
 		// isJournal reports whether an entry is a summarizer daily journal,
 		// so the entry page can render it as a clean reading sheet.
 		"isJournal": func(e *store.Entry) bool { return metaKind(e) == "daily_journal" },

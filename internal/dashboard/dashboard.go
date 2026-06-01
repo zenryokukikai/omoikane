@@ -488,8 +488,10 @@ func (h *Handler) project(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	entries, _, err := h.Store.ListEntries(r.Context(), store.EntryFilter{
-		ProjectID: id, Limit: 200, IncludeSuperseded: true,
+	const pageSize = 50
+	page := pageParam(r)
+	entries, total, err := h.Store.ListEntries(r.Context(), store.EntryFilter{
+		ProjectID: id, Limit: pageSize, Offset: (page - 1) * pageSize, IncludeSuperseded: true,
 	})
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -499,6 +501,7 @@ func (h *Handler) project(w http.ResponseWriter, r *http.Request) {
 	pc.Title = "omoikane — " + p.Name
 	pc.Project = p
 	pc.Entries = entries
+	pc.Pagination = buildPagination(r, total, page, pageSize)
 	h.render(w, "project", pc)
 }
 

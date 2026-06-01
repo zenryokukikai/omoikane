@@ -1,0 +1,27 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">Entries</a>
+  · <a href="/search{{if .Token}}?token={{urlq .Token}}{{end}}">Search</a>
+</nav>
+
+<h1>Journal</h1>
+<p class="muted">Each morning the summarizer distils the previous day —
+external findings, new knowledge, and the librarians' work — into one
+readable entry.</p>
+
+{{if .Entries}}
+<ul class="journal-list">
+  {{range .Entries}}
+  <li>
+    <a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">
+      <span class="j-date">{{journalDate .}}</span>
+      <span class="j-title">{{.Title}}</span>
+    </a>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<div class="empty">No journals yet. The first one lands tomorrow morning.</div>
+{{end}}
+{{end}}

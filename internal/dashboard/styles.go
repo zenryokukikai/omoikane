@@ -1,24 +1,35 @@
 package dashboard
 
 const stylesheet = `
+/* omoikane — Quiet Archive. Tokens mirror DESIGN.md at the repo root;
+   change colours/type there first, then reflect here. */
 :root {
-  --bg: #fafafa;
-  --fg: #1a1a1a;
-  --muted: #666;
-  --border: #d8d8d8;
-  --accent: #2a6fdb;
-  --hover: #e8eef9;
-  --badge-bg: #eef;
-  --code-bg: #f3f3f3;
+  --bg: #FAF8F3;          /* paper */
+  --surface: #FEFDFA;     /* cards, journal sheet, header */
+  --fg: #1F1D1A;          /* ink */
+  --muted: #5F5A54;
+  --border: #E6E1D8;      /* faint */
+  --hairline: #EDE9E1;
+  --accent: #8A4B2A;      /* terracotta — interaction only */
+  --accent-strong: #6E3A20;  /* hover/pressed */
+  --hover: #EFE3D8;       /* accent-soft tint */
+  --badge-bg: #E6E1D8;
+  --code-bg: #F1EDE5;
+  --shadow: 0 1px 2px rgba(31,29,26,0.05);
+  --font-body: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+  --font-serif: "Iowan Old Style", Charter, Georgia, "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace;
 }
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0;
   background: var(--bg); color: var(--fg);
-  font: 15px/1.5 -apple-system, "Helvetica Neue", "Hiragino Sans", system-ui, sans-serif;
+  font-family: var(--font-body);
+  font-size: 16px; line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
 }
 header {
-  background: #fff; border-bottom: 1px solid var(--border);
+  background: var(--surface); border-bottom: 1px solid var(--border);
   padding: 0.75rem 1.25rem; display: flex; align-items: center; gap: 1rem;
   position: sticky; top: 0; z-index: 10;
 }
@@ -35,18 +46,18 @@ header .header-search button {
   padding: 0.35rem 0.8rem; font: inherit; cursor: pointer;
   background: var(--accent); color: #fff; border: none; border-radius: 4px;
 }
-header .header-search button:hover { background: #1a5fcb; }
+header .header-search button:hover { background: var(--accent-strong); }
 header .header-invite-form { display: inline-flex; margin: 0; }
 header button.header-invite,
 header .header-invite {
   display: inline-flex; align-items: center; gap: 0.3rem;
-  padding: 0.3rem 0.7rem; background: #fff7d6; border: 1px solid #f0d97c;
+  padding: 0.3rem 0.7rem; background: var(--hover); border: 1px solid var(--border);
   border-radius: 14px; font: inherit; font-size: 0.85rem; font-weight: 600;
-  color: #6a5300; text-decoration: none; cursor: pointer;
+  color: var(--accent); text-decoration: none; cursor: pointer;
   transition: background 0.15s;
 }
 header button.header-invite:hover,
-header .header-invite:hover { background: #fdeaa3; color: #6a5300; }
+header .header-invite:hover { background: var(--badge-bg); color: var(--accent-strong); }
 header .header-user {
   display: inline-flex; align-items: center; gap: 0.4rem;
   padding: 0.2rem 0.5rem; border-radius: 18px;
@@ -59,39 +70,39 @@ header .header-user-name {
 }
 header .avatar {
   width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
-  border: 1px solid var(--border); background: #eee;
+  border: 1px solid var(--border); background: var(--badge-bg);
   display: inline-flex; align-items: center; justify-content: center;
 }
 header .avatar-placeholder {
   background: var(--accent); color: #fff; font-weight: 600;
   font-size: 0.85rem; text-transform: uppercase;
 }
-main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
-h1 { font-size: 1.5rem; margin: 0 0 1rem; }
-h2 { font-size: 1.15rem; margin: 1.5rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
+main { max-width: 880px; margin: 0 auto; padding: 1.5rem 1.25rem 2.5rem; }
+h1 { font-family: var(--font-serif); font-size: 1.9rem; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 1rem; }
+h2 { font-family: var(--font-serif); font-size: 1.3rem; font-weight: 600; margin: 1.75rem 0 0.6rem; border-bottom: 1px solid var(--hairline); padding-bottom: 0.3rem; }
 table {
   width: 100%; border-collapse: collapse;
-  background: #fff; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
 th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
-th { background: #f4f4f4; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+th { background: var(--badge-bg); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
 tr:last-child td { border-bottom: none; }
 tr:hover { background: var(--hover); }
 a { color: var(--accent); }
 .badge { display: inline-block; background: var(--badge-bg); padding: 1px 6px; border-radius: 4px;
          font-size: 0.78rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-right: 0.25rem; }
-.badge-status-ACTIVE   { background: #e6f4e6; color: #295c29; }
-.badge-status-DRAFT    { background: #fff5d6; color: #6a5300; }
-.badge-status-ARCHIVED { background: #eee; color: #555; }
-.badge-status-INVESTIGATING { background: #fde8e0; color: #8b3a00; }
-.badge-status-SUPERSEDED, .badge-status-DUPLICATE, .badge-status-RESOLVED { background: #efefef; color: #555; }
+.badge-status-ACTIVE   { background: var(--badge-bg); color: #3E5A40; }
+.badge-status-DRAFT    { background: var(--badge-bg); color: #5F5A52; }
+.badge-status-ARCHIVED { background: var(--badge-bg); color: #615B52; }
+.badge-status-INVESTIGATING { background: var(--badge-bg); color: #83451F; }
+.badge-status-SUPERSEDED, .badge-status-DUPLICATE, .badge-status-RESOLVED { background: var(--badge-bg); color: #615B52; }
 .muted { color: var(--muted); font-size: 0.9rem; }
 .field { margin: 1rem 0; }
 .field > .label {
   font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--muted); margin-bottom: 0.25rem;
 }
-.body { white-space: pre-wrap; background: #fff; padding: 1rem; border: 1px solid var(--border); border-radius: 6px; }
+.body { white-space: pre-wrap; background: var(--surface); padding: 1rem; border: 1px solid var(--border); border-radius: 6px; }
 .body pre, code { background: var(--code-bg); padding: 0 0.25em; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
 .body pre { padding: 0.6rem 0.8rem; overflow-x: auto; }
 /* Markdown-rendered body: turn off pre-wrap since headings/lists handle their own whitespace */
@@ -107,18 +118,18 @@ a { color: var(--accent); }
 .body.md ul, .body.md ol { margin: 0.5em 0; padding-left: 1.5em; }
 .body.md li { margin: 0.2em 0; }
 .body.md li > p { margin: 0; }
-.body.md blockquote { margin: 0.5em 0; padding: 0.3em 0.9em; border-left: 3px solid var(--border); color: var(--muted); background: #fafafa; }
+.body.md blockquote { margin: 0.5em 0; padding: 0.3em 0.9em; border-left: 3px solid var(--accent); color: var(--muted); background: var(--bg); }
 .body.md a { color: var(--accent); }
 .body.md table { margin: 0.7em 0; border-collapse: collapse; }
 .body.md table th, .body.md table td { padding: 0.3rem 0.6rem; border: 1px solid var(--border); }
-.body.md table th { background: #f4f4f4; }
+.body.md table th { background: var(--badge-bg); }
 .body.md hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
 .body.md input[type=checkbox] { margin-right: 0.4em; }
 .body.md del { color: var(--muted); }
 footer { padding: 1rem; text-align: center; color: var(--muted); font-size: 0.85rem; }
-.empty { padding: 2rem; text-align: center; color: var(--muted); background: #fff;
+.empty { padding: 2rem; text-align: center; color: var(--muted); background: var(--surface);
          border: 1px dashed var(--border); border-radius: 6px; }
-.banner { padding: 0.6rem 1rem; background: #fff7d6; border: 1px solid #f0d97c; border-radius: 6px; margin-bottom: 1rem; }
+.banner { padding: 0.6rem 1rem; background: var(--hover); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
 .subnav { margin-bottom: 1rem; color: var(--muted); font-size: 0.9rem; }
 .subnav a { text-decoration: none; }
 .signals { max-width: 720px; }
@@ -135,11 +146,11 @@ span.wiki-broken {
     cursor: help;
 }
 ul.hier { list-style: none; padding-left: 0; }
-ul.hier li { padding: 0.4rem 0.75rem; background: #fff; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.4rem; }
+ul.hier li { padding: 0.4rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.4rem; }
 
 /* Chat room */
 details.chat-newthread, details.chat-close {
-  background: #fff; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
   padding: 0.5rem 1rem; margin: 1rem 0;
 }
 details.chat-newthread summary, details.chat-close summary { cursor: pointer; padding: 0.3rem 0; }
@@ -151,7 +162,7 @@ details.chat-newthread label, details.chat-close label, .chat-post label {
 }
 .chat-stream { display: flex; flex-direction: column; gap: 0.7rem; margin: 1rem 0; }
 .chat-msg {
-  background: #fff; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
   padding: 0.6rem 0.9rem; max-width: 80%;
 }
 .chat-msg-human { align-self: flex-end; background: #eef5ff; border-color: #c6dcff; }
@@ -189,7 +200,7 @@ details.chat-newthread label, details.chat-close label, .chat-post label {
 .chat-body.md blockquote { margin: 0.3em 0; padding: 0.2em 0.6em; border-left: 3px solid var(--border); color: var(--muted); }
 .chat-body.md a { color: var(--accent); }
 form.chat-post {
-  background: #fff; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
   padding: 0.8rem 1rem; margin: 1rem 0; display: flex; flex-direction: column; gap: 0.5rem;
 }
 .chat-post-row { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap; }
@@ -209,16 +220,16 @@ form.chat-post button { align-self: flex-end; padding: 0.4rem 1rem; }
 .mention-judge       { background: #ffdbd8; color: #8a1e1e; }
 
 /* Login page */
-.login { max-width: 480px; margin: 3rem auto; padding: 2rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.login { max-width: 480px; margin: 3rem auto; padding: 2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
 .login h1 { margin-top: 0; }
 .btn-google {
   display: inline-flex; align-items: center; gap: 0.7rem;
-  padding: 0.7rem 1.2rem; background: #fff; color: #333;
+  padding: 0.7rem 1.2rem; background: var(--surface); color: #333;
   border: 1px solid #d0d0d0; border-radius: 4px;
   font-weight: 600; text-decoration: none; font-size: 1rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: background 0.15s;
 }
-.btn-google:hover { background: #f4f4f4; }
+.btn-google:hover { background: var(--badge-bg); }
 .btn-google .g-logo {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; background: linear-gradient(45deg, #4285f4 0%, #ea4335 100%);
@@ -228,23 +239,23 @@ form.chat-post button { align-self: flex-end; padding: 0.4rem 1rem; }
 .login-future { margin-top: 1.5rem; font-style: italic; }
 table.claim-summary { width: 100%; margin: 1rem 0; }
 table.claim-summary th { background: transparent; text-transform: none; letter-spacing: 0; font-size: 0.85rem; color: var(--muted); width: 30%; }
-.login form button.btn-google { padding: 0.7rem 1.4rem; font-weight: 600; cursor: pointer; background: #2a6fdb; color: #fff; border: none; }
-.login form button.btn-google:hover { background: #1a5fcb; }
+.login form button.btn-google { padding: 0.7rem 1.4rem; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; border: none; }
+.login form button.btn-google:hover { background: var(--accent-strong); }
 .banner-success { background: #e6f4e6; border-color: #b8dab8; }
 .banner-success p { margin: 0.3rem 0; }
 input.copy-target {
   width: 100%; padding: 0.6rem 0.8rem; font: 1.05rem ui-monospace, SFMono-Regular, Menlo, monospace;
-  border: 1px solid var(--border); border-radius: 4px; background: #fff;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--surface);
   margin: 0.4rem 0; cursor: text;
 }
 input.copy-target:focus { outline: 2px solid var(--accent); }
 form button { padding: 0.45rem 1rem; font: inherit; cursor: pointer; background: var(--accent); color: #fff; border: none; border-radius: 4px; }
-form button:hover { background: #1a5fcb; }
+form button:hover { background: var(--accent-strong); }
 form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; font: inherit; min-width: 320px; }
 
 /* Profile page (/u/{id}) */
 .profile-card {
-  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
   padding: 1.5rem; margin: 1rem 0;
 }
 .profile-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
@@ -268,7 +279,7 @@ form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border);
 .role-form button { padding: 0.25rem 0.7rem; font-size: 0.85rem; }
 .claim-card {
   max-width: 560px; margin: 3rem auto; padding: 2rem;
-  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
 }
 .claim-card h1 { margin-top: 0; }
 .profile-edit { margin-top: 1.5rem; }
@@ -286,7 +297,7 @@ form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border);
   margin: 1rem 0;
 }
 figure.attachment {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.6rem;
@@ -319,4 +330,68 @@ a.attachment-file {
   font-size: 0.9rem;
 }
 a.attachment-file:hover { background: var(--hover); }
+
+/* ---- Reading views (journal + entry body): the pages the design is for ---- */
+/* Cap the measure for comfortable bilingual reading. */
+.reading { max-width: 70ch; }
+.reading .body.md { font-size: 1.05rem; line-height: 1.8; }
+.reading .body.md h1, .reading .body.md h2, .reading .body.md h3 {
+  font-family: var(--font-serif); font-weight: 600;
+}
+.reading .body.md h1 { font-size: 1.5rem; }
+.reading .body.md h2 {
+  font-size: 1.2rem; border-bottom: none;
+  margin-top: 1.6em; padding-bottom: 0;
+}
+/* a quiet terracotta tick before each section heading */
+.reading .body.md h2::before {
+  content: ""; display: inline-block; width: 0.5rem; height: 0.5rem;
+  background: var(--accent); border-radius: 1px;
+  margin-right: 0.5rem; vertical-align: 0.12em;
+}
+.reading .body.md li { margin: 0.35em 0; }
+
+/* The journal sheet: a calm surface page, the morning read. */
+.journal-sheet {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 2.5rem 2.75rem;
+  margin: 0 auto;
+}
+.journal-sheet .journal-date {
+  font-family: var(--font-mono); font-size: 0.85rem;
+  color: var(--muted); letter-spacing: 0.04em;
+}
+.journal-sheet h1 { margin-top: 0.3rem; }
+@media (max-width: 640px) { .journal-sheet { padding: 1.5rem 1.25rem; } }
+
+/* Journal index: a list of mornings. */
+.journal-list { list-style: none; padding: 0; margin: 1rem 0; }
+.journal-list li {
+  border-bottom: 1px solid var(--hairline);
+  padding: 0.9rem 0.2rem;
+}
+.journal-list li:last-child { border-bottom: none; }
+.journal-list .j-date {
+  font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted);
+  display: inline-block; min-width: 7.5rem;
+}
+.journal-list .j-title { font-family: var(--font-serif); font-size: 1.05rem; }
+.journal-list a { text-decoration: none; }
+.journal-list a:hover .j-title { text-decoration: underline; }
+
+/* "This morning" callout on home. */
+.journal-today {
+  display: block; background: var(--surface);
+  border: 1px solid var(--hairline); border-left: 3px solid var(--accent);
+  border-radius: 8px; box-shadow: var(--shadow);
+  padding: 1rem 1.25rem; margin: 0 0 1.5rem; text-decoration: none; color: var(--fg);
+}
+.journal-today:hover { background: var(--hover); }
+.journal-today .jt-label {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent);
+}
+.journal-today .jt-title { font-family: var(--font-serif); font-size: 1.15rem; margin-top: 0.2rem; }
 `

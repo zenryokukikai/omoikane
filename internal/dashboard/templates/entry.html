@@ -1,4 +1,17 @@
 {{define "content"}}
+{{if isJournal .Entry}}
+{{/* Daily journal: a clean morning-read sheet, not the generic audit view. */}}
+{{with .Entry}}
+<nav class="subnav">
+  <a href="/journal{{if $.Token}}?token={{urlq $.Token}}{{end}}">← Journal</a>
+</nav>
+<article class="journal-sheet reading">
+  <div class="journal-date">{{journalDate .}}</div>
+  <h1>{{.Title}}</h1>
+  <div class="body md">{{renderContent .Body $.Token}}</div>
+</article>
+{{end}}
+{{else}}
 {{with .Entry}}
 {{if $.AsOf}}<div class="banner">Showing snapshot as of <code>{{$.AsOf}}</code>. <a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">View current</a></div>{{end}}
 <p class="muted">
@@ -109,4 +122,5 @@
   </tbody>
 </table>
 {{end}}
+{{end}}{{/* close isJournal else */}}
 {{end}}

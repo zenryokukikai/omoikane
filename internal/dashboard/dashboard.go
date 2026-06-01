@@ -5,6 +5,7 @@ package dashboard
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -69,9 +70,25 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		// appVersion lets layout.html's footer show the running version
 		// on every page without threading it through each handler's data.
 		"appVersion": version.String,
+		// isJournal reports whether an entry is a summarizer daily journal,
+		// so the entry page can render it as a clean reading sheet.
+		"isJournal": func(e *store.Entry) bool { return metaKind(e) == "daily_journal" },
+		// journalDate pulls metadata.journal_date off a daily-journal entry
+		// (falls back to the created date) for the journal index.
+		"journalDate": func(e *store.Entry) string {
+			if len(e.Metadata) > 0 {
+				var m struct {
+					JournalDate string `json:"journal_date"`
+				}
+				if json.Unmarshal(e.Metadata, &m) == nil && m.JournalDate != "" {
+					return m.JournalDate
+				}
+			}
+			return e.CreatedAt.Format("2006-01-02")
+		},
 	}
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"home", "project", "entry", "entry_history", "search",
+	for _, name := range []string{"home", "journal", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index", "entries",
 		"chat_threads", "chat_thread", "login", "claim", "agents", "profile",
@@ -132,6 +149,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Use(auth.RequireScope("read"))
 		}
 		r.Get("/", h.home)
+		r.Get("/journal", h.journalList)
 		r.Get("/projects/{id}", h.project)
 		r.Get("/entries", h.entriesList)
 		r.Get("/entries/{id}", h.entry)
@@ -335,6 +353,44 @@ func (h *Handler) entriesList(w http.ResponseWriter, r *http.Request) {
 	pc.EntriesTotal = total
 	pc.EntriesFilter = filter
 	h.render(w, "entries", pc)
+}
+
+// journalList shows the daily journals (summarizer's morning digests),
+// newest first — the human-facing reading index. Journals are
+// librarian_meta entries with metadata.kind=daily_journal, posted ACTIVE.
+func (h *Handler) journalList(w http.ResponseWriter, r *http.Request) {
+	entries, _, err := h.Store.ListEntries(r.Context(), store.EntryFilter{
+		Type: "librarian_meta", Status: "ACTIVE", Limit: 200,
+	})
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	journals := make([]*store.Entry, 0, len(entries))
+	for _, e := range entries {
+		if metaKind(e) == "daily_journal" {
+			journals = append(journals, e)
+		}
+	}
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — journal"
+	pc.Entries = journals
+	h.render(w, "journal", pc)
+}
+
+// metaKind extracts metadata.kind from an entry's raw JSON metadata,
+// returning "" when absent or unparseable.
+func metaKind(e *store.Entry) string {
+	if len(e.Metadata) == 0 {
+		return ""
+	}
+	var m struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(e.Metadata, &m); err != nil {
+		return ""
+	}
+	return m.Kind
 }
 
 func (h *Handler) project(w http.ResponseWriter, r *http.Request) {

@@ -51,6 +51,30 @@
 
 ---
 
+## v0.12(2026-06-02)
+
+### 背景
+
+司書が整理した出力(cataloger 要約・detective 提案・curator 解決)が**英語のみ**で書かれており、人間がダッシュボードでレビューできず、また日本語キーの検索からも不可視になっていた。detective の SKILL は「cataloger の要約は英日併記である」ことを前提に横断言語 dedup を組んでいたが、**cataloger 正本にも共通土台 `_template` にも併記指示が一文字も無く**、源泉が要求していない性質を当てにする片肺仕様になっていた(design-discipline 違反の実例)。
+
+### 変更点
+
+- design.md に §23.15.1「司書出力の言語(英日併記)— 全 role 共通ハウスルール」を新設。
+- 正本 `dist/skills/librarians/_template/SKILL.md` の「Writing in Phase 5」に bilingual ハウスルールを追加(全 role が継承する単一の source of truth)。
+- 正本 `cataloger/AGENTS.md`、`workspace-example/{cataloger,detective,curator}/SKILL.md` の旧「Language preservation(任意翻訳)」を「英日併記 REQUIRED」へ強化。
+- 実走 workspace(`omoikane-{cataloger,detective,curator}`)の SKILL を同じ規則に更新(次回スケジュール実行から反映)。
+
+### 設計判断の根拠
+
+- **構造は英語固定 / 散文は併記**:機械可読キー(`rel_type`/`kind`/`entry_id` 等)を英語で固定することで detective の横断検索と API のスケルトンを安定させ、人間可読の散文だけ両言語にする。全文翻訳は機械処理を壊し、英語のみは人間と日本語検索を取りこぼす。両者の中間が最小コストで両立する。
+- **共通土台に一箇所だけ書く**:役割ごとに散らさず `_template` に置くことで、将来の新 role も自動継承し、仕様が一本化される。
+
+### 影響範囲
+
+既存の英語のみエントリは遡及変換しない(次回以降の出力から併記)。サーバ実装・API は無変更(本文テキストの規約のみ)。Phase 計画に影響なし。
+
+---
+
 ## v0.11(2026-06-01)
 
 ### 背景

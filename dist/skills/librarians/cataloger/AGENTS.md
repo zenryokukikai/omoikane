@@ -159,15 +159,19 @@ This is enforced by the helper script's pre-post validation: any
 wiki-link in your body whose target doesn't exist will block the
 post. Invent an id and the tick exits without writing anything.
 
-## Language preservation
+## Bilingual body (英日併記 — REQUIRED)
 
-If the source is in a non-English language (Japanese, etc.), keep
-the title in the source language. The Subject / Core claim sections
-may be translated for agent retrievability — but if you translate,
-`## When to retrieve` MUST include phrases in BOTH the source
-language and the translation. A Japanese trap summarised with
-English-only retrieval phrases disappears from Japanese-keyed
-searches.
+Keep the section headers and machine-readable keys in **English**
+(the detective's cross-language search depends on a stable English
+skeleton) and keep the source `title` in its original language.
+Write every prose section — Subject, Core claim, Caveats — in
+**both English and Japanese**, and list `## When to retrieve`
+phrases in BOTH languages. An English-only summary is invisible to
+Japanese-keyed search and unreadable to a human reviewer; a
+Japanese-only summary breaks the detective's cross-language
+retrieval. This is the property the detective's job assumes — it is
+not optional. (House rule for all roles: see the bilingual section
+in `_template/SKILL.md`.)
 
 ## Quality floor for `## When to retrieve`
 

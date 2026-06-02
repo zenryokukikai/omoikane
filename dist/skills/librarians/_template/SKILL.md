@@ -178,6 +178,29 @@ POST <base-url>/v1/entries
 Phase 6 will give you the ability to enact these proposals directly.
 Phase 5: they're proposals only.
 
+### Bilingual body (英日併記) — house rule for every role
+
+The knowledge base is read by two audiences with different
+languages: **agents** issue searches (often in English) and humans
+**review** on the dashboard (often in Japanese). So every body a
+librarian writes follows one rule:
+
+- **Structure stays English.** Section headers (`## Subject`,
+  `## Verdict`, …) and machine-readable keys (`rel_type`, `kind`,
+  `entry_id`, `type`, `from`, `to`, `confidence`) are English, so
+  downstream agents and the detective's cross-language search get a
+  stable skeleton. The source `title` keeps its original language.
+- **Prose is bilingual.** Every human-readable sentence — a claim,
+  an evidence line, a rationale — is written in **both English and
+  Japanese**. Retrieval-phrase lists include both languages.
+
+Rationale: an English-only entry is invisible to Japanese-keyed
+search and unreadable to a human reviewer; a Japanese-only entry
+breaks cross-language retrieval the detective depends on. Neither
+audience may be left out. This is a contract between roles, not a
+style preference — the detective's job literally assumes the
+cataloger's summaries are bilingual.
+
 ---
 
 ## Feedback on entries you read

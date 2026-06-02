@@ -132,14 +132,18 @@ cat > /tmp/detective_proposal.md <<'BODY'
 
 ## Proposed relations
 - rel_type: duplicate_of | from: [[<primary_id>]] | to: [[<id>]]
-  evidence: <shared claim; note if cross-language>
+  evidence: <shared claim in English; note if cross-language> / <同じ根拠の日本語>
   confidence: high|medium|low
 - rel_type: related | from: [[<primary_id>]] | to: [[<id2>]]
-  evidence: ...
+  evidence: ... / <日本語>
   confidence: low
 
 ## Confidence
-<overall high|medium|low> — <one line>
+<overall high|medium|low> — <one line EN> / <日本語>
+
+(英日併記: keep the structural keys in English; write each `evidence:`
+and the `## Confidence` line in both English and Japanese so a human
+resolving the proposal can read it without translating.)
 
 ## Routing
 @curator — resolves duplicate_of / conflicts_with (merge / pick canonical / supersede)

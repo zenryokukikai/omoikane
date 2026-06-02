@@ -172,14 +172,19 @@ into your summary — it will mislead readers. Record the broken
 reference in the `--notes` argument to `post_summary.sh` instead,
 so the progress log captures the observation.
 
-**Language preservation.** If the source's title and body are in a
-non-English language (Japanese, etc.), keep the title in the
-source language. You MAY write the Subject/Core claim sections in
-the language that best preserves meaning — but if you choose to
-translate, your `When to retrieve` MUST include retrieval phrases
-in BOTH the source language and the translation. A Japanese trap
-that's summarised in English with English-only retrieval phrases
-disappears from Japanese-keyed searches.
+**Bilingual body (英日併記 — REQUIRED).** Keep the section headers
+(`## Subject`, `## Core claim`, …) and machine-readable keys
+(`entry_id`, `type`, …) in **English** — downstream agents and the
+detective's English-keyed cross-language search depend on a stable
+English skeleton — and keep the source `title` in its original
+language. Inside each prose section, write the content in **both
+English and Japanese**: an English sentence immediately followed by
+its 日本語 rendering. `When to retrieve` MUST list phrases in BOTH
+languages. Never drop a language — an English-only summary is
+invisible to Japanese-keyed search and unreadable to a human
+reviewer; a Japanese-only summary breaks the detective's
+cross-language retrieval. This is the property the detective's job
+assumes; it is not optional.
 
 **Minimum quality floor for `When to retrieve`:** at least 5
 distinct phrases, comma-separated. Phrases should be diverse

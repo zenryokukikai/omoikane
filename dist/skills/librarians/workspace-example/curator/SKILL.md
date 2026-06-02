@@ -125,15 +125,21 @@ cat > /tmp/curator_resolution.md <<'BODY'
 [[<proposal_id>]] — detective relation proposal (<rel_type>): [[<A>]] vs [[<B>]]
 
 ## Verdict
-confirm | reject — <the relationship type and a one-line reason>
+confirm | reject — <relationship type and one-line reason, EN> / <日本語>
 
 ## Proposed actions
 - kind: supersede | winner: [[<canonical>]] | loser: [[<other>]]
-  rationale: <why this is canonical, from the entries' content>
+  rationale: <why this is canonical, from the entries' content, EN> / <日本語>
 (or synthesize / coexist / reject — match the action verb you pass)
 
 ## Rationale
-<2–4 sentences citing the entries' actual claims/bodies>
+<2–4 sentences citing the entries' actual claims/bodies, in English>
+<同じ理由付けの日本語訳(英日併記)。>
+
+(英日併記: keep `## Verdict`, `kind`, `winner`, `loser`, and the action
+verb in English; write the reason, each `rationale:`, and `## Rationale`
+in both English and Japanese so a human auditing the merge reads it in
+Japanese.)
 
 ## Source
 - curator examined: [[<proposal_id>]]

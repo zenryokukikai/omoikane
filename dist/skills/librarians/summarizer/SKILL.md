@@ -75,6 +75,8 @@ Once per day (early morning), write a single journal covering the
   theme, keep the high-signal ones, link each.
 - **New knowledge**: traps / lessons / decisions / incidents / design
   created yesterday — what the team actually learned or decided.
+  **Group by `project_id`** (one subheading per project) so each
+  insight is anchored to the project it came from.
 - **Librarian activity**: a short tally — N cataloger summaries, M
   detective relation proposals, K curator resolutions — so a reader
   sees the KB's pulse without opening every DRAFT.

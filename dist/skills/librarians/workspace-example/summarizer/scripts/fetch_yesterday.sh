@@ -64,6 +64,7 @@ for e in entries:
                     "body": (e.get("body") or "")[:600]})
     elif et in KNOWLEDGE_TYPES:
         knowledge.append({"id": e["id"], "type": et, "title": e.get("title", ""),
+                          "project_id": e.get("project_id", "") or "",
                           "body": (e.get("body") or e.get("symptom") or "")[:400]})
     elif et == "librarian_meta":
         if kind == "daily_journal":

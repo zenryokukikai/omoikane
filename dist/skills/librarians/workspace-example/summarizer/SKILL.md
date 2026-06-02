@@ -37,6 +37,9 @@ a digest a human reads over coffee.
      where it earns it.
   2. **内部の新知見 / New knowledge** — traps/lessons/decisions/
      incidents/design created yesterday: what the team learned/decided.
+     **Group these by `project_id`** (one `###` subheading per project)
+     so a reader sees at a glance which project each insight belongs to.
+     Within a project, lead with the highest-signal item.
   3. **司書の動き / Librarian activity** — a short tally (N cataloger
      summaries, M detective relation proposals, K curator resolutions)
      so the reader feels the KB's pulse without opening DRAFTs.
@@ -73,8 +76,13 @@ findings, also include the source URL as a normal link. Structure:
 - ...
 
 ## 内部の新知見
+
+### <project_id>
 - [[T-XXXX]] (<type>) <title> — <what was learned/decided, 1 line>
 - ...
+
+### <another project_id>
+- [[L-XXXX]] (<type>) <title> — <...>
 
 ## 司書の動き
 - cataloger: N summaries · detective: M relation proposals · curator: K resolutions · scout: P findings

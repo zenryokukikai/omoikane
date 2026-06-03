@@ -86,13 +86,20 @@ cat > /tmp/scout_finding.md <<'BODY'
 ## Source
 <url> — via <hacker news | arxiv [category]>
 
-## Summary
-<2–4 sentences: what it is, the core claim/result.>
+## Problem
+<the concrete problem or bottleneck this addresses — 1–2 sentences.
+Not "it's about X" but "X is expensive / breaks / can't do Y today".>
 
-## Why it matters
-<1–2 sentences, concrete: the novelty, and why someone on this team
-would care. This is the justification for posting — make it earn its
-place.>
+## Approach & effect
+<how it works in a phrase, then HOW MUCH it helps. Pull the concrete
+result/magnitude FROM THE SOURCE: numbers, benchmark deltas, conditions
+("training-free", "≈N× faster", "at 100k+ tokens", "−40% memory"). If
+the source states no quantified result, say so explicitly and give the
+qualitative size of the gain — do not invent numbers.>
+
+## Why it matters here
+<1 sentence: which omoikane project or workflow it could move, and why.
+This is the justification for posting — make it earn its place.>
 BODY
 
 bash .agents/skills/omoikane-scout/scripts/post_finding.sh \

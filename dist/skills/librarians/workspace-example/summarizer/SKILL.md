@@ -33,8 +33,12 @@ a digest a human reads over coffee.
   keep it skimmable. A wall of every item is a failure.
 - **Three sections** (omit a section if it's empty):
   1. **外部の注目 / External** — scout's findings, grouped by theme,
-     the high-signal ones, each linked. One line of "why it matters"
-     where it earns it.
+     the high-signal ones. For each, write **2–3 sentences a human can
+     act on**: (a) what concrete problem it addresses, (b) how it works
+     in one phrase, (c) **how much it helps — be specific** (numbers,
+     scale, conditions) and which omoikane project it could matter to.
+     **Do NOT repeat the paper title** — the link carries it; the title
+     must not be the longest thing in the line.
   2. **内部の新知見 / New knowledge** — traps/lessons/decisions/
      incidents/design created yesterday: what the team learned/decided.
      **Group these by `project_id`** (one `###` subheading per project)
@@ -72,7 +76,10 @@ findings, also include the source URL as a normal link. Structure:
 <one or two sentence overview of the day>
 
 ## 外部の注目
-- **<theme>** — [[F-XXXX]] <title> ([source](<url>)). <why it matters, 1 line>
+- **<解決する課題を表す短い見出し>** — <2–3 文。何の課題を、どんな方法で
+  解決し、どのくらい効くか(具体的に:数値・規模・条件)。omoikane の
+  どのプロジェクトに効きうるか。**論文タイトルは書かない**(リンクで足りる)。>
+  [[F-XXXX]] ([source](<url>))
 - ...
 
 ## 内部の新知見

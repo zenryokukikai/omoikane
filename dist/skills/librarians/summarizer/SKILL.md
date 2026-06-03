@@ -72,7 +72,12 @@ Once per day (early morning), write a single journal covering the
 **previous calendar day**:
 
 - **External**: the external_finding entries scout posted — group by
-  theme, keep the high-signal ones, link each.
+  theme, keep the high-signal ones, link each. For each, write 2–3
+  sentences a human can act on: the concrete problem it solves and
+  **how much it helps** (numbers/conditions when the source gives
+  them), plus which omoikane project it touches. **Do not repeat the
+  paper title** — the link carries it; the title must not be the
+  longest thing in the line.
 - **New knowledge**: traps / lessons / decisions / incidents / design
   created yesterday — what the team actually learned or decided.
   **Group by `project_id`** (one subheading per project) so each

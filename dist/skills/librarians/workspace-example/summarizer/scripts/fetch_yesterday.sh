@@ -59,9 +59,11 @@ for e in entries:
     kind = meta.get("kind") if isinstance(meta, dict) else None
     et = e.get("type")
     if et == "external_finding":
+        # Carry more body so the journal can state the *effect/magnitude*
+        # (numbers, conditions) — those usually sit deeper in the abstract.
         ext.append({"id": e["id"], "title": e.get("title", ""),
                     "url": (meta.get("source_url") if isinstance(meta, dict) else "") or "",
-                    "body": (e.get("body") or "")[:600]})
+                    "body": (e.get("body") or "")[:1500]})
     elif et in KNOWLEDGE_TYPES:
         knowledge.append({"id": e["id"], "type": et, "title": e.get("title", ""),
                           "project_id": e.get("project_id", "") or "",

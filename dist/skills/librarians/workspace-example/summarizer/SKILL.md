@@ -33,12 +33,13 @@ a digest a human reads over coffee.
   keep it skimmable. A wall of every item is a failure.
 - **Three sections** (omit a section if it's empty):
   1. **外部の注目 / External** — scout's findings, grouped by theme,
-     the high-signal ones. For each, write **2–3 sentences a human can
-     act on**: (a) what concrete problem it addresses, (b) how it works
-     in one phrase, (c) **how much it helps — be specific** (numbers,
-     scale, conditions) and which omoikane project it could matter to.
-     **Do NOT repeat the paper title** — the link carries it; the title
-     must not be the longest thing in the line.
+     the high-signal ones. **Each finding already carries a "Why it
+     matters" passage — use it.** Write **2–3 sentences centred on why
+     it matters**: lead with the significance, grounded in the concrete
+     problem it addresses and **how much it helps** (numbers, scale,
+     conditions) when stated, then which omoikane project it could
+     move. **Do NOT repeat the paper title** — the link carries it; the
+     title must not be the longest thing in the line.
   2. **内部の新知見 / New knowledge** — traps/lessons/decisions/
      incidents/design created yesterday: what the team learned/decided.
      **Group these by `project_id`** (one `###` subheading per project)
@@ -76,9 +77,10 @@ findings, also include the source URL as a normal link. Structure:
 <one or two sentence overview of the day>
 
 ## 外部の注目
-- **<解決する課題を表す短い見出し>** — <2–3 文。何の課題を、どんな方法で
-  解決し、どのくらい効くか(具体的に:数値・規模・条件)。omoikane の
-  どのプロジェクトに効きうるか。**論文タイトルは書かない**(リンクで足りる)。>
+- **<なぜ重要かが伝わる短い見出し>** — <2–3 文。**なぜ重要か**(何ができる
+  ようになる/何が問題でなくなる)を主役に。解決する課題と、どのくらい効くか
+  (数値・規模・条件)を添える。finding の "Why it matters" を活用。omoikane
+  のどのプロジェクトに効くか。**論文タイトルは書かない**(リンクで足りる)。>
   [[F-XXXX]] ([source](<url>))
 - ...
 

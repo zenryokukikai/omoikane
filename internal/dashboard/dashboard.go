@@ -248,6 +248,7 @@ type pageCtx struct {
 	LookupMode   string // "symptom" | "trigger"
 	LookupDomain string
 	LookupRows   []lookupRow
+	IndexedList  []*store.IndexedEntrySummary // browse list when no query
 
 	// Entry page — this entry's reverse-lookup index (symptom/trigger → here)
 	EntrySymptoms []string
@@ -817,6 +818,16 @@ func (h *Handler) lookupPage(w http.ResponseWriter, r *http.Request) {
 				row.Type = e.Type
 			}
 			pc.LookupRows = append(pc.LookupRows, row)
+		}
+	} else {
+		// No query → browse the indexed articles, most-recently-indexed first.
+		const pageSize = 30
+		page := pageParam(r)
+		list, total, lErr := h.Store.ListIndexedEntries(r.Context(),
+			r.URL.Query().Get("project"), pageSize, (page-1)*pageSize)
+		if lErr == nil {
+			pc.IndexedList = list
+			pc.Pagination = buildPagination(r, total, page, pageSize)
 		}
 	}
 	h.render(w, "lookup", pc)

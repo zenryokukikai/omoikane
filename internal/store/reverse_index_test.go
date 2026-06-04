@@ -302,3 +302,62 @@ func TestLookupByTriggerEmptyQuery(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestListIndexedEntries(t *testing.T) {
+	s, id1 := seed(t)
+	ctx := context.Background()
+	// Second entry (also indexed) to test ordering by last-indexed.
+	id2, err := s.CreateEntry(ctx, &Entry{ProjectID: "p", Type: "lesson", Title: "B", Body: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A third entry with NO index (must be excluded).
+	id3, err := s.CreateEntry(ctx, &Entry{ProjectID: "p", Type: "decision", Title: "C", Body: "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = id3
+
+	// Index id1 with 2 symptoms + 1 trigger.
+	if err := s.ReplaceSymptoms(ctx, id1, []string{"a sym", "b sym"}, "indexer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceTriggers(ctx, id1, []IndexedTrigger{{Phrase: "t", Domain: "d"}}, "indexer"); err != nil {
+		t.Fatal(err)
+	}
+	// Then index id2 (later → should sort first).
+	if err := s.ReplaceSymptoms(ctx, id2, []string{"z sym"}, "indexer"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, total, err := s.ListIndexedEntries(ctx, "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("total: want 2, got %d", total)
+	}
+	if len(out) != 2 {
+		t.Fatalf("rows: want 2, got %d", len(out))
+	}
+	// id2 was indexed last → first.
+	if out[0].EntryID != id2 || out[1].EntryID != id1 {
+		t.Fatalf("order: want %s,%s got %s,%s", id2, id1, out[0].EntryID, out[1].EntryID)
+	}
+	if out[1].Symptoms != 2 || out[1].Triggers != 1 {
+		t.Fatalf("id1 counts: want 2/1 got %d/%d", out[1].Symptoms, out[1].Triggers)
+	}
+	if out[0].Symptoms != 1 || out[0].Triggers != 0 {
+		t.Fatalf("id2 counts: want 1/0 got %d/%d", out[0].Symptoms, out[0].Triggers)
+	}
+
+	// Pagination: limit=1 returns first; offset=1 returns second; total stays 2.
+	page1, total1, err := s.ListIndexedEntries(ctx, "", 1, 0)
+	if err != nil || total1 != 2 || len(page1) != 1 || page1[0].EntryID != id2 {
+		t.Fatalf("page1: %v total=%d len=%d", err, total1, len(page1))
+	}
+	page2, _, err := s.ListIndexedEntries(ctx, "", 1, 1)
+	if err != nil || len(page2) != 1 || page2[0].EntryID != id1 {
+		t.Fatalf("page2 unexpected: %+v", page2)
+	}
+}

@@ -40,6 +40,26 @@
     <div class="empty">該当なし。まだ index されていないエントリかもしれません(indexer が90分毎にカバレッジを広げています)。</div>
   {{end}}
 {{else}}
-  <div class="empty">症状またはトリガ語を入れて「引く」。</div>
+  <h2>逆引き済みの記事 <span class="muted" style="font-size:0.7em;font-weight:normal;">最近 index された順</span></h2>
+  {{if .IndexedList}}
+  <table>
+    <thead><tr><th>ID</th><th>Type</th><th>Title</th><th>症状</th><th>トリガ</th><th>最終index</th></tr></thead>
+    <tbody>
+      {{range .IndexedList}}
+      <tr>
+        <td><span class="badge">{{.EntryID}}</span></td>
+        <td><span class="badge">{{.Type}}</span></td>
+        <td><a href="/entries/{{.EntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
+        <td class="muted">{{.Symptoms}}</td>
+        <td class="muted">{{.Triggers}}</td>
+        <td class="muted">{{.LastIndexed}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{template "pager" .Pagination}}
+  {{else}}
+  <div class="empty">まだ逆引き index されたエントリがありません(indexer が90分毎に増やします)。上の検索ボックスで症状/トリガを直接引くこともできます。</div>
+  {{end}}
 {{end}}
 {{end}}

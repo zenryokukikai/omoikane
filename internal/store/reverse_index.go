@@ -238,6 +238,73 @@ func (s *Store) EntryTriggers(ctx context.Context, entryID string) ([]IndexedTri
 	return out, rows.Err()
 }
 
+// IndexedEntrySummary is one entry that has reverse-index coverage, with its
+// symptom/trigger counts and when it was last indexed — for the /lookup browse
+// list of indexed articles.
+type IndexedEntrySummary struct {
+	EntryID     string
+	Title       string
+	Type        string
+	ProjectID   string
+	Symptoms    int
+	Triggers    int
+	LastIndexed string // max(created_at) across symptoms+triggers
+}
+
+// ListIndexedEntries lists entries that have at least one symptom or trigger
+// indexed, most-recently-indexed first, with counts. Returns the requested
+// page plus the total count for pagination. project="" lists all projects.
+func (s *Store) ListIndexedEntries(ctx context.Context, project string, limit, offset int) ([]*IndexedEntrySummary, int, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	where := ""
+	var filter []any
+	if project != "" {
+		where = "WHERE e.project_id = ?"
+		filter = append(filter, project)
+	}
+
+	var total int
+	totalSQL := `SELECT COUNT(*) FROM (
+		SELECT entry_id FROM symptoms_index
+		UNION SELECT entry_id FROM triggers_index
+	) idx JOIN entries e ON e.id = idx.entry_id ` + where
+	if err := s.db.QueryRowContext(ctx, totalSQL, filter...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	pageSQL := `SELECT e.id, e.title, e.type, e.project_id,
+		COALESCE(s.cnt,0), COALESCE(t.cnt,0),
+		MAX(COALESCE(s.last,''), COALESCE(t.last,'')) AS last_indexed
+	FROM (
+		SELECT entry_id FROM symptoms_index
+		UNION SELECT entry_id FROM triggers_index
+	) idx
+	JOIN entries e ON e.id = idx.entry_id
+	LEFT JOIN (SELECT entry_id, COUNT(*) cnt, MAX(created_at) last FROM symptoms_index GROUP BY entry_id) s ON s.entry_id = e.id
+	LEFT JOIN (SELECT entry_id, COUNT(*) cnt, MAX(created_at) last FROM triggers_index GROUP BY entry_id) t ON t.entry_id = e.id
+	` + where + `
+	ORDER BY last_indexed DESC, e.id
+	LIMIT ? OFFSET ?`
+	args := append(append([]any{}, filter...), limit, offset)
+	rows, err := s.db.QueryContext(ctx, pageSQL, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []*IndexedEntrySummary
+	for rows.Next() {
+		var r IndexedEntrySummary
+		if err := rows.Scan(&r.EntryID, &r.Title, &r.Type, &r.ProjectID,
+			&r.Symptoms, &r.Triggers, &r.LastIndexed); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, &r)
+	}
+	return out, total, rows.Err()
+}
+
 // LookupByTrigger first consults trigger_rules (deterministic regex layer)
 // then falls back to the FTS index. Rule hits get a high synthetic score
 // so they sort first. The `domain` filter is applied to both layers.

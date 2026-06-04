@@ -85,8 +85,8 @@ func TestIssueAgentInviteUnknownRole(t *testing.T) {
 		} `json:"error"`
 	}
 	_ = json.Unmarshal(raw, &resp)
-	if len(resp.Error.Details.Allowed) != 8 {
-		t.Errorf("expected 8 allowed roles echoed, got %d: %s",
+	if len(resp.Error.Details.Allowed) != 9 {
+		t.Errorf("expected 9 allowed roles echoed, got %d: %s",
 			len(resp.Error.Details.Allowed), raw)
 	}
 }

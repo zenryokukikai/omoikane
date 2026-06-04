@@ -16,7 +16,7 @@ func phase5Seed(t *testing.T) (*Store, context.Context) {
 
 func TestValidLibrarianRole(t *testing.T) {
 	for _, r := range []string{"coordinator", "cataloger", "curator",
-		"detective", "conservator", "scout", "summarizer", "judge"} {
+		"detective", "conservator", "scout", "indexer", "summarizer", "judge"} {
 		if !ValidLibrarianRole(r) {
 			t.Fatalf("%s should be valid", r)
 		}

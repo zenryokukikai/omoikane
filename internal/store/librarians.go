@@ -72,7 +72,7 @@ type LibrarianInstance struct {
 func ValidLibrarianRole(r string) bool {
 	switch r {
 	case "coordinator", "cataloger", "curator", "detective",
-		"conservator", "scout", "summarizer", "judge":
+		"conservator", "scout", "indexer", "summarizer", "judge":
 		return true
 	}
 	return false
@@ -84,7 +84,7 @@ func ValidLibrarianRole(r string) bool {
 func LibrarianRoleSlice() []string {
 	return []string{
 		"cataloger", "conservator", "coordinator", "curator",
-		"detective", "judge", "scout", "summarizer",
+		"detective", "indexer", "judge", "scout", "summarizer",
 	}
 }
 
@@ -97,6 +97,7 @@ var ValidLibrarianRoles = map[string]bool{
 	"detective":   true,
 	"conservator": true,
 	"scout":       true,
+	"indexer":     true,
 	"summarizer":  true,
 	"judge":       true,
 }

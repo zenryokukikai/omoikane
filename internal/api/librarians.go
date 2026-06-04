@@ -45,7 +45,7 @@ func (h *Handler) librarianRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if !store.ValidLibrarianRole(req.Role) {
 		writeError(w, http.StatusBadRequest, CodeBadRequest,
-			"role must be one of coordinator|cataloger|curator|detective|conservator|scout|summarizer|judge",
+			"role must be one of coordinator|cataloger|curator|detective|conservator|scout|indexer|summarizer|judge",
 			map[string]any{"got": req.Role, "allowed": store.LibrarianRoleSlice()})
 		return
 	}

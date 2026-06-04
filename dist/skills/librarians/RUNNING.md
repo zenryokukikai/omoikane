@@ -37,7 +37,7 @@ curl -sS -X POST "<base-url>/v1/admin/agent-invites" \
 ```
 
 `<role>` is one of: `coordinator | cataloger | curator | detective |
-conservator | scout | summarizer | judge`. The invite binds the
+conservator | scout | indexer | summarizer | judge`. The invite binds the
 redeemed token to that role; the server rejects cross-role use.
 
 ### 2. Redeem it for a dedicated token
@@ -142,9 +142,9 @@ honours it automatically. To fully halt, remove the scheduler entry.
 
 ## Reference implementations — copy-paste examples
 
-Complete, runnable, secret-free workspace skeletons for five roles live
+Complete, runnable, secret-free workspace skeletons for six roles live
 in **[`workspace-example/`](workspace-example/)** (cataloger, detective,
-curator, scout, summarizer) — scripts + session wrapper + LaunchAgent,
+curator, scout, indexer, summarizer) — scripts + session wrapper + LaunchAgent,
 with placeholders for host/path/token. Start there: copy the closest
 role, fill the placeholders, validate locally, schedule. See
 [`workspace-example/README.md`](workspace-example/README.md) for the

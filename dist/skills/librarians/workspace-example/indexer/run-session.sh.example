@@ -1,0 +1,31 @@
+#!/bin/bash
+# Example launchd/cron wrapper for the omoikane indexer librarian.
+# Copy to your workspace, replace the placeholders, make executable.
+#
+# Placeholders:
+#   <NODE_BIN_DIR>  dir holding the `pi` runtime (e.g. ~/.nvm/.../bin)
+#   <WORKSPACE>     absolute path to this workspace dir
+set -euo pipefail
+
+# launchd/cron give a bare environment; set PATH so curl/jq/pi resolve.
+export PATH="<NODE_BIN_DIR>:/opt/homebrew/bin:/usr/bin:/bin"
+
+WORKDIR="<WORKSPACE>"
+LOCK="$WORKDIR/.indexer-session.lock"
+cd "$WORKDIR"
+ts() { date '+%Y-%m-%dT%H:%M:%S'; }
+
+# Single-flight: skip if a prior run is still going.
+if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "$(ts) [skip] an indexer session is already running"; exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+
+echo "=== $(ts) indexer START ==="
+# pi reads its model creds from ~/.pi/agent/auth.json (HOME-based);
+# omoikane creds come from .agents/.local/kb-agent.json (NOT via env).
+pi --print --skill .agents/skills/omoikane-indexer --no-context-files \
+   "Indexer session: take up to 20 substantive entries from next_work.sh whose reverse index is missing/stale; for each, read the body and write grounded bilingual symptoms + (phrase,domain) triggers via post_index.sh; end with the summary line."
+rc=$?
+echo "=== $(ts) indexer END (rc=$rc) ==="
+exit $rc

@@ -19,6 +19,7 @@ workspace-example/
 ├── detective/   relation proposals     (interval ~45m)
 ├── curator/     resolve proposals      (interval ~60m)
 ├── scout/       external findings      (interval ~3h)  — HN/arXiv/HF + SQLite seen-store
+├── indexer/     reverse-lookup index   (interval ~90m) — fills symptoms/triggers via /v1/entries/{id}/index
 └── summarizer/  daily journal (ACTIVE) (calendar, morning)
 ```
 

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example launchd LaunchAgent for the omoikane indexer librarian.
+     Copy to ~/Library/LaunchAgents/<LABEL>.plist, replace placeholders,
+     then: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<LABEL>.plist
+     (cron/systemd users: ignore this; just schedule run-session.sh.) -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string><LABEL></string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string><WORKSPACE>/run-session.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string><WORKSPACE></string>
+  <!-- indexer cadence; stagger roles so their sessions don't all fire at once -->
+  <key>StartInterval</key><integer>5400</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string><HOME>/Library/Logs/omoikane-indexer.log</string>
+  <key>StandardErrorPath</key><string><HOME>/Library/Logs/omoikane-indexer.err.log</string>
+  <key>ProcessType</key><string>Background</string>
+</dict></plist>

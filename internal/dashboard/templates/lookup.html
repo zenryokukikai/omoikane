@@ -1,0 +1,45 @@
+{{define "content"}}
+<h1>🔎 Lookup</h1>
+<p class="muted reading">
+  逆引き — 症状やトリガ語を入れると、それに繋がるエントリを返します。
+  本文の全文検索ではなく、indexer が各エントリに付けた
+  <em>症状</em> / <em>トリガ</em> 句に当てます。
+</p>
+
+<form method="get" action="/lookup" class="lookup-form">
+  {{if .Token}}<input type="hidden" name="token" value="{{.Token}}">{{end}}
+  <input type="text" name="q" value="{{.Query}}" placeholder="例: 口の動きが鈍い / training resume noise" autofocus>
+  <select name="mode">
+    <option value="symptom" {{if eq .LookupMode "symptom"}}selected{{end}}>症状 (by-symptom)</option>
+    <option value="trigger" {{if eq .LookupMode "trigger"}}selected{{end}}>トリガ (by-trigger)</option>
+  </select>
+  <input type="text" name="domain" value="{{.LookupDomain}}" placeholder="domain (任意)" class="lookup-domain">
+  <button type="submit">引く</button>
+</form>
+
+{{if .Query}}
+  <p class="muted">
+    <code>{{.LookupMode}}</code>: <code>{{.Query}}</code>{{if .LookupDomain}} / domain <code>{{.LookupDomain}}</code>{{end}}
+  </p>
+  {{if .LookupRows}}
+    <table>
+      <thead><tr><th>ID</th><th>Type</th><th>Title</th><th>一致した句</th><th>source</th></tr></thead>
+      <tbody>
+        {{range .LookupRows}}
+        <tr>
+          <td><span class="badge">{{.EntryID}}</span></td>
+          <td>{{if .Type}}<span class="badge">{{.Type}}</span>{{end}}</td>
+          <td><a href="/entries/{{.EntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{if .Title}}{{.Title}}{{else}}{{.EntryID}}{{end}}</a></td>
+          <td class="muted">{{.Phrase}}</td>
+          <td class="muted">{{.Source}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">該当なし。まだ index されていないエントリかもしれません(indexer が90分毎にカバレッジを広げています)。</div>
+  {{end}}
+{{else}}
+  <div class="empty">症状またはトリガ語を入れて「引く」。</div>
+{{end}}
+{{end}}

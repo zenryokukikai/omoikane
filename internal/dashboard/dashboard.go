@@ -108,7 +108,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	pages := map[string]*template.Template{}
 	for _, name := range []string{"home", "journal", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
-		"browse", "browse_node", "index", "entries",
+		"browse", "browse_node", "index", "lookup", "entries",
 		"chat_threads", "chat_thread", "login", "claim", "agents", "profile",
 		"members", "member_claim"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
@@ -181,6 +181,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/browse", h.browsePage)
 		r.Get("/browse/{id}", h.browseNodePage)
 		r.Get("/index", h.indexPage)
+	r.Get("/lookup", h.lookupPage)
 		r.Get("/chat", h.chatThreadsPage)
 		r.Get("/chat/{id}", h.chatThreadPage)
 		r.Get("/agents", h.agentsPage)
@@ -242,6 +243,11 @@ type pageCtx struct {
 	BrowseEntries  []*store.Entry
 	IndexBuckets   []*store.IndexBucket
 	GroupBy        string
+
+	// Reverse-lookup page (/lookup) — symptom/trigger → entries
+	LookupMode   string // "symptom" | "trigger"
+	LookupDomain string
+	LookupRows   []lookupRow
 
 	// Phase 5 — chat
 	ChatThreads      []*store.ChatThread
@@ -750,6 +756,59 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		pc.Results = res
 	}
 	h.render(w, "search", pc)
+}
+
+// lookupRow is one reverse-lookup hit, enriched with the entry's title/type
+// for display (LookupHit itself only carries the id + matched phrase).
+type lookupRow struct {
+	EntryID string
+	Title   string
+	Type    string
+	Phrase  string // the symptom/trigger phrase that matched
+	Source  string // "rule" | "fts"
+}
+
+// lookupPage is the human view of the reverse-lookup index the indexer fills:
+// type a symptom or a trigger phrase, get the entries it leads to. This is the
+// dashboard counterpart of /v1/lookup/by-symptom|trigger.
+func (h *Handler) lookupPage(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	mode := r.URL.Query().Get("mode")
+	if mode != "trigger" {
+		mode = "symptom"
+	}
+	domain := strings.TrimSpace(r.URL.Query().Get("domain"))
+
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — lookup"
+	pc.Query = q
+	pc.LookupMode = mode
+	pc.LookupDomain = domain
+
+	if q != "" {
+		var (
+			hits []*store.LookupHit
+			err  error
+		)
+		if mode == "trigger" {
+			hits, err = h.Store.LookupByTrigger(r.Context(), q, domain, 25)
+		} else {
+			hits, err = h.Store.LookupBySymptom(r.Context(), q, 25)
+		}
+		if err != nil && !errors.Is(err, store.ErrInvalidInput) {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		for _, hit := range hits {
+			row := lookupRow{EntryID: hit.EntryID, Phrase: hit.Phrase, Source: hit.Source}
+			if e, e2 := h.Store.GetEntry(r.Context(), hit.EntryID); e2 == nil && e != nil {
+				row.Title = e.Title
+				row.Type = e.Type
+			}
+			pc.LookupRows = append(pc.LookupRows, row)
+		}
+	}
+	h.render(w, "lookup", pc)
 }
 
 // ----------------------------------------------------------------------

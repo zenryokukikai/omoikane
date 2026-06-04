@@ -133,6 +133,14 @@ footer { padding: 1rem; text-align: center; color: var(--muted); font-size: 0.85
 .pager-link { text-decoration: none; padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; color: var(--accent); font-size: 0.9rem; }
 .pager-link:hover { background: var(--hover); color: var(--accent-strong); }
 .pager-disabled { color: var(--muted); border-color: var(--hairline); pointer-events: none; opacity: 0.5; }
+
+/* Reverse-lookup page form. */
+.lookup-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 1rem 0 1.4rem; }
+.lookup-form input[type=text] { flex: 1 1 22rem; padding: 0.45rem 0.7rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font: inherit; }
+.lookup-form input.lookup-domain { flex: 0 1 9rem; }
+.lookup-form select { padding: 0.45rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font: inherit; }
+.lookup-form button { padding: 0.45rem 1.1rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--bg); font: inherit; cursor: pointer; }
+.lookup-form button:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .pager-info { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
 .empty { padding: 2rem; text-align: center; color: var(--muted); background: var(--surface);
          border: 1px dashed var(--border); border-radius: 6px; }

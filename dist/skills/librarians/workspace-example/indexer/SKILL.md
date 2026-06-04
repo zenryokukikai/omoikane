@@ -51,12 +51,22 @@ one exists). Produce phrases **grounded in the entry's real content**:
 - **triggers** (`{phrase, domain}`): the query intents that should land
   here, grouped by domain (`audio`, `training`, `auth`, …).
 
-**Phrases are *queries*, not sentences from the entry. Aim for 3–8
-words, HARD LIMIT 50 characters per phrase.** Bad: a sentence lifted
-from the body. Good: "口の開きが弱い" / "weak open-mouth articulation".
-Write each in **BOTH Japanese and English** so cross-language lookup
-reaches the entry. Do NOT invent phrases the entry doesn't support; do
-NOT pad with generic words ("error", "issue").
+**Phrases are *queries someone would type into a search box*, not
+sentences from the entry body.** Aim for 3–8 words, HARD LIMIT 50
+chars per phrase. Write each in BOTH Japanese and English.
+
+**The Body Quote Test:** before adding a phrase, ask "would a person
+experiencing this problem actually type this exact thing into a search
+box?" If it sounds like prose lifted from the body (contains "という"
+"should be" "Need to" "must" quote marks, clauses, or > 50 chars), it
+FAILS the test — rewrite it.
+
+- BAD: a sentence lifted from the body
+- BAD: "という見方もある", "こうしたら面白そう" (body quote fragments)
+- GOOD: "口の開きが弱い" / "weak open-mouth articulation"
+
+Do NOT invent phrases the entry doesn't support; do NOT pad with
+generic words. Quality > 8 — 2 honest phrases beat 8 padded ones.
 
 ### 3. Write the index
 

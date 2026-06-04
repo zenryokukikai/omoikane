@@ -87,13 +87,27 @@ For each target entry, a single `POST /v1/entries/{id}/index` with:
   concepts, user-facing wording. Domain groups them (e.g. `audio`,
   `training`, `auth`, `deployment`). Both languages here too.
 
-**Phrases are *queries*, not sentences from the entry. Aim for 3–8
-words, HARD LIMIT 50 characters per phrase.** Bad: a sentence lifted
-from the body. Good: "口の開きが弱い" / "weak open-mouth articulation".
+**Phrases are *queries someone would type into a search box*, not
+sentences from the entry body.** Aim for 3–8 words, HARD LIMIT 50
+chars per phrase.
+
+**The Body Quote Test:** before adding a phrase, ask "would a person
+experiencing this problem actually type this exact thing into a search
+box?" If it sounds like prose lifted from the body (contains "という"
+"should be" "Need to" "must" quote marks, clauses, or > 50 chars), it
+FAILS the test — rewrite it.
+
+- BAD: "Need to improve large-mouth-open articulation by increasing
+  exposure to short clips" (body sentence)
+- BAD: "という見方もある", "こうしたら面白そう" (body quote fragments)
+- GOOD: "口の開きが弱い" / "weak open-mouth articulation"
+- GOOD: "training data oversampling" / "学習データ偏り"
 
 The phrases must be **grounded in the entry's real content** — read
 the body and its `When to retrieve` section (if the cataloger wrote
-one) and extract; do not pad with generic terms.
+one) and extract the search queries; do not pad with generic terms.
+If a substantive entry only yields 2 honest short phrases per language,
+that's fine — quality > 8.
 
 ### What you do NOT touch
 

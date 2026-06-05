@@ -20,6 +20,16 @@ const SkillVersion = "0.6.0"
 const FeedbackHint = `If a result here shaped your action, ` +
 	`POST /v1/feedback {"entry_id":"<id>","signal":"helpful|confirmed|outdated|wrong|incomplete|surfaced_gap","context":"<one line>"}`
 
+// FeedbackPrompt is a friendlier, in-body version of the hint. The header
+// is robust (every response, every endpoint) but agents skim headers — the
+// body is what they reason about. Including the prompt as a JSON field on
+// read endpoints (search / lookup / get) puts the reminder *next to the
+// entry id*, in the same JSON the LLM is parsing. Bilingual JA/EN because
+// the entries themselves are bilingual.
+const FeedbackPrompt = `🙋 役に立ちましたか？ ズレていましたか？ 一言で教えてください — ` +
+	`POST /v1/feedback {"entry_id":"<id>","signal":"helpful|confirmed|outdated|wrong|incomplete|surfaced_gap","context":"<one line>"}. ` +
+	`Was this helpful or off? One POST closes the loop for the next reader.`
+
 // SkillVersionHeader is a chi middleware that stamps `X-Skill-Version` and
 // `X-Feedback-Hint` on every response.
 //

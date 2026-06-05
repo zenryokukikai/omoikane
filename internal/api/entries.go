@@ -254,7 +254,7 @@ func (h *Handler) getEntry(w http.ResponseWriter, r *http.Request) {
 		}
 		userID := r.Header.Get("X-Audit-User")
 		_ = h.Store.RecordAccess(httpCtx(r), []string{e.ID}, userID, store.AccessSourceGet, "")
-		writeJSON(w, http.StatusOK, e)
+		writeJSON(w, http.StatusOK, entryWithFeedbackPrompt(e))
 		return
 	}
 	e, err := h.Store.GetEntry(httpCtx(r), id)
@@ -269,7 +269,20 @@ func (h *Handler) getEntry(w http.ResponseWriter, r *http.Request) {
 	_ = h.Store.RecordAccess(httpCtx(r), []string{e.ID}, userID, store.AccessSourceGet, "")
 	// ETag tied to version for OCC-aware clients.
 	w.Header().Set("ETag", `"`+strconv.Itoa(e.Version)+`"`)
-	writeJSON(w, http.StatusOK, e)
+	writeJSON(w, http.StatusOK, entryWithFeedbackPrompt(e))
+}
+
+// entryGetEnvelope embeds *store.Entry inline so all of its existing JSON
+// fields stay at the top level (non-breaking), and adds one extra prompt.
+// The underscore-prefixed key signals "system field" so callers don't
+// confuse it with an entry attribute.
+type entryGetEnvelope struct {
+	*store.Entry
+	FeedbackPrompt string `json:"_feedback_prompt,omitempty"`
+}
+
+func entryWithFeedbackPrompt(e *store.Entry) entryGetEnvelope {
+	return entryGetEnvelope{Entry: e, FeedbackPrompt: FeedbackPrompt}
 }
 
 func (h *Handler) listEntries(w http.ResponseWriter, r *http.Request) {

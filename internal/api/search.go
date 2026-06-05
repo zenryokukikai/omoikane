@@ -91,10 +91,11 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp := map[string]any{
-		"results": results,
-		"count":   len(results),
-		"total":   total,
-		"mode":    defaultMode(req.Mode),
+		"results":         results,
+		"count":           len(results),
+		"total":           total,
+		"mode":            defaultMode(req.Mode),
+		"feedback_prompt": FeedbackPrompt,
 	}
 	// Passive access logging — every entry surfaced via search counts as
 	// a "the agent saw this" event. Best-effort; non-fatal.

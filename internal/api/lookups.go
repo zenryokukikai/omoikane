@@ -29,7 +29,8 @@ type lookupMatch struct {
 }
 
 type lookupResponse struct {
-	Matches []lookupMatch `json:"matches"`
+	Matches        []lookupMatch `json:"matches"`
+	FeedbackPrompt string        `json:"feedback_prompt,omitempty"`
 }
 
 // ---- by-trigger ----
@@ -212,7 +213,10 @@ type lookupCtx struct {
 // so a single helpful case can't dominate a high-quality FTS match, and a
 // single misleading case can't flatten a rule hit.
 func (h *Handler) buildLookupResponse(r *http.Request, c lookupCtx) lookupResponse {
-	out := lookupResponse{Matches: make([]lookupMatch, 0, len(c.hits))}
+	out := lookupResponse{
+		Matches:        make([]lookupMatch, 0, len(c.hits)),
+		FeedbackPrompt: FeedbackPrompt,
+	}
 	if len(c.hits) == 0 {
 		return out
 	}

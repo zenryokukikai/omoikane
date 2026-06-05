@@ -107,6 +107,13 @@ a { color: var(--accent); }
 .body { white-space: pre-wrap; background: var(--surface); padding: 1rem; border: 1px solid var(--border); border-radius: 6px; }
 .body pre, code { background: var(--code-bg); padding: 0 0.25em; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
 .body pre { padding: 0.6rem 0.8rem; overflow-x: auto; }
+/* JSON metadata blob: wrap rather than overflow horizontally — long JSON
+   lines (chronicler stats, situation membership, etc.) routinely exceed
+   the reading column width otherwise. */
+.body pre.meta-json {
+  white-space: pre-wrap; word-break: break-all; max-width: 100%;
+  font-size: 0.78em; line-height: 1.45;
+}
 /* Markdown-rendered body: turn off pre-wrap since headings/lists handle their own whitespace */
 .body.md { white-space: normal; }
 .body.md h1, .body.md h2, .body.md h3, .body.md h4 { margin: 0.7em 0 0.4em; line-height: 1.3; }

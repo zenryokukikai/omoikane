@@ -53,7 +53,7 @@
 </div>
 
 {{if .Scope}}<div class="field"><div class="label">Scope</div><div class="body"><code>{{printf "%s" .Scope}}</code></div></div>{{end}}
-{{if .Metadata}}<div class="field"><div class="label">Metadata</div><div class="body"><code>{{printf "%s" .Metadata}}</code></div></div>{{end}}
+{{if .Metadata}}<div class="field"><div class="label">Metadata</div><div class="body"><pre class="meta-json">{{printf "%s" .Metadata}}</pre></div></div>{{end}}
 {{end}}
 
 {{if .Signals}}

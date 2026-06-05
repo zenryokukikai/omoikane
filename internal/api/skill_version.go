@@ -24,11 +24,13 @@ const FeedbackHint = `If a result here shaped your action, ` +
 // is robust (every response, every endpoint) but agents skim headers — the
 // body is what they reason about. Including the prompt as a JSON field on
 // read endpoints (search / lookup / get) puts the reminder *next to the
-// entry id*, in the same JSON the LLM is parsing. Bilingual JA/EN because
-// the entries themselves are bilingual.
-const FeedbackPrompt = `🙋 役に立ちましたか？ ズレていましたか？ 一言で教えてください — ` +
-	`POST /v1/feedback {"entry_id":"<id>","signal":"helpful|confirmed|outdated|wrong|incomplete|surfaced_gap","context":"<one line>"}. ` +
-	`Was this helpful or off? One POST closes the loop for the next reader.`
+// entry id*, in the same JSON the LLM is parsing.
+//
+// English only: LLM agents reason in English internally; a bilingual blob
+// just spends context tokens twice for the same information.
+const FeedbackPrompt = `Was this helpful, or off? File feedback so future readers benefit — ` +
+	`one POST, no follow-up: ` +
+	`POST /v1/feedback {"entry_id":"<id>","signal":"helpful|confirmed|outdated|wrong|incomplete|surfaced_gap","context":"<one line>"}`
 
 // SkillVersionHeader is a chi middleware that stamps `X-Skill-Version` and
 // `X-Feedback-Hint` on every response.

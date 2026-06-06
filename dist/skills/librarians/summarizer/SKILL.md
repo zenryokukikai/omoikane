@@ -89,8 +89,18 @@ Once per day (early morning), write a single journal covering the
   decisions / designs = steady). Back it with the key `[[T-XXX]]`
   links. The reader should grasp each project's state at a glance.
 - **Librarian activity**: a short tally — N cataloger summaries, M
-  detective relation proposals, K curator resolutions — so a reader
-  sees the KB's pulse without opening every DRAFT.
+  detective relation proposals, K curator resolutions, I indexer
+  use_case writes — so a reader sees the KB's pulse without opening
+  every DRAFT.
+- **🌳 ツリーの動き** — how the UseCase tree moved that day. The fetch
+  emits `tree_snapshot` with `top_level_count` (current `?level=top`
+  size), `created[]` (new leaves/metas), `touched[]` (existing rows
+  reparented or freshly linked), `empty_leaves[]` (entry_count=0
+  leaves — clutter), and `tidy_target=20` (when indexer Tidy mode
+  triggers). Write 1–3 sentences answering: how busy was the tree, did
+  Tidy run (top-level dropped, several metas appeared), are empties
+  accumulating, and is the corpus expanding cleanly or only
+  re-cataloguing itself?
 
 Write for a human skimming over coffee: themed, concise, linked, with
 a one-line "why it matters" where it earns it. Exclude prior daily

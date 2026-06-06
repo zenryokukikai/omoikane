@@ -25,6 +25,9 @@ whitelist:
     - GET  /v1/entries/{id}/engagement
     - GET  /v1/entries/{id}/relations
     - GET  /v1/entries/{id}/cases
+    - GET  /v1/entries/{id}/use_cases
+    - GET  /v1/use_cases
+    - GET  /v1/use_cases/{ref}
     - GET  /v1/clusters
     - GET  /v1/clusters/{id}
     - POST /v1/search
@@ -100,6 +103,18 @@ word-segment Japanese, so issue single tokens or whole unspaced
 phrases, plus English equivalents (the cataloger's bilingual
 summaries make English queries reach Japanese sources). Issue 3–5
 queries and pool.
+
+**Pool in UseCase neighbours as well.** The indexer already clusters
+entries by problem-kind, so entries that share a leaf UseCase with the
+primary are pre-curated duplicate hypotheses. Fetch
+`GET /v1/entries/{primary_id}/use_cases` for the primary's
+memberships and `GET /v1/use_cases/{uc_id}` for each membership's
+linked entries; add those ids to the candidate pool. They are
+**hypotheses, not verdicts** — the semantic judgement step still has
+to read both bodies and cite a shared claim. Two entries in the same
+leaf can still be distinct concrete problems (one cataloger view, one
+scout finding); UseCase shared = "look harder", not "duplicate
+confirmed".
 
 ### When to propose vs no_action
 

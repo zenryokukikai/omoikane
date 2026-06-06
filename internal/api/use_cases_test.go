@@ -233,3 +233,37 @@ func TestUseCaseTreeAPI(t *testing.T) {
 	json.Unmarshal(raw, &listed)
 	if listed.Total != 2 { t.Fatalf("drilldown count: want 2, got %d", listed.Total) }
 }
+
+// TestUseCaseLimitClamps over-limit doesn't get silently dropped to 30.
+// The store used to do `if limit > 200 { limit = 30 }` which left callers
+// reading fewer rows than they asked for. After the fix we cap at 200
+// instead, so an "I want lots" caller gets the maximum, not the default.
+func TestUseCaseLimitClamps(t *testing.T) {
+	base, tok, st := testServer(t)
+	ctx := context.Background()
+	if err := st.CreateProject(ctx, &store.Project{ID: "kb", Name: "KB"}); err != nil { t.Fatal(err) }
+	// Create 5 use cases; ?limit=500 must return all 5, not get reset to a
+	// default that would still cover this size — the real protection is the
+	// echoed `limit` field, which we assert is now 200 (the cap), not 30.
+	for i := 0; i < 5; i++ {
+		s, raw := doJSON(t, "POST", base+"/v1/use_cases", tok, map[string]any{
+			"name_ja": "葉", "name_en": "Leaf " + string(rune('A'+i)),
+		}, nil)
+		if s != 200 { t.Fatalf("upsert leaf %d: %d %s", i, s, raw) }
+	}
+	s, raw := doJSON(t, "GET", base+"/v1/use_cases?limit=500", tok, nil, nil)
+	if s != 200 { t.Fatalf("list: %d %s", s, raw) }
+	var got struct {
+		Total    int `json:"total"`
+		Limit    int `json:"limit"`
+		UseCases []map[string]any `json:"use_cases"`
+	}
+	json.Unmarshal(raw, &got)
+	if got.Total != 5 { t.Fatalf("total: want 5, got %d", got.Total) }
+	if len(got.UseCases) != 5 {
+		t.Fatalf("got %d rows for ?limit=500 of 5 total; silent truncation regression?", len(got.UseCases))
+	}
+	if got.Limit != 200 {
+		t.Errorf("echoed limit should be clamped to 200 (the cap), got %d", got.Limit)
+	}
+}

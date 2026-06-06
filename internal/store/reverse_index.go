@@ -122,8 +122,12 @@ func (s *Store) LookupBySymptom(ctx context.Context, query string, limit int) ([
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	if limit <= 0 || limit > 100 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 10
+	} else if limit > 100 {
+		limit = 100
 	}
 	q := ftsTokenise(query)
 	if q == "" {
@@ -258,8 +262,12 @@ type IndexedEntrySummary struct {
 // indexed, most-recently-indexed first, with counts. Returns the requested
 // page plus the total count for pagination. project="" lists all projects.
 func (s *Store) ListIndexedEntries(ctx context.Context, project string, limit, offset int) ([]*IndexedEntrySummary, int, error) {
-	if limit <= 0 || limit > 200 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 200 {
+		limit = 200
 	}
 	where := ""
 	var filter []any
@@ -347,8 +355,12 @@ func (s *Store) LookupByTrigger(ctx context.Context, query, domain string, limit
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	if limit <= 0 || limit > 100 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 10
+	} else if limit > 100 {
+		limit = 100
 	}
 
 	// --- Layer 1: rules ---
@@ -588,8 +600,12 @@ func (s *Store) LookupByTags(ctx context.Context, tags []string, mode string, li
 	if mode != "any" && mode != "all" {
 		return nil, fmt.Errorf("%w: match_mode must be any|all", ErrInvalidInput)
 	}
-	if limit <= 0 || limit > 100 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 10
+	} else if limit > 100 {
+		limit = 100
 	}
 
 	// Canonicalise + dedupe.

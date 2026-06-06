@@ -328,8 +328,12 @@ func (s *Store) ListEntries(ctx context.Context, f EntryFilter) ([]*Entry, int, 
 	}
 
 	limit := f.Limit
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	q := entrySelectSQL + joinTag
 	if len(conds) > 0 {

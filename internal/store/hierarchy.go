@@ -177,8 +177,12 @@ func (s *Store) DetachEntryFromNode(ctx context.Context, nodeID, entryID string)
 // ListEntriesAtNode returns entries attached to one node, newest first.
 // Limit defaults to 50.
 func (s *Store) ListEntriesAtNode(ctx context.Context, nodeID string, limit int) ([]*Entry, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT he.entry_id
@@ -294,8 +298,12 @@ func (s *Store) GetDerivedSummary(ctx context.Context, sourceType, sourceKey str
 
 // ListDerivedSummaries returns recent summaries across all sources.
 func (s *Store) ListDerivedSummaries(ctx context.Context, limit int) ([]*DerivedSummary, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, source_type, source_key, title, summary, entry_count,
@@ -332,8 +340,12 @@ type IndexBucket struct {
 // IndexByTag returns the top tags by count across the (optionally
 // project-filtered) entry set. Defaults to top 50 unless overridden.
 func (s *Store) IndexByTag(ctx context.Context, projectID string, limit int) ([]*IndexBucket, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder
@@ -372,8 +384,12 @@ func (s *Store) IndexByTag(ctx context.Context, projectID string, limit int) ([]
 
 // IndexByRecent returns entries grouped by month of creation.
 func (s *Store) IndexByRecent(ctx context.Context, projectID string, limit int) ([]*IndexBucket, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 12
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder

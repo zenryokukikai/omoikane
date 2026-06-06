@@ -82,8 +82,12 @@ func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*Chat
 	if match == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT m.id, COALESCE(m.thread_id,''), m.timestamp, m.author_role,
@@ -150,8 +154,12 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 		args = append(args, f.Tag)
 	}
 	limit := f.Limit
-	if limit <= 0 || limit > 200 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 200 {
+		limit = 200
 	}
 
 	// Total count first (cheap because FTS uses an index).

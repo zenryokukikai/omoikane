@@ -110,8 +110,13 @@ func (h *Handler) listUseCases(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := atoiOr(q.Get("limit"), 30)
 	offset := atoiOr(q.Get("offset"), 0)
+	// Mirror the store's defensive clamp so the echoed `limit` field
+	// matches what was actually used. Over-limit no longer silently
+	// drops to the default — it caps at 200.
 	if limit < 1 {
 		limit = 30
+	} else if limit > 200 {
+		limit = 200
 	}
 	if offset < 0 {
 		offset = 0

@@ -143,8 +143,12 @@ func (s *Store) ListProgress(ctx context.Context, role, instanceID string, limit
 	if !ValidLibrarianRole(role) {
 		return nil, fmt.Errorf("%w: role %q", ErrInvalidInput, role)
 	}
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	args := []any{role}
 	q := `

@@ -72,8 +72,12 @@ func (s *Store) GetSituation(ctx context.Context, id string) (*Situation, error)
 
 // ListSituations returns situations, optionally filtered by project_id.
 func (s *Store) ListSituations(ctx context.Context, projectID string, limit int) ([]*Situation, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder
@@ -167,8 +171,12 @@ func (s *Store) LookupBySituation(ctx context.Context, query string, limit int) 
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	if limit <= 0 || limit > 100 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 10
+	} else if limit > 100 {
+		limit = 100
 	}
 	q := ftsTokenise(query)
 	if q == "" {

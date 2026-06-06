@@ -178,8 +178,12 @@ func (s *Store) GetCluster(ctx context.Context, id string) (*IncidentCluster, er
 // ListClusters returns clusters, optionally filtered by project_id and/or
 // status. Status filter accepts the empty string meaning "any".
 func (s *Store) ListClusters(ctx context.Context, projectID, status string, limit int) ([]*IncidentCluster, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder

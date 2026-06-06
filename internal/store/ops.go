@@ -34,8 +34,12 @@ func (s *Store) ListEntriesByTier(ctx context.Context, tier, limit int) ([]*Entr
 	if tier < 1 || tier > 4 {
 		return nil, fmt.Errorf("%w: tier must be 1..4", ErrInvalidInput)
 	}
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, COALESCE(project_id,''), title, type, status,
@@ -242,8 +246,12 @@ func (s *Store) GetBackup(ctx context.Context, id string) (*BackupJob, error) {
 }
 
 func (s *Store) ListBackups(ctx context.Context, limit int) ([]*BackupJob, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, path, started_at, finished_at, status, COALESCE(bytes,0), COALESCE(error,'')

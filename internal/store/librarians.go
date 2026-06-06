@@ -307,8 +307,12 @@ func (s *Store) CloseThread(ctx context.Context, threadID, summary string) error
 }
 
 func (s *Store) ListThreads(ctx context.Context, status string, limit int) ([]*ChatThread, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder
@@ -402,8 +406,12 @@ func (s *Store) ListChatMessages(ctx context.Context, threadID string, limit int
 // means passing the timestamp of your last-seen message reliably
 // excludes that message from the new batch.
 func (s *Store) ListChatMessagesSince(ctx context.Context, threadID string, sinceTS time.Time, limit int) ([]*ChatMessage, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 200
+	} else if limit > 500 {
+		limit = 500
 	}
 	var rows *sql.Rows
 	var err error
@@ -553,8 +561,12 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, result string, success
 }
 
 func (s *Store) ListTasks(ctx context.Context, role, status string, limit int) ([]*LibrarianTask, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder
@@ -665,8 +677,12 @@ func (s *Store) DecideQuartet(ctx context.Context, id, decision string) error {
 }
 
 func (s *Store) ListQuartets(ctx context.Context, status string, limit int) ([]*QuartetAssignment, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder
@@ -762,8 +778,12 @@ func (s *Store) CorrelateFinding(ctx context.Context, findingID, entryID string,
 }
 
 func (s *Store) ListFindings(ctx context.Context, agentLens string, limit int) ([]*ExternalFinding, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	var (
 		sb   strings.Builder

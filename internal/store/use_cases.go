@@ -297,8 +297,14 @@ func (s *Store) UnlinkUseCaseEntry(ctx context.Context, useCaseID, entryID strin
 // first, each enriched with its total entry count and up to 4 sample entries.
 // Returns the page rows plus the total count.
 func (s *Store) ListUseCases(ctx context.Context, f UseCaseFilter, limit, offset int) ([]*UseCaseSummary, int, error) {
-	if limit <= 0 || limit > 200 {
+	// Clamp explicitly. Falling back to the default (30) on an over-limit
+	// request would silently truncate the result set — callers see fewer
+	// rows than they asked for, with no signal. Cap at 200 instead so an
+	// "I want as much as you can give me" caller gets the maximum.
+	if limit <= 0 {
 		limit = 30
+	} else if limit > 200 {
+		limit = 200
 	}
 
 	// Build the WHERE clause shared by count + page queries.
@@ -436,8 +442,12 @@ func (s *Store) ListEntryUseCases(ctx context.Context, entryID string) ([]*Entry
 // ListUseCaseEntries returns the full entries linked to a UseCase, paginated,
 // most-recently-linked first. For the UseCase detail page.
 func (s *Store) ListUseCaseEntries(ctx context.Context, useCaseID string, limit, offset int) ([]*Entry, int, error) {
-	if limit <= 0 || limit > 200 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 30
+	} else if limit > 200 {
+		limit = 200
 	}
 	var total int
 	if err := s.db.QueryRowContext(ctx,

@@ -185,8 +185,12 @@ func (s *Store) GetCase(ctx context.Context, caseID string) (*UsageCase, error) 
 
 // ListCases returns cases for an entry (newest first). Limit defaults to 50.
 func (s *Store) ListCases(ctx context.Context, entryID string, limit int) ([]*UsageCase, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx,
 		caseSelectSQL+` WHERE entry_id = ? ORDER BY retrieved_at DESC LIMIT ?`,
@@ -273,8 +277,12 @@ func (s *Store) HelpfulnessScores(ctx context.Context, ids []string) (map[string
 
 // ReviewQueue returns rows from the review_queue view.
 func (s *Store) ReviewQueue(ctx context.Context, limit int) ([]*ReviewQueueRow, error) {
-	if limit <= 0 || limit > 500 {
+	// Clamp explicitly: cap at the upper bound rather than
+	// silently dropping to the default on overflow.
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, type, status,

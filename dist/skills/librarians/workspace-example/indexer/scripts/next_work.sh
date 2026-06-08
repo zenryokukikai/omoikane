@@ -24,7 +24,7 @@ TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 : > "$TMP"
 for t in trap lesson decision incident design; do
     curl -fsS -H "Authorization: Bearer $KB_TOKEN" \
-        "$KB_URL/v1/entries?type=${t}&status=ACTIVE&uncategorized=true&order=oldest&limit=60" \
+        "$KB_URL/v1/entries?type=${t}&status=ACTIVE&uncategorized=true&not_progressed_by=indexer&order=oldest&limit=60" \
       | jq -c '.entries[] | {id, type, title, project_id, updated_at, status}' \
       >> "$TMP" || true
 done

@@ -409,4 +409,27 @@ func TestEntryFilterUncategorized(t *testing.T) {
 	if pos1 >= 0 && pos2 >= 0 && pos1 > pos2 {
 		t.Errorf("oldest-first ordering broken: ids[1] at %d after ids[2] at %d", pos1, pos2)
 	}
+
+	// NotProgressedByRole: a record the indexer decided to skip (progress
+	// recorded, never linked) must drop out of the uncategorized feed, or
+	// it would be re-read every session forever.
+	if err := s.RecordProgress(ctx, &LibrarianProgress{
+		Role: "indexer", EntryID: ids[1], Action: "skipped_record",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, total2, err := s.ListEntries(ctx, EntryFilter{
+		Type: "trap", Uncategorized: true, NotProgressedByRole: "indexer", Limit: 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total2 != 2 {
+		t.Fatalf("after skip-progress: want 2 (3 uncategorised − 1 skipped), got %d", total2)
+	}
+	for _, e := range got2 {
+		if e.ID == ids[1] {
+			t.Errorf("skipped record %s still in feed", e.ID)
+		}
+	}
 }

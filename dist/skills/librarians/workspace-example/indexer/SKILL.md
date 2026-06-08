@@ -66,6 +66,52 @@ curl -fsS -H "Authorization: Bearer $KB_TOKEN" \
   "$KB_URL/v1/entries/<id>/use_cases" | jq '.use_cases | length'
 ```
 
+#### Only categorise reusable problem-knowledge — skip RECORDS
+
+A UseCase names a **reusable kind of problem**. Many entries are not
+that — they are **point-in-time records**: what happened on a day or a
+run, not a lesson that recurs. Records are found by **time** (the Journal,
+recent entries) and by **project**, NOT by problem-kind. Do not link them
+to a UseCase.
+
+The test for each candidate entry:
+
+> If someone hits this kind of problem three months from now, is THIS
+> entry the reusable answer — or is it just a log of what happened at one
+> moment (a day, a run, an event)?
+
+If it's a log/record, **skip it** — but record progress so it stops
+re-appearing in your feed (it has no use_case link, so without this it
+would be re-read every session forever):
+
+```bash
+curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"role":"indexer","entry_id":"<id>","action":"skipped_record",
+       "notes":"point-in-time record, not a reusable problem-kind"}'
+```
+
+(`next_work.sh` passes `not_progressed_by=indexer`, so a recorded skip
+drops the entry out of the feed.)
+
+Records include — and this list is illustrative, not exhaustive; judge by
+the test above, not by keyword:
+
+- periodic activity summaries ("2026-06-04 開発活動まとめ", weekly digests),
+- smoke-test / health-check results ("… smoke test 2026-06-01"),
+- experiment-run snapshots ("run122 sampler ratio", "v17 handoff snapshot"),
+- completion / status notes ("… 実装完了", "shipped X"),
+- announcements, handoffs, meeting notes.
+
+**Worst failure: categorising a multi-topic record.** A daily log that
+mentions five topics will tempt you to mint five leaves and link the log
+to all of them — spawning five phantom categories whose only "content" is
+one line of a log. Don't. One record → zero problem-categories.
+
+(A genuine trap/lesson/decision/design that happens to cite a date is
+still problem-knowledge — keep it. The line is "reusable answer to a
+problem-kind" vs "record of an event".)
+
 ### 2. For each entry, decide UseCase membership
 
 **Prefer the cataloger summary over the raw body** — summaries are denser

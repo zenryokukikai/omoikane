@@ -751,6 +751,11 @@ func buildListConditions(f EntryFilter) (conds []string, args []any, joinTag str
 		conds = append(conds,
 			"NOT EXISTS (SELECT 1 FROM use_case_entries uce WHERE uce.entry_id = e.id)")
 	}
+	if f.NotProgressedByRole != "" {
+		conds = append(conds,
+			"NOT EXISTS (SELECT 1 FROM librarian_progress lp WHERE lp.entry_id = e.id AND lp.role = ?)")
+		args = append(args, f.NotProgressedByRole)
+	}
 	return
 }
 

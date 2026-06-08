@@ -154,8 +154,14 @@ type EntryFilter struct {
 	// OldestFirst flips the default newest-first ordering. Draining a
 	// backlog FIFO (oldest unindexed first) makes coverage monotonic.
 	OldestFirst bool
-	Limit       int
-	Offset      int
+	// NotProgressedByRole excludes entries that already have a
+	// librarian_progress row for this role. Lets a role's work-feed skip
+	// what it already decided on — e.g. the indexer records "skipped a
+	// record" progress, and that entry stops re-appearing in its feed even
+	// though it never got a use_case link.
+	NotProgressedByRole string
+	Limit               int
+	Offset              int
 }
 
 // User is the human (or service principal) behind a token. From Phase A

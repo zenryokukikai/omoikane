@@ -200,7 +200,15 @@ footer { padding: 1rem; text-align: center; color: var(--muted); font-size: 0.85
 .uc-entry-summary { margin: 0.35rem 0 0 0.4rem; padding: 0.4rem 0.7rem; border-left: 2px solid var(--hairline);
                     background: var(--surface); border-radius: 4px; font-size: 0.92rem; max-width: 80ch; }
 .uc-entry-summary-title { font-weight: 600; margin-bottom: 0.2rem; color: var(--muted); font-size: 0.85rem; }
-.uc-entry-summary-body { white-space: pre-wrap; color: var(--fg); }
+.uc-entry-summary-body { color: var(--fg); }
+/* Rendered-markdown headings inside the summary card are scoped down so the
+   digest reads as a compact note, not a full document. */
+.uc-entry-summary-body h1 { font-size: 1.0rem; margin: 0 0 0.3rem; }
+.uc-entry-summary-body h2 { font-size: 0.9rem; margin: 0.6rem 0 0.2rem; color: var(--muted); }
+.uc-entry-summary-body h3 { font-size: 0.85rem; margin: 0.5rem 0 0.2rem; color: var(--muted); }
+.uc-entry-summary-body p { margin: 0.3rem 0; }
+.uc-entry-summary-body ul, .uc-entry-summary-body ol { margin: 0.3rem 0 0.3rem 1.2rem; }
+.uc-entry-summary-body code { font-size: 0.85em; }
 
 /* Language toggle in the header */
 .lang-toggle { font-size: 0.85rem; }

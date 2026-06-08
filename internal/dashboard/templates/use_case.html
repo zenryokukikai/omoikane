@@ -59,10 +59,12 @@
       <span class="muted uc-entry-meta">{{.ProjectID}} · {{.ID}}</span>
     </div>
     {{with index $.EntrySummaries .ID}}
-      {{/* Cataloger summary preview — middle layer between leaf UseCase and raw body */}}
+      {{/* Cataloger summary — the readable middle layer. Render the full
+           digest as markdown (it is already condensed; truncating a summary
+           defeats its purpose). The body carries its own heading, so no
+           separate title line. */}}
       <div class="uc-entry-summary reading">
-        {{if .Title}}<div class="uc-entry-summary-title">{{.Title}}</div>{{end}}
-        <div class="uc-entry-summary-body">{{trunc .Body 320}}</div>
+        <div class="uc-entry-summary-body">{{renderContent .Body $.Token}}</div>
       </div>
     {{end}}
   </li>

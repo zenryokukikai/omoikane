@@ -186,6 +186,14 @@ For each candidate UseCase:
 3. **Link the entry**: `POST /v1/use_cases/{id_or_slug}/entries` with
    `{entry_id}`. Idempotent — re-linking is a no-op.
 
+4. **If you CREATED a new leaf, file it under an existing category.** New
+   leaves are born at the top level (`parent_id=null`); leaving them there
+   makes the top accumulate niche single-entry leaves beside the broad
+   domains. Look at `?level=top`, pick the broad/mid category the leaf
+   belongs under, and `POST /v1/use_cases/{leaf}/parent {parent_id}`. Only
+   leave it at the top if no existing category fits at all (the next tidy
+   pass will cluster it). Reused leaves already have a home — skip this.
+
 ### 3. End
 
 Print: `session done — covered N entries across M use_cases (created: c, linked-existing: e)`.
@@ -239,9 +247,14 @@ extraction in normal mode.)
 
 2. **Cluster them into 5–10 META groups** by semantic theme. Read the
    names and descriptions; group ones that share a domain / problem
-   space / lifecycle stage.
+   space / lifecycle stage. **Prefer EXISTING broad categories** — before
+   minting a new META, check whether a current top-level category already
+   covers the cluster and `set_parent` the leaves under it instead of
+   creating a near-duplicate. Only create a new META when none fits a
+   cluster of 3+ leaves.
 
-3. **Create each META as a new UseCase with parent_id=null**:
+3. **Create each NEW META as a UseCase with parent_id=null** (skip for
+   clusters you placed under an existing category in step 2):
    ```bash
    bash .agents/skills/omoikane-indexer/scripts/post_use_case.sh '{
      "name_ja": "音声・対話基盤",

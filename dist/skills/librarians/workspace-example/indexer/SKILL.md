@@ -121,6 +121,20 @@ bash .agents/skills/omoikane-indexer/scripts/link_use_case.sh \
 
 Idempotent.
 
+### 3b. File a newly-created leaf under an existing category
+
+A new leaf is born at the top level. Don't leave it floating beside the
+broad domains — look at `?level=top`, pick the category it belongs under,
+and place it:
+
+```bash
+bash .agents/skills/omoikane-indexer/scripts/set_parent.sh \
+  "<new_leaf_id>" "<existing_parent_id_or_slug>"
+```
+
+Skip this for reused leaves (they already have a home). Leave a new leaf
+at top level only if no existing category fits at all.
+
 ### 4. End
 
 Print: `session done — covered N entries across M use_cases (created: c, linked-existing: e)`.
@@ -173,7 +187,9 @@ extraction in normal mode.)
 
 2. **Cluster them into 5–10 META groups** by semantic theme. Read the
    names and descriptions; group ones that share a domain / problem
-   space / lifecycle stage.
+   space / lifecycle stage. **Prefer EXISTING broad categories** — file a
+   cluster under a current top-level category when one fits, rather than
+   minting a near-duplicate META. Only create a new META when none fits.
 
 3. **Create each META as a new UseCase with parent_id=null**:
    ```bash

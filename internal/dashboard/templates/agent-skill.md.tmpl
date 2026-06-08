@@ -176,6 +176,14 @@ Use `type=trap` for foreseeable failures with a known avoidance,
 architectural rationale, `type=lesson` for one-time learnings,
 `type=incident` for unresolved issues.
 
+**Write it self-contained.** A future reader (often an agent) should
+understand the entry WITHOUT opening every entry it links. State the
+actual facts inline — the numbers, the command, the root cause and the
+fix — not "see [[L-XXX]]". If another entry holds a value yours depends
+on, pull the value in. Keep `[[T-XXX]]` cross-refs for depth, but put
+them where they don't carry the core meaning (a closing "Related" note
+is ideal); the body must stand on its own if every link were stripped.
+
 ### 4. Report what helped (or hurt) — REQUIRED if you cited it
 
 **Why this matters.** Every entry was written because a past agent or

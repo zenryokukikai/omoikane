@@ -196,24 +196,55 @@ helper script enforces the count.
 Padding a thin source into a structured summary creates an artifact
 that's *less* useful than the source. Prefer `no_action`.
 
+## Self-contained or it failed (READ THIS FIRST)
+
+A summary is read **without the source open** — on the use-case page,
+in search results, by an agent that will not click through. So it must
+**carry the knowledge itself, not point at where the knowledge lives.**
+
+Two failure modes to kill:
+
+1. **Meta-description instead of the fact.** "This entry records that the
+   day focused on cost estimation" tells the reader nothing — it
+   describes that a fact exists. State the fact: "Realtime dialogue costs
+   ≈ 7.8 JPY/min for 50/50 turn-taking (user ≈3.1, AI ≈12.5, at FX 160)."
+   If the source has a number, a conclusion, a threshold, a command — the
+   summary carries it inline. A reader should finish the Core claim
+   knowing the answer, not knowing that an answer is somewhere.
+
+2. **Load-bearing pointers in prose.** Do NOT write "[[L-XXX]] describes…"
+   or "see [[T-YYY]]" as a substitute for stating the thing. If a
+   referenced entry holds a fact this summary needs, **inline that fact**
+   (read the reference, pull the value in). Wiki-links do NOT belong in
+   Subject / Core claim / Caveats — they go ONLY in the `## Related`
+   section at the end, as residual links for someone who wants to dig
+   deeper. The summary must stand without them.
+
+If the source is itself a multi-topic dump (a daily activity log, a long
+design doc) and you're summarising it for ONE use-case, lead with the
+slice that matters for that use-case and put its concrete content first.
+
 ## Summary entry shape (agent-readable)
 
 When `action = summarized`, the librarian_meta body uses this
 structure. The audience is OTHER AGENTS searching for retrieval;
-generic vocabulary, no source-author jargon.
+generic vocabulary, no source-author jargon. **No wiki-links above the
+`## Related` section.**
 
 ```markdown
 # <generic subject — 5–10 words>
 
 ## Subject
-[[<source_entry_id>]] describes <1-sentence statement of what this
-entry is about>, written so an agent unfamiliar with the source
-domain can understand it.
+<1 sentence: what kind of problem/knowledge this is, in plain terms, so
+an agent unfamiliar with the source domain knows whether to keep reading.
+State the topic — do NOT write "this entry describes…".>
 
 ## Core claim
-<2–3 sentences. What an agent would learn from reading the source.
-State the claim, not the narrative. Use [[T-XXX]] for any entry
-references.>
+<2–4 sentences carrying the ACTUAL knowledge self-contained: the numbers,
+the conclusion, the rule, the command, the root cause + fix. A reader
+must understand it WITHOUT opening the source or any referenced entry.
+If the source cites another entry for a key value, inline the value.
+No wiki-links.>
 
 ## When to retrieve
 <retrieval triggers — comma-separated phrases an agent searching
@@ -226,7 +257,12 @@ phrases.>
 
 ## Caveats
 <known scope limits, contradictions, where this doesn't apply. If
-none, write "None known." Use [[T-XXX]] for any related entries.>
+none, write "None known." No wiki-links — state the caveat itself.>
+
+## Related
+<Residual reference links, AFTER the knowledge is already stated above.
+List [[T-XXX]] / [[L-YYY]] the reader may want for depth, each with a
+few words on what it adds. Omit the section if there are none.>
 
 ## Source
 - entry_id: [[L-XXXXX]]

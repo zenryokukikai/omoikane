@@ -114,21 +114,30 @@ Choose ONE:
 
 #### `summarized` (most common — preferred default)
 
+**Self-contained or it failed.** The summary is read WITHOUT the source
+open — on the use-case page, in search, by an agent that won't click
+through. State the **fact**, not that a fact exists ("Realtime dialogue
+≈ 7.8 JPY/min for 50/50 turns, FX 160" — not "this entry records that
+the day focused on cost estimation"). Numbers/conclusions/commands/
+root-cause+fix go INLINE. **No wiki-links in the prose sections** —
+if the source cites another entry for a value you need, read it and
+inline the value; reference links live ONLY in `## Related` at the end.
+
 Write a librarian_meta DRAFT whose body uses this structure:
 
 ```markdown
 # <generic subject, 5–10 words>
 
 ## Subject
-[[<source_entry_id>]] describes <1 sentence>. What this entry is
-about, in vocabulary an agent unfamiliar with the source domain
-can understand.
+<1 sentence naming what kind of problem/knowledge this is, plain enough
+for an unfamiliar agent. State the topic — NOT "[[X]] describes…". No
+wiki-links.>
 
 ## Core claim
-<2–3 sentences. What an agent would LEARN from the source entry.
-State the claim, not the narrative. When you reference any other
-entry, ALWAYS use the [[T-XXX]] wiki-link syntax so dashboard
-readers can click through. Plain "T-XXX" stays as inert text.>
+<2–4 sentences carrying the ACTUAL knowledge self-contained: the numbers,
+conclusion, rule, command, root cause + fix. Understandable WITHOUT
+opening the source or any referenced entry. Inline any cited value. NO
+wiki-links.>
 
 ## When to retrieve
 <comma-separated retrieval triggers — what query phrases would
@@ -140,9 +149,13 @@ here; this is a flat list of phrases.>
 <broader topic — ML training, auth, deployment, taxonomy, etc.>
 
 ## Caveats
-<known scope limits, contradictions, where it doesn't apply.
-"None known." is acceptable. Use [[T-XXX]] if you cite related
-entries here.>
+<known scope limits, contradictions, where it doesn't apply. State the
+caveat itself; no wiki-links. "None known." is acceptable.>
+
+## Related
+<Residual reference links, AFTER the knowledge is stated above:
+[[T-XXX]] / [[L-YYY]] with a few words each on what they add. Omit if
+none.>
 
 ## Source
 - entry_id: [[<source_entry_id>]]
@@ -150,11 +163,11 @@ entries here.>
 - enrichment_version: <N>
 ```
 
-**Wiki-link rule (consistent across the whole body):** every
-entry id you mention by name — whether the source you're
-summarizing or another entry it relates to — MUST appear as
-`[[T-XXX]]`, not as bare `T-XXX`. Bare ids render as plain text
-in the dashboard; only the wiki-link syntax becomes clickable.
+**Wiki-link rule (format + placement):** entry-id references belong
+ONLY in `## Related` and `## Source` — never in Subject / Core claim /
+Caveats. Where you DO write an id, it MUST be `[[T-XXX]]`, not bare
+`T-XXX`. Bare ids render as plain text in the dashboard; only the
+wiki-link syntax becomes clickable.
 The dashboard renders dead `[[T-XXX]]` (target doesn't exist) as
 muted text automatically, so over-linking is safe.
 

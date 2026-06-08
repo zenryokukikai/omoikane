@@ -339,7 +339,11 @@ func (s *Store) ListEntries(ctx context.Context, f EntryFilter) ([]*Entry, int, 
 	if len(conds) > 0 {
 		q += " WHERE " + strings.Join(conds, " AND ")
 	}
-	q += " ORDER BY e.updated_at DESC LIMIT ? OFFSET ?"
+	if f.OldestFirst {
+		q += " ORDER BY e.updated_at ASC LIMIT ? OFFSET ?"
+	} else {
+		q += " ORDER BY e.updated_at DESC LIMIT ? OFFSET ?"
+	}
 	args2 := append(append([]any{}, args...), limit, f.Offset)
 
 	rows, err := s.db.QueryContext(ctx, q, args2...)
@@ -742,6 +746,10 @@ func buildListConditions(f EntryFilter) (conds []string, args []any, joinTag str
 		joinTag = " JOIN tags t ON t.entry_id = e.id "
 		conds = append(conds, "t.tag = ?")
 		args = append(args, f.Tag)
+	}
+	if f.Uncategorized {
+		conds = append(conds,
+			"NOT EXISTS (SELECT 1 FROM use_case_entries uce WHERE uce.entry_id = e.id)")
 	}
 	return
 }

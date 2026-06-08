@@ -294,6 +294,8 @@ func (h *Handler) listEntries(w http.ResponseWriter, r *http.Request) {
 		Tag:               q.Get("tag"),
 		Query:             q.Get("q"),
 		IncludeSuperseded: q.Get("include_superseded") == "true",
+		Uncategorized:     q.Get("uncategorized") == "true",
+		OldestFirst:       q.Get("order") == "oldest",
 	}
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

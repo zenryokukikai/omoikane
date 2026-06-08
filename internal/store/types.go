@@ -147,8 +147,15 @@ type EntryFilter struct {
 	Tag               string
 	Query             string
 	IncludeSuperseded bool
-	Limit             int
-	Offset            int
+	// Uncategorized restricts to entries with NO use_case link — the
+	// indexer's real work-feed. Without it a "newest-first" feed keeps
+	// surfacing already-categorised entries and never drains the backlog.
+	Uncategorized bool
+	// OldestFirst flips the default newest-first ordering. Draining a
+	// backlog FIFO (oldest unindexed first) makes coverage monotonic.
+	OldestFirst bool
+	Limit       int
+	Offset      int
 }
 
 // User is the human (or service principal) behind a token. From Phase A

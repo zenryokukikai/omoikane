@@ -354,3 +354,59 @@ func TestUseCaseDescendantCount(t *testing.T) {
 		t.Errorf("deleted leaf still present: %v", err)
 	}
 }
+
+// TestEntryFilterUncategorized verifies the indexer work-feed: only entries
+// with NO use_case link appear, so the backlog is drainable (the old feed
+// surfaced newest-regardless-of-membership and never reached the tail).
+func TestEntryFilterUncategorized(t *testing.T) {
+	s, _ := seed(t)
+	ctx := context.Background()
+	const projID = "p"
+
+	// Three substantive entries; link one to a use_case.
+	var ids []string
+	for i := 0; i < 3; i++ {
+		id, err := s.CreateEntry(ctx, &Entry{
+			ProjectID: projID, Type: "trap", Title: "t", Body: "b", Status: "ACTIVE",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	uc, _ := s.UpsertUseCase(ctx, &UseCase{NameJA: "葉", NameEN: "Leaf"})
+	if err := s.LinkUseCaseEntry(ctx, uc.ID, ids[0], "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Uncategorized feed must return the 2 unlinked, never the linked one.
+	got, total, err := s.ListEntries(ctx, EntryFilter{
+		Type: "trap", Uncategorized: true, OldestFirst: true, Limit: 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// seed() also creates one trap, so traps = 4, one linked → 3 uncategorised.
+	if total != 3 {
+		t.Fatalf("uncategorized total: want 3, got %d", total)
+	}
+	for _, e := range got {
+		if e.ID == ids[0] {
+			t.Errorf("linked entry %s leaked into uncategorized feed", e.ID)
+		}
+	}
+	// OldestFirst: the seed entry (created first, in seed()) or ids order —
+	// just assert ascending by created order among our three: ids[1] before ids[2].
+	var pos1, pos2 = -1, -1
+	for i, e := range got {
+		if e.ID == ids[1] {
+			pos1 = i
+		}
+		if e.ID == ids[2] {
+			pos2 = i
+		}
+	}
+	if pos1 >= 0 && pos2 >= 0 && pos1 > pos2 {
+		t.Errorf("oldest-first ordering broken: ids[1] at %d after ids[2] at %d", pos1, pos2)
+	}
+}

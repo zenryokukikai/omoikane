@@ -176,6 +176,30 @@ Use `type=trap` for foreseeable failures with a known avoidance,
 architectural rationale, `type=lesson` for one-time learnings,
 `type=incident` for unresolved issues.
 
+**Write for a reader who does NOT know your project.** This is the most
+important authoring habit, and YOU are the only one who can do it — you
+have the domain knowledge to generalise; the librarians that organise
+the KB later do not. omoikane's whole point is reusable cross-project
+knowledge, so an entry that only makes sense if you already know
+`OmniVoice run082` is half-wasted.
+
+Lead the `root_cause` / `resolution` / `title` with the **transferable
+principle**, then use your project's specifics as the concrete example —
+not the other way round:
+
+- ❌ "OmniVoice run082 の batch_size=16 で同一参照音声だと出力が重複する"
+  (unusable unless you know OmniVoice)
+- ✅ "Batch inference that shares one conditioning input across items can
+  silently collapse outputs to duplicates — hash each item's output to
+  catch it. (Seen in OmniVoice run082: batch_size=16, same reference
+  audio → identical WAV hashes.)"
+
+The test: **could an engineer on a totally different project read the
+title + root_cause + resolution and apply the lesson?** If it only works
+with your project's vocabulary, restate the general mechanism first and
+demote the project detail to "seen in …". Keep the specifics — they're
+the evidence — just don't make them load-bearing.
+
 **Write it self-contained.** A future reader (often an agent) should
 understand the entry WITHOUT opening every entry it links. State the
 actual facts inline — the numbers, the command, the root cause and the

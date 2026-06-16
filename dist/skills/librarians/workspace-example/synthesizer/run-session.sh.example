@@ -1,0 +1,30 @@
+#!/bin/bash
+# launchd/cron wrapper for the omoikane synthesizer librarian.
+#
+# One invocation = one `pi --print` session that distils the common insight
+# across a few mature UseCases (≥3 entries) lacking a current synthesis,
+# posting each as a librarian_meta DRAFT (kind=use_case_synthesis). Phase 5
+# observation. Single-flight lock; safe to re-fire.
+set -euo pipefail
+
+# launchd gives a bare environment; set PATH so curl/jq/pi resolve.
+export PATH="<dir-holding-pi-runtime>:/opt/homebrew/bin:/usr/bin:/bin"
+
+WORKDIR="<absolute-path-to-this-workspace>"
+LOCK="$WORKDIR/.synthesizer-session.lock"
+cd "$WORKDIR"
+ts() { date '+%Y-%m-%dT%H:%M:%S'; }
+
+if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "$(ts) [skip] a synthesizer session is already running"; exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+
+echo "=== $(ts) synthesizer START ==="
+# pi reads its model creds from ~/.pi/agent/auth.json (HOME-based);
+# omoikane creds come from .agents/.local/kb-agent.json (NOT via env).
+pi --print --skill .agents/skills/omoikane-synthesizer --no-context-files \
+   "Synthesizer session. Find UseCases with descendant_entry_count >= 3 (GET \$KB_URL/v1/use_cases?limit=200). For each, skip if GET /v1/use_cases/<slug>/synthesis already returns 200 (synthesis exists) unless members clearly changed. Pick up to 5 unsynthesised categories. For each: read its member entries (GET /v1/use_cases/<slug> then each entry's /summary, falling back to body; pull GET /v1/projects/<id> overview to decode domain terms). Decide if the members share a real mechanism/root-cause/principle. If yes, write ONE project-agnostic synthesis (bold one-sentence principle + 2-4 sentences, bilingual 英日, ending '(Seen across: <short cites>)') and POST it as a librarian_meta DRAFT with metadata.kind=use_case_synthesis and metadata.use_case_id=<the U-id>. If the category is a loose bucket with no shared thread, DECLINE (no_action) — do not manufacture a generality, and do not just list the entries. End with: 'session done — synthesised N categories, declined D'."
+rc=$?
+echo "=== $(ts) synthesizer END (rc=$rc) ==="
+exit $rc

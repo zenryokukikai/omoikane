@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd LaunchAgent for the omoikane synthesizer librarian.
+     Install: cp to ~/Library/LaunchAgents/, then
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/work.zenryoku.omoikane-synthesizer.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>work.zenryoku.omoikane-synthesizer</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string><absolute-path-to-this-workspace>/run-synthesizer-session.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string><absolute-path-to-this-workspace></string>
+  <!-- synthesis matures slowly (needs ≥3 entries per category); a long
+       cadence is plenty. 6h, offset from the other roles. -->
+  <key>StartInterval</key><integer>21600</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string><your-log-dir>/omoikane-synthesizer.log</string>
+  <key>StandardErrorPath</key><string><your-log-dir>/omoikane-synthesizer.err.log</string>
+  <key>ProcessType</key><string>Background</string>
+</dict></plist>

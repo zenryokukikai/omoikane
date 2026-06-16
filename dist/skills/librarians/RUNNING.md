@@ -37,7 +37,7 @@ curl -sS -X POST "<base-url>/v1/admin/agent-invites" \
 ```
 
 `<role>` is one of: `coordinator | cataloger | curator | detective |
-conservator | scout | indexer | summarizer | judge`. The invite binds the
+conservator | scout | indexer | summarizer | judge | synthesizer`. The invite binds the
 redeemed token to that role; the server rejects cross-role use.
 
 ### 2. Redeem it for a dedicated token

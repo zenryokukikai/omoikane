@@ -84,7 +84,7 @@ referenced_ids=$(grep -oE '\[\[(T|D|X|L|I|M|F|E)-[A-Z0-9]+\]\]' "$BODY_FILE" \
     | sort -u)
 for id in $referenced_ids; do
     [[ "$id" == "$SOURCE_ID" ]] && continue
-    code=$(curl -sS -o /dev/null -w '%{http_code}' \
+    code=$(curl --retry 5 --retry-connrefused -sS -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer $KB_TOKEN" \
         "$KB_URL/v1/entries/$id")
     if [[ "$code" != "200" ]]; then
@@ -123,7 +123,7 @@ ENTRY_PAYLOAD=$(jq -n \
         }
     }')
 
-ENTRY_RESP=$(curl -fsS -X POST "$KB_URL/v1/entries" \
+ENTRY_RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$ENTRY_PAYLOAD")
 DRAFT_ID=$(echo "$ENTRY_RESP" | jq -r .id)
@@ -144,7 +144,7 @@ PROGRESS_PAYLOAD=$(jq -n \
       action: "summarized", output_entry_id: $draft,
       notes: ("summary draft: " + $title)}')
 
-curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/progress" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$PROGRESS_PAYLOAD" >/dev/null
 
@@ -152,7 +152,7 @@ curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
 HEARTBEAT_PAYLOAD=$(jq -n \
     --arg note "summarized $SOURCE_ID -> $DRAFT_ID" \
     '{note: $note, did_action: true}')
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$HEARTBEAT_PAYLOAD" >/dev/null
 

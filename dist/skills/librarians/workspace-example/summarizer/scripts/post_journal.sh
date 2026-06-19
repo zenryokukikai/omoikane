@@ -18,7 +18,7 @@ BODY_FILE="${2:?body file required}"
 TITLE="omoikane daily journal — ${DATE}"
 
 # Idempotency: a daily journal is ACTIVE, so search finds it.
-EXISTING=$(curl -fsS -X POST "$KB_URL/v1/search" \
+EXISTING=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/search" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg q "daily journal $DATE" '{query:$q}')" \
     | jq -r --arg t "$TITLE" '[.results[].entry | select(.title==$t)] | length' 2>/dev/null || echo 0)
@@ -35,12 +35,12 @@ ENTRY=$(jq -n --arg title "$TITLE" --arg body "$BODY" --arg date "$DATE" \
         tags:["journal","daily","summarizer"],
         metadata:{role:"summarizer", instance_id:$instance, kind:"daily_journal", journal_date:$date}
     }')
-RESP=$(curl -fsS -X POST "$KB_URL/v1/entries" \
+RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" -d "$ENTRY")
 ID=$(echo "$RESP" | jq -r .id)
 [ -n "$ID" ] && [ "$ID" != "null" ] || { echo "failed to create journal: $RESP" >&2; exit 1; }
 
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg n "posted daily journal $ID for $DATE" '{note:$n, did_action:true}')" >/dev/null || true
 

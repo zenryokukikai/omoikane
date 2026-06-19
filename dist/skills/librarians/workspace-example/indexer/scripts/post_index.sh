@@ -21,7 +21,7 @@ BODY_FILE="${2:?body file required}"
 # Inject source = this instance, so index rows are auditable.
 PAYLOAD=$(jq --arg src "indexer:${KB_INSTANCE_ID}" '. + {source: $src}' "$BODY_FILE")
 
-RESP=$(curl -fsS -X POST "$KB_URL/v1/entries/${ENTRY_ID}/index" \
+RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries/${ENTRY_ID}/index" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$PAYLOAD")
 echo "$RESP"
@@ -29,7 +29,7 @@ echo "$RESP"
 # Heartbeat with what we indexed.
 S=$(echo "$RESP" | jq -r '.symptoms // 0')
 T=$(echo "$RESP" | jq -r '.triggers // 0')
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg n "indexed $ENTRY_ID (symptoms:$S triggers:$T)" '{note:$n, did_action:true}')" \
     >/dev/null || true

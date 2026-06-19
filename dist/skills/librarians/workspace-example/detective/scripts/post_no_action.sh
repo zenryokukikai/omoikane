@@ -19,12 +19,12 @@ PROGRESS_PAYLOAD=$(jq -n \
     '{role: $role, entry_id: $source, instance_id: $instance,
       action: "no_action", notes: $reason}')
 
-curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/progress" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$PROGRESS_PAYLOAD" >/dev/null
 
 # heartbeat
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg n "no_action on $SOURCE_ID: $REASON" \
         '{note:$n, did_action:false}')" >/dev/null

@@ -17,6 +17,6 @@ PARENT="${2:-}"   # empty = un-root to top level
 
 PAYLOAD=$(jq -n --arg parent "$PARENT" '{parent_id:$parent}')
 
-curl -fsS -X POST "$KB_URL/v1/use_cases/$CHILD/parent" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/use_cases/$CHILD/parent" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$PAYLOAD" | jq '{id, slug, parent_id}'

@@ -25,7 +25,7 @@ TARGET="${1:-$(TZ=Asia/Tokyo date -v-1d +%Y-%m-%d 2>/dev/null || TZ=Asia/Tokyo d
 # Pull recent entries (all types, all live statuses; list excludes
 # SUPERSEDED/ARCHIVED/DUPLICATE). 500 comfortably covers a day.
 RESP_FILE=$(mktemp); trap 'rm -f "$RESP_FILE"' EXIT
-curl -fsS -H "Authorization: Bearer $KB_TOKEN" \
+curl --retry 5 --retry-connrefused -fsS -H "Authorization: Bearer $KB_TOKEN" \
     "$KB_URL/v1/entries?limit=500" -o "$RESP_FILE"
 
 # NOTE: read the entries JSON from a FILE, not stdin — the python

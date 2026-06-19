@@ -17,19 +17,19 @@ if [[ "${1:-}" != "" ]]; then
 fi
 
 # Emergency-stop check before doing anything else.
-STATUS=$(curl -fsS -H "Authorization: Bearer $KB_TOKEN" \
+STATUS=$(curl --retry 5 --retry-connrefused -fsS -H "Authorization: Bearer $KB_TOKEN" \
     "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID" | jq -r .status)
 if [[ "$STATUS" == "stopped" ]]; then
     echo "{\"emergency_stop\": true}" >&2
     # Still heartbeat to record liveness, then exit clean.
-    curl -fsS -X POST -H "Authorization: Bearer $KB_TOKEN" \
+    curl --retry 5 --retry-connrefused -fsS -X POST -H "Authorization: Bearer $KB_TOKEN" \
         -H "Content-Type: application/json" \
         -d '{"note":"honoring emergency stop","did_action":false}' \
         "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" >/dev/null
     exit 0
 fi
 
-RESP=$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $KB_TOKEN" \
+RESP=$(curl --retry 5 --retry-connrefused -sS -w '\n%{http_code}' -H "Authorization: Bearer $KB_TOKEN" \
     "$KB_URL/v1/librarian/backlog/next?role=$KB_ROLE${PROJECT_FILTER}")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -n1)
@@ -40,7 +40,7 @@ case "$CODE" in
         ;;
     404)
         # backlog drained — heartbeat and exit 42 so the caller knows
-        curl -fsS -X POST -H "Authorization: Bearer $KB_TOKEN" \
+        curl --retry 5 --retry-connrefused -fsS -X POST -H "Authorization: Bearer $KB_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{"note":"backlog drained","did_action":false}' \
             "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" >/dev/null

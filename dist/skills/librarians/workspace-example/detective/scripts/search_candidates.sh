@@ -21,7 +21,7 @@ PROJECT="${2:-}"
 
 PAYLOAD=$(jq -n --arg q "$QUERY" '{query: $q}')
 
-RESP=$(curl -sS -X POST "$KB_URL/v1/search" \
+RESP=$(curl --retry 5 --retry-connrefused -sS -X POST "$KB_URL/v1/search" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$PAYLOAD")
 

@@ -31,10 +31,10 @@ ARXIV_PER_CAT="${SCOUT_ARXIV_PER_CAT:-6}"
 TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 
 # ---- Hacker News top stories ----
-hn_ids=$(curl -sS -m 15 "https://hacker-news.firebaseio.com/v0/topstories.json" \
+hn_ids=$(curl --retry 5 --retry-connrefused -sS -m 15 "https://hacker-news.firebaseio.com/v0/topstories.json" \
     | jq -r ".[:$HN_LIMIT][]" 2>/dev/null || true)
 for id in $hn_ids; do
-    item=$(curl -sS -m 10 "https://hacker-news.firebaseio.com/v0/item/$id.json" 2>/dev/null || echo '{}')
+    item=$(curl --retry 5 --retry-connrefused -sS -m 10 "https://hacker-news.firebaseio.com/v0/item/$id.json" 2>/dev/null || echo '{}')
     echo "$item" | jq -c '
         select(.type=="story" and (.url // "") != "")
         | {source:"hn", url:.url, title:(.title // ""), body:"",
@@ -44,7 +44,7 @@ done >> "$TMP" || true
 
 # ---- arXiv recent per category ----
 for cat in $ARXIV_CATS; do
-    xml=$(curl -sS -m 20 "https://export.arxiv.org/api/query?search_query=cat:${cat}&sortBy=submittedDate&sortOrder=descending&max_results=${ARXIV_PER_CAT}" 2>/dev/null || true)
+    xml=$(curl --retry 5 --retry-connrefused -sS -m 20 "https://export.arxiv.org/api/query?search_query=cat:${cat}&sortBy=submittedDate&sortOrder=descending&max_results=${ARXIV_PER_CAT}" 2>/dev/null || true)
     [ -z "$xml" ] && continue
     python3 - "$cat" <<PY >> "$TMP" || true
 import sys, re, json, html
@@ -69,7 +69,7 @@ done
 
 # ---- Hugging Face daily papers (curated) ----
 HF_PAPERS_LIMIT="${SCOUT_HF_PAPERS_LIMIT:-12}"
-curl -sS -m 15 "https://huggingface.co/api/daily_papers?limit=${HF_PAPERS_LIMIT}" 2>/dev/null \
+curl --retry 5 --retry-connrefused -sS -m 15 "https://huggingface.co/api/daily_papers?limit=${HF_PAPERS_LIMIT}" 2>/dev/null \
     | jq -c '.[] | {
         source:"hf_paper",
         url:("https://huggingface.co/papers/" + (.paper.id // "")),
@@ -81,7 +81,7 @@ curl -sS -m 15 "https://huggingface.co/api/daily_papers?limit=${HF_PAPERS_LIMIT}
 
 # ---- Hugging Face trending models (last-7d likes) ----
 HF_MODELS_LIMIT="${SCOUT_HF_MODELS_LIMIT:-10}"
-curl -sS -m 15 "https://huggingface.co/api/models?sort=likes7d&direction=-1&limit=${HF_MODELS_LIMIT}" 2>/dev/null \
+curl --retry 5 --retry-connrefused -sS -m 15 "https://huggingface.co/api/models?sort=likes7d&direction=-1&limit=${HF_MODELS_LIMIT}" 2>/dev/null \
     | jq -c '.[] | {
         source:"hf_model",
         url:("https://huggingface.co/" + (.id // "")),

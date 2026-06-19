@@ -67,7 +67,7 @@ referenced_ids=$(grep -oE '\[\[(T|D|X|L|I|M|F|E)-[A-Z0-9]+\]\]' "$BODY_FILE" \
 other_count=0
 for id in $referenced_ids; do
     [[ "$id" == "$EXAMINED_ID" ]] && continue
-    code=$(curl -sS -o /dev/null -w '%{http_code}' \
+    code=$(curl --retry 5 --retry-connrefused -sS -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer $KB_TOKEN" "$KB_URL/v1/entries/$id")
     [[ "$code" == "200" ]] || { echo "validation: cites [[$id]] which does not exist (HTTP $code). do not invent ids." >&2; exit 3; }
     other_count=$((other_count+1))
@@ -100,7 +100,7 @@ ENTRY_PAYLOAD=$(jq -n \
         }
     }')
 
-ENTRY_RESP=$(curl -fsS -X POST "$KB_URL/v1/entries" \
+ENTRY_RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$ENTRY_PAYLOAD")
 DRAFT_ID=$(echo "$ENTRY_RESP" | jq -r .id)
@@ -108,7 +108,7 @@ DRAFT_ID=$(echo "$ENTRY_RESP" | jq -r .id)
     echo "failed to create proposal DRAFT — response: $ENTRY_RESP" >&2; exit 1; }
 
 # --- progress (removes examined entry from detective backlog) ---
-curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/progress" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg role "$KB_ROLE" --arg examined "$EXAMINED_ID" \
         --arg instance "$KB_INSTANCE_ID" --arg draft "$DRAFT_ID" --arg title "$TITLE" \
@@ -117,7 +117,7 @@ curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
           notes:("relation proposal: " + $title)}')" >/dev/null
 
 # --- heartbeat ---
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg n "proposed relations for $EXAMINED_ID -> $DRAFT_ID" \
         '{note:$n, did_action:true}')" >/dev/null

@@ -60,7 +60,7 @@ grep -qF "[[$EXAMINED_ID]]" "$BODY_FILE" || {
 referenced_ids=$(grep -oE '\[\[(T|D|X|L|I|M|F|E)-[A-Z0-9]+\]\]' "$BODY_FILE" \
     | sed 's/^\[\[//;s/\]\]$//' | sort -u)
 for id in $referenced_ids; do
-    code=$(curl -sS -o /dev/null -w '%{http_code}' \
+    code=$(curl --retry 5 --retry-connrefused -sS -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer $KB_TOKEN" "$KB_URL/v1/entries/$id")
     [[ "$code" == "200" ]] || { echo "validation: cites [[$id]] which does not exist (HTTP $code). do not invent ids." >&2; exit 3; }
 done
@@ -91,14 +91,14 @@ ENTRY_PAYLOAD=$(jq -n \
         }
     }')
 
-ENTRY_RESP=$(curl -fsS -X POST "$KB_URL/v1/entries" \
+ENTRY_RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$ENTRY_PAYLOAD")
 DRAFT_ID=$(echo "$ENTRY_RESP" | jq -r .id)
 [[ -n "$DRAFT_ID" && "$DRAFT_ID" != "null" ]] || {
     echo "failed to create resolution DRAFT — response: $ENTRY_RESP" >&2; exit 1; }
 
-curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/progress" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg role "$KB_ROLE" --arg examined "$EXAMINED_ID" \
         --arg instance "$KB_INSTANCE_ID" --arg draft "$DRAFT_ID" \
@@ -107,7 +107,7 @@ curl -fsS -X POST "$KB_URL/v1/librarian/progress" \
           action:$action, output_entry_id:$draft,
           notes:("resolution: " + $title)}')" >/dev/null
 
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg n "$ACTION on $EXAMINED_ID -> $DRAFT_ID" '{note:$n, did_action:true}')" >/dev/null
 

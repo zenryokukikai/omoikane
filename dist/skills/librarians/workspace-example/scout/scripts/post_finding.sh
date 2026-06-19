@@ -38,13 +38,13 @@ ENTRY=$(jq -n --arg title "$TITLE" --arg body "$BODY" --arg url "$URL" \
         title:$title, body:$body, body_format:"markdown", tags:$tags,
         metadata:{role:"scout", instance_id:$instance, kind:"external_finding", source_url:$url}
     }')
-RESP=$(curl -fsS -X POST "$KB_URL/v1/entries" \
+RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" -d "$ENTRY")
 ENTRY_ID=$(echo "$RESP" | jq -r .id)
 [ -n "$ENTRY_ID" ] && [ "$ENTRY_ID" != "null" ] || { echo "failed to create entry: $RESP" >&2; exit 1; }
 
 # 2) structured finding row (raw log + relevance + dedup ledger on server)
-curl -fsS -X POST "$KB_URL/v1/librarian/findings" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/findings" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg lens "$KB_ROLE" --arg inst "$KB_INSTANCE_ID" --arg url "$URL" \
         --arg title "$TITLE" --argjson rel "$RELEVANCE" --arg entry "$ENTRY_ID" \
@@ -53,7 +53,7 @@ curl -fsS -X POST "$KB_URL/v1/librarian/findings" \
 
 # 3) mark seen (SQLite) + heartbeat
 python3 "$SCRIPT_DIR/seen_store.py" add posted "$URL" >/dev/null
-curl -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
+curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
     -d "$(jq -n --arg n "posted finding $ENTRY_ID ($TITLE)" '{note:$n, did_action:true}')" >/dev/null || true
 

@@ -27,10 +27,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/load_env.sh"
 AUTH=(-H "Authorization: Bearer $KB_TOKEN")
 
 # --- emergency stop --------------------------------------------------
-STATUS=$(curl -fsS "${AUTH[@]}" \
+STATUS=$(curl --retry 5 --retry-connrefused -fsS "${AUTH[@]}" \
     "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID" | jq -r .status)
 if [[ "$STATUS" == "stopped" ]]; then
-    curl -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+    curl --retry 5 --retry-connrefused -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
         -d '{"note":"honoring emergency stop","did_action":false}' \
         "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" >/dev/null
     echo '{"emergency_stop":true}' >&2
@@ -40,14 +40,14 @@ fi
 # --- set of entry_ids curator has already processed ------------------
 # librarian_progress is curator's "done" ledger; entry_id there is the
 # proposal id (or review-queue entry id) it acted on.
-PROCESSED=$(curl -fsS "${AUTH[@]}" \
+PROCESSED=$(curl --retry 5 --retry-connrefused -fsS "${AUTH[@]}" \
     "$KB_URL/v1/librarian/progress?role=$KB_ROLE&instance_id=$KB_INSTANCE_ID&limit=500" \
     | jq -r '[.progress[].entry_id] | unique')
 
 # --- 1. oldest unresolved relation_proposal --------------------------
 # List librarian_meta DRAFTs, keep kind=relation_proposal, drop any
 # already in PROCESSED, take the oldest by created_at.
-PROPOSALS=$(curl -fsS "${AUTH[@]}" \
+PROPOSALS=$(curl --retry 5 --retry-connrefused -fsS "${AUTH[@]}" \
     "$KB_URL/v1/entries?type=librarian_meta&status=DRAFT&limit=200")
 NEXT_PROP=$(echo "$PROPOSALS" | jq -c --argjson done "$PROCESSED" '
     [ .entries[]
@@ -61,20 +61,20 @@ if [[ -n "$NEXT_PROP" && "$NEXT_PROP" != "null" ]]; then
 fi
 
 # --- 2. oldest unprocessed review-queue entry ------------------------
-RQ=$(curl -fsS "${AUTH[@]}" "$KB_URL/v1/review-queue")
+RQ=$(curl --retry 5 --retry-connrefused -fsS "${AUTH[@]}" "$KB_URL/v1/review-queue")
 NEXT_RQ=$(echo "$RQ" | jq -c --argjson done "$PROCESSED" '
     [ .queue[] | select((.ID as $id | $done | index($id)) | not) ] | .[0] // empty')
 
 if [[ -n "$NEXT_RQ" && "$NEXT_RQ" != "null" ]]; then
     # Fetch the full entry so the SKILL has its body to judge.
     RQ_ID=$(echo "$NEXT_RQ" | jq -r .ID)
-    ENTRY=$(curl -fsS "${AUTH[@]}" "$KB_URL/v1/entries/$RQ_ID")
+    ENTRY=$(curl --retry 5 --retry-connrefused -fsS "${AUTH[@]}" "$KB_URL/v1/entries/$RQ_ID")
     jq -n --argjson e "$ENTRY" '{work:"review_queue", entry:$e}'
     exit 0
 fi
 
 # --- nothing outstanding: heartbeat and report idle ------------------
-curl -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+curl --retry 5 --retry-connrefused -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
     -d '{"note":"no outstanding proposals or review-queue work","did_action":false}' \
     "$KB_URL/v1/librarian/instances/$KB_INSTANCE_ID/heartbeat" >/dev/null
 echo '{"caught_up":true}' >&2

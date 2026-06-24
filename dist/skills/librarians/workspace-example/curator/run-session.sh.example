@@ -15,11 +15,18 @@ LOCK="$WORKDIR/.curator-session.lock"
 cd "$WORKDIR"
 ts() { date '+%Y-%m-%dT%H:%M:%S'; }
 
-# Single-flight: skip if a prior run is still going.
+# Stale-aware single-flight lock: a killed session (no EXIT trap) must not
+# block all future runs. Record pid; reclaim the lock if its holder is dead.
 if ! mkdir "$LOCK" 2>/dev/null; then
+    OLDPID=$(cat "$LOCK/pid" 2>/dev/null || echo "")
+    if [[ -n "$OLDPID" ]] && kill -0 "$OLDPID" 2>/dev/null; then
     echo "$(ts) [skip] a curator session is already running"; exit 0
+    fi
+    echo "$(ts) [stale-lock] reclaiming lock from dead pid ${OLDPID:-unknown}"
+    rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || { echo "$(ts) [skip] lost lock race"; exit 0; }
 fi
-trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK" 2>/dev/null || true' EXIT
 
 echo "=== $(ts) curator START ==="
 # pi reads its model creds from ~/.pi/agent/auth.json (HOME-based);

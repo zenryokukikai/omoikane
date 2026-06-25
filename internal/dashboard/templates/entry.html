@@ -212,9 +212,17 @@
 
 <script>
 const CMT_ENTRY = "{{.Entry.ID}}";
+// Auth parity with the rest of the dashboard: the browser session cookie
+// is the primary path (logged-in humans), but if the page was opened with
+// a ?token= (CLI bookmark / local testing), carry it as a Bearer header so
+// the same write works. Production browsing has no ?token=, so the cookie
+// is used and tokens never sit in URLs there.
+const CMT_TOKEN = new URLSearchParams(location.search).get('token');
 async function cmtAPI(path, method, body) {
+  const headers = {'Content-Type':'application/json'};
+  if (CMT_TOKEN) headers['Authorization'] = 'Bearer ' + CMT_TOKEN;
   const r = await fetch(path, {method, credentials:'same-origin',
-    headers:{'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined});
+    headers, body: body?JSON.stringify(body):undefined});
   if (!r.ok) { alert('失敗: ' + r.status); throw new Error(r.status); }
   return r;
 }

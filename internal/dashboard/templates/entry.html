@@ -161,4 +161,74 @@
 {{end}}
 {{end}}
 {{end}}{{/* close isJournal else */}}
+
+{{/* Review/discussion comments — humans + agents (§23.21). Shown on every entry. */}}
+<section class="comments" id="comments">
+  <h2>💬 レビューコメント <span class="muted" style="font-size:0.65em;font-weight:normal;">人間 / エージェント どちらも書き込めマス</span></h2>
+
+  {{if .Comments}}
+  <div class="cmt-list">
+    {{range $c := .Comments}}{{if not $c.ReplyTo}}
+    <div class="cmt{{if $c.Resolved}} cmt-resolved{{end}}" data-cid="{{$c.ID}}">
+      <div class="cmt-head">
+        <span class="cmt-author cmt-{{$c.AuthorKind}}">
+          {{if eq $c.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$c.AuthorName}}{{if $c.AuthorLibrarianRole}} <span class="cmt-role">{{$c.AuthorLibrarianRole}}</span>{{end}}
+        </span>
+        <span class="cmt-time muted">{{$c.CreatedAt.Format "2006-01-02 15:04"}}</span>
+        {{if $c.Resolved}}<span class="cmt-badge">解決済</span>{{end}}
+      </div>
+      <div class="cmt-body">{{$c.Body}}</div>
+      {{if $.Me}}
+      <div class="cmt-actions">
+        <button class="cmt-btn" onclick="cmtReply('{{$c.ID}}')">返信</button>
+        <button class="cmt-btn" onclick="cmtResolve('{{$c.ID}}', {{if $c.Resolved}}false{{else}}true{{end}})">{{if $c.Resolved}}未解決に戻す{{else}}解決にする{{end}}</button>
+      </div>
+      {{end}}
+      {{range $r := $.Comments}}{{if eq $r.ReplyTo $c.ID}}
+      <div class="cmt cmt-reply" data-cid="{{$r.ID}}">
+        <div class="cmt-head">
+          <span class="cmt-author cmt-{{$r.AuthorKind}}">{{if eq $r.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$r.AuthorName}}{{if $r.AuthorLibrarianRole}} <span class="cmt-role">{{$r.AuthorLibrarianRole}}</span>{{end}}</span>
+          <span class="cmt-time muted">{{$r.CreatedAt.Format "2006-01-02 15:04"}}</span>
+        </div>
+        <div class="cmt-body">{{$r.Body}}</div>
+      </div>
+      {{end}}{{end}}
+    </div>
+    {{end}}{{end}}
+  </div>
+  {{else}}
+  <p class="muted">まだコメントはありマセン。</p>
+  {{end}}
+
+  {{if .Me}}
+  <form class="cmt-form" onsubmit="return cmtPost(event)">
+    <textarea id="cmt-new" rows="3" placeholder="この記事へのレビューコメント…（{{.Me.Name}} として投稿）"></textarea>
+    <button type="submit" class="cmt-submit">コメントする</button>
+  </form>
+  {{else}}
+  <p class="muted">コメントするにはサインインしてくだサイ。エージェントは API（POST /v1/entries/{id}/comments）から投稿できマス。</p>
+  {{end}}
+</section>
+
+<script>
+const CMT_ENTRY = "{{.Entry.ID}}";
+async function cmtAPI(path, method, body) {
+  const r = await fetch(path, {method, credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined});
+  if (!r.ok) { alert('失敗: ' + r.status); throw new Error(r.status); }
+  return r;
+}
+async function cmtPost(e){ e.preventDefault();
+  const t=document.getElementById('cmt-new'); const v=t.value.trim(); if(!v)return false;
+  await cmtAPI('/v1/entries/'+CMT_ENTRY+'/comments','POST',{body:v}); location.reload(); return false; }
+function cmtReply(cid){
+  if(document.getElementById('rf-'+cid))return;
+  const host=document.querySelector('[data-cid="'+cid+'"]');
+  const f=document.createElement('form'); f.id='rf-'+cid; f.className='cmt-form cmt-reply-form';
+  f.innerHTML='<textarea rows="2" placeholder="返信…"></textarea><button class="cmt-submit">返信する</button>';
+  f.onsubmit=async(e)=>{e.preventDefault(); const v=f.querySelector('textarea').value.trim(); if(!v)return;
+    await cmtAPI('/v1/entries/'+CMT_ENTRY+'/comments','POST',{body:v,reply_to:cid}); location.reload();};
+  host.appendChild(f); }
+async function cmtResolve(cid,val){ await cmtAPI('/v1/comments/'+cid,'PATCH',{resolved:val}); location.reload(); }
+</script>
 {{end}}

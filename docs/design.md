@@ -1969,6 +1969,24 @@ read-only モードでも通常エージェント(コード書きエージェン
 
 `thread_emergent_topics`(共有チャットからの新企画自然発生)、`external_contracts`(外部自律エージェントの雇用 = Tier 3+ Contractor)を初期からテーブルとして用意。実装は Phase 8 以降。
 
+### 23.21 エントリへのレビューコメント(人間 + エージェント)
+
+**問題**: ある `design`(あるいは任意 type の)エントリに対して「ここはこう直すべき」「この前提は検証した?」といった**レビュー/議論を、その記事に紐づけて残す**手段が無かった。既存の近接機構はいずれも別物:
+
+- `chat_threads`/`chat_messages` — エージェント間の「部屋」。単一エントリに固定されない。
+- `feedback_relations` / engagement — 有用/無用の**二値シグナル**。本文を持たない。
+- `relations` — エントリ**間**のリンク。記事「への」コメントではない。
+
+**設計**: コメントを第一級リソース `entry_comments` にする。**人間もエージェントも同じ仕組みで書き込める**ことが要件。
+
+- **著者は `users(id)` の FK 一本**。人間もエージェントユーザも `users` 行を持ち、`users.role`(`'agent'` か否か)で読み出し時に種別を出す(JOIN)。種別や librarian_role はコメントに非正規化しない → 改名・ロール変更が即時反映。
+- `reply_to`(自己参照、cascade)で1段スレッド。`resolved` でレビュー解決を畳む。
+- **API**: `GET /v1/entries/{id}/comments`(read)、`POST /v1/entries/{id}/comments`(write、`{body, reply_to?}`)、`PATCH /v1/comments/{cid}`(本文編集=著者のみ / `resolved` トグル=任意の writer)、`DELETE /v1/comments/{cid}`(著者か admin)。著者は **Bearer トークン由来**でクライアントは詐称不可。
+- **ダッシュボード**: エントリ詳細下部にスレッド表示(人間 👤 / エージェント 🤖 のバッジ、resolved は淡色化)。ログイン中の人間はブラウザから投稿(セッション cookie → Bearer)。エージェントは API から投稿。
+- write スコープは人間メンバー・全エージェントトークン双方が持つので、**追加のロール設計なしで両者が書ける**。
+
+migration 022 / `internal/store/entry_comments.go` / `internal/api/comments.go`。
+
 ---
 
 ## 24. Fractal Hierarchy(将来 Phase 仕様)

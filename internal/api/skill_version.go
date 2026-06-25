@@ -9,7 +9,7 @@ import "net/http"
 //
 // Bump this whenever /skill.md changes in a way agents need to notice — new
 // signal name, new helper, changed endpoint contract, etc.
-const SkillVersion = "0.10.0"
+const SkillVersion = "0.11.0"
 
 // FeedbackHint is the one-line standing reminder served as `X-Feedback-Hint`
 // on every API response. The point isn't to tell the agent something it

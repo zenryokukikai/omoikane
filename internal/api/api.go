@@ -112,6 +112,12 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("write")).Delete("/entries/{id}", h.deleteEntry)
 			r.With(auth.RequireScope("write")).Post("/entries/{id}/index", h.putEntryIndex)
 
+			// Entry comments — review/discussion threads, humans + agents (§23.21).
+			r.With(auth.RequireScope("read")).Get("/entries/{id}/comments", h.listEntryComments)
+			r.With(auth.RequireScope("write")).Post("/entries/{id}/comments", h.createEntryComment)
+			r.With(auth.RequireScope("write")).Patch("/comments/{cid}", h.updateComment)
+			r.With(auth.RequireScope("write")).Delete("/comments/{cid}", h.deleteComment)
+
 			// UseCases — first-class reverse-lookup resource (§23.15.4).
 			r.With(auth.RequireScope("read")).Get("/use_cases", h.listUseCases)
 			r.With(auth.RequireScope("read")).Get("/use_cases/{ref}", h.getUseCase)

@@ -506,4 +506,43 @@ a.attachment-file:hover { background: var(--hover); }
   font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent);
 }
 .journal-today .jt-title { font-family: var(--font-serif); font-size: 1.15rem; margin-top: 0.2rem; }
+
+/* Entry review comments (§23.21) — humans + agents */
+.comments { margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.cmt-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
+.cmt {
+  border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.8rem;
+  background: var(--surface);
+}
+.cmt-resolved { opacity: 0.6; }
+.cmt-reply { margin: 0.5rem 0 0 1.25rem; border-left: 2px solid var(--border); background: transparent; }
+.cmt-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+.cmt-author { font-weight: 600; }
+.cmt-agent { color: var(--accent); }
+.cmt-role {
+  font-size: 0.7em; font-weight: normal; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 0.3em;
+}
+.cmt-time { font-size: 0.78rem; }
+.cmt-badge {
+  font-size: 0.7rem; color: #fff; background: var(--accent); border-radius: 3px; padding: 0 0.4em;
+}
+.cmt-body { margin-top: 0.35rem; white-space: pre-wrap; line-height: 1.55; }
+.cmt-actions { margin-top: 0.4rem; display: flex; gap: 0.5rem; }
+.cmt-btn {
+  font-size: 0.75rem; background: none; border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.1rem 0.5rem; cursor: pointer; color: var(--muted);
+}
+.cmt-btn:hover { color: var(--accent); border-color: var(--accent); }
+.cmt-form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+.cmt-form textarea {
+  width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem;
+  font: inherit; resize: vertical; box-sizing: border-box;
+}
+.cmt-submit {
+  align-self: flex-start; background: var(--accent); color: #fff; border: none;
+  border-radius: 4px; padding: 0.35rem 0.9rem; cursor: pointer; font-size: 0.85rem;
+}
+.cmt-submit:hover { background: var(--accent-strong); }
+.cmt-reply-form { margin: 0.5rem 0 0 1.25rem; }
 `

@@ -279,6 +279,7 @@ type pageCtx struct {
 	EntrySymptoms []string
 	EntryTriggers []store.IndexedTrigger
 	EntryUseCases []*store.EntryUseCase // UseCases this entry belongs to
+	Comments      []*store.EntryComment  // review/discussion thread on the entry
 	UseCase       *store.UseCase         // for /use_cases/{ref} detail page
 	UseCaseParent *store.UseCase         // for breadcrumb on detail page
 	UseCaseChildren []*store.UseCaseSummary // for tree drilldown on detail page
@@ -663,6 +664,10 @@ func (h *Handler) entry(w http.ResponseWriter, r *http.Request) {
 	// UseCases this entry belongs to (chips on the entry page).
 	if ucs, uErr := h.Store.ListEntryUseCases(r.Context(), id); uErr == nil {
 		pc.EntryUseCases = ucs
+	}
+	// Review/discussion comments (humans + agents) — §23.21.
+	if cs, cErr := h.Store.ListComments(r.Context(), id); cErr == nil {
+		pc.Comments = cs
 	}
 	h.render(w, "entry", pc)
 }

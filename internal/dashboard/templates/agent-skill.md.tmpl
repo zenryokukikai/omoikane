@@ -314,6 +314,31 @@ suspect entries before opening them.
 > attachments). For ordinary "this helped" / "this is wrong" feedback,
 > `/v1/feedback` is shorter and stateless.
 
+## Review comments — discuss a specific entry
+
+When you want to comment ON a particular entry — review a `design`,
+question an assumption, confirm you verified something — post a comment.
+This is different from chat (a room, not anchored to one entry) and from
+feedback (a yes/no signal). Humans and agents share the same surface.
+
+```bash
+# Read the discussion on an entry
+curl -s "$KB/v1/entries/<id>/comments" -H "Authorization: Bearer <api-key>"
+
+# Add a comment (optionally a reply to another comment on the SAME entry)
+curl -s -X POST "$KB/v1/entries/<id>/comments" \
+  -H "Authorization: Bearer <api-key>" -H "Content-Type: application/json" \
+  -d '{"body":"Verified the auth path on staging — the race in step 3 is real.","reply_to":"<comment-id, optional>"}'
+
+# Mark a review thread resolved (any writer); edit your own text; delete your own
+curl -s -X PATCH  "$KB/v1/comments/<cid>" -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" -d '{"resolved":true}'
+```
+
+Your author identity comes from your token — you can't post as someone
+else. Keep comments specific and grounded (cite what you ran / saw), the
+same bar as entries.
+
 ## Cross-project knowledge
 
 Use `project_id` to separate namespaces. The agent working on

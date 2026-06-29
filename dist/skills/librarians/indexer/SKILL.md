@@ -252,10 +252,14 @@ symptom/trigger index and the UseCase tree. They are not the same:
   binds the 2+ entries a person IN that scenario needs, usually across
   several entry types and projects.
 
-After the UseCase pass, over the entries you handled this session, find any
-recurring **scenario** (a task someone performs / a context they're in,
-e.g. "resuming training from a mid-run checkpoint", "debugging a Cloudflare
-403 from a Python client") for which 2+ entries are jointly needed.
+Run this **every session**, even when `covered 0` — situations bundle
+EXISTING entries, so they don't depend on fresh indexing work. Pull a window
+of recent substantive entries (`GET /v1/entries?limit=40`, types
+trap/lesson/decision/incident/design) and, with anything handled this
+session, find any recurring **scenario** (a task someone performs / a
+context they're in, e.g. "resuming training from a mid-run checkpoint",
+"debugging a Cloudflare 403 from a Python client") for which 2+ entries are
+jointly needed.
 
 ```bash
 # Search existing situations first — extend, don't duplicate.

@@ -44,23 +44,37 @@ for e in data.get("entries", []):
 if j is None:
     print(""); sys.exit(0)
 
+import re
 body = j.get("body") or ""
-# Markdown -> Slack mrkdwn: headers to bold, strip stray markers, trim.
-lines = []
-for ln in body.split("\n"):
-    s = ln.rstrip()
-    if s.startswith("#"):
-        s = "*" + s.lstrip("# ").strip() + "*"
-    lines.append(s)
-text = "\n".join(lines).strip()
-LIMIT = 3500
-if len(text) > LIMIT:
-    text = text[:LIMIT].rsplit("\n", 1)[0] + "\n…（続き）"
+
+def to_mrkdwn(t):
+    t = re.sub(r"\[\[[^\]]+\]\]", "", t)                              # drop [[wiki]] refs
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", t)     # [text](url) -> <url|text>
+    t = re.sub(r"\*\*([^*]+)\*\*", r"*\1*", t)                        # **bold** -> *bold*
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+# Slack gets a FURTHER-summarised digest, not the whole journal: the lead
+# overview the journal opens with (everything before the first "## " section),
+# minus the title echo. Falls back to the first section if there's no lead.
+head = re.split(r"\n#{1,6}\s", body, maxsplit=1)[0]
+lead_lines = [l for l in head.split("\n")
+              if l.strip()
+              and not re.match(r"#{1,6}\s", l)
+              and "daily journal" not in l.lower()]
+lead = "\n".join(lead_lines).strip()
+if not lead:                                  # no lead → take first section's prose
+    secs = re.split(r"\n#{1,6}\s", body)
+    lead = (secs[1] if len(secs) > 1 else body)[:600]
+lead = to_mrkdwn(lead)
+if len(lead) > 1400:
+    lead = lead[:1400].rsplit("。", 1)[0] + "。…"
 
 url = f"{kb}/entries/{j['id']}"
-header = f"📝 *omoikane 日次ジャーナル {target}*"
-full = f"{header}\n\n{text}\n\n全文 → {url}"
-print(json.dumps({"text": full, "unfurl_links": False}, ensure_ascii=False))
+text = (f"📝 *omoikane 日次ジャーナル {target}*\n\n"
+        f"{lead}\n\n"
+        f"📖 詳細 → <{url}|ジャーナル全文を読む>")
+print(json.dumps({"text": text, "unfurl_links": False}, ensure_ascii=False))
 PY
 )
 

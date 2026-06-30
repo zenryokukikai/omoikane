@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // /skill.md is the ONE canonical endpoint. It serves the full Agent

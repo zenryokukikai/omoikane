@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kojira/omoikane/internal/auth"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/auth"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // ----------------------------------------------------------------------

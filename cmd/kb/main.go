@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/kojira/omoikane/internal/cli"
+	"github.com/zenryokukikai/omoikane/internal/cli"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // TestPutEntryIndexRevivesLookup is the end-to-end proof that the indexer's

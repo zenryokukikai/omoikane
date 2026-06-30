@@ -19,13 +19,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/kojira/omoikane/internal/api"
-	"github.com/kojira/omoikane/internal/auth/oauth"
-	"github.com/kojira/omoikane/internal/config"
-	"github.com/kojira/omoikane/internal/dashboard"
-	"github.com/kojira/omoikane/internal/enrich"
-	"github.com/kojira/omoikane/internal/store"
-	"github.com/kojira/omoikane/internal/version"
+	"github.com/zenryokukikai/omoikane/internal/api"
+	"github.com/zenryokukikai/omoikane/internal/auth/oauth"
+	"github.com/zenryokukikai/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/dashboard"
+	"github.com/zenryokukikai/omoikane/internal/enrich"
+	"github.com/zenryokukikai/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/version"
 )
 
 // Build/app version live in internal/version (the single source of truth,

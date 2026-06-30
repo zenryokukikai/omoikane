@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // seedEntryWithIndices creates a kb project + entry and populates the

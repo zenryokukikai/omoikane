@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kojira/omoikane/internal/auth"
-	"github.com/kojira/omoikane/internal/auth/oauth"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/auth"
+	"github.com/zenryokukikai/omoikane/internal/auth/oauth"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 const (

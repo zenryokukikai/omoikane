@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kojira/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/config"
 )
 
 // Finding identifies one detected secret/PII occurrence.

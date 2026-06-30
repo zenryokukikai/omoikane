@@ -19,10 +19,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/kojira/omoikane/dist/samples"
-	"github.com/kojira/omoikane/internal/auth"
-	"github.com/kojira/omoikane/internal/store"
-	"github.com/kojira/omoikane/internal/version"
+	"github.com/zenryokukikai/omoikane/dist/samples"
+	"github.com/zenryokukikai/omoikane/internal/auth"
+	"github.com/zenryokukikai/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/version"
 )
 
 //go:embed templates/*.html templates/*.tmpl

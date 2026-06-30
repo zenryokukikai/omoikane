@@ -25,14 +25,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kojira/omoikane/internal/api"
-	"github.com/kojira/omoikane/internal/cli"
-	"github.com/kojira/omoikane/internal/config"
-	"github.com/kojira/omoikane/internal/dashboard"
-	"github.com/kojira/omoikane/internal/enrich"
-	"github.com/kojira/omoikane/internal/librunner"
-	"github.com/kojira/omoikane/internal/mcp"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/api"
+	"github.com/zenryokukikai/omoikane/internal/cli"
+	"github.com/zenryokukikai/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/dashboard"
+	"github.com/zenryokukikai/omoikane/internal/enrich"
+	"github.com/zenryokukikai/omoikane/internal/librunner"
+	"github.com/zenryokukikai/omoikane/internal/mcp"
+	"github.com/zenryokukikai/omoikane/internal/store"
 
 	"github.com/go-chi/chi/v5"
 )

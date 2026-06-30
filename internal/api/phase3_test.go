@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // phase3SeedEntries creates two entries in project "p" and returns their IDs.

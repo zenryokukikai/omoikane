@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/kojira/omoikane/internal/auth"
+	"github.com/zenryokukikai/omoikane/internal/auth"
 )
 
 // ----------------------------------------------------------------------

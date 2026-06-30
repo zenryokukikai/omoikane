@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 func mustCreateUserAndProject(t *testing.T, s *store.Store, userID, projectID string) {

@@ -11,7 +11,7 @@ package main
 import (
 	"os"
 
-	"github.com/kojira/omoikane/internal/librunner"
+	"github.com/zenryokukikai/omoikane/internal/librunner"
 )
 
 func main() {

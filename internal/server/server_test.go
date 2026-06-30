@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kojira/omoikane/internal/config"
-	"github.com/kojira/omoikane/internal/dashboard"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/dashboard"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // setupEnv points KB_DB_PATH to a temp file and resets relevant env vars

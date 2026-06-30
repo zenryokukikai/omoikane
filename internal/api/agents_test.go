@@ -13,9 +13,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/kojira/omoikane/internal/config"
-	"github.com/kojira/omoikane/internal/enrich"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/enrich"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // testServerOpenRegister mirrors testServer but flips RegisterOpen=true

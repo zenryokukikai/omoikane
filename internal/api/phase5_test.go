@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 func TestLibrarianInstanceAPI(t *testing.T) {

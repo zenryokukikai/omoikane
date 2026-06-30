@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 type ctxKey int

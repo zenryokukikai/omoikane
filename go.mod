@@ -1,4 +1,4 @@
-module github.com/kojira/omoikane
+module github.com/zenryokukikai/omoikane
 
 go 1.26.3
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // Seed: admin (bootstrapped by testServer) + alice (human) + alice's

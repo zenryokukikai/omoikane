@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // Seed an agent owned by alice, with a description. The profile page

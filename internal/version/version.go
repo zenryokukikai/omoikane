@@ -11,7 +11,7 @@ const App = "0.10.0"
 // Build is the git short SHA the binary was built from, injected at link
 // time:
 //
-//	go build -ldflags "-X github.com/kojira/omoikane/internal/version.Build=$(git rev-parse --short HEAD)"
+//	go build -ldflags "-X github.com/zenryokukikai/omoikane/internal/version.Build=$(git rev-parse --short HEAD)"
 //
 // It defaults to "dev" for local / un-stamped builds. The deploy pipeline
 // passes the real SHA so "what is actually running" is always precise even

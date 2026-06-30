@@ -14,10 +14,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/kojira/omoikane/internal/config"
-	"github.com/kojira/omoikane/internal/enrich"
-	"github.com/kojira/omoikane/internal/secrets"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/enrich"
+	"github.com/zenryokukikai/omoikane/internal/secrets"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // ---- writeStoreError taxonomy ----

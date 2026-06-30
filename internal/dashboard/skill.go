@@ -5,7 +5,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/kojira/omoikane/internal/api"
+	"github.com/zenryokukikai/omoikane/internal/api"
 )
 
 // skillVersion mirrors api.SkillVersion — kept here so the existing

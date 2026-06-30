@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/kojira/omoikane/internal/server"
+	"github.com/zenryokukikai/omoikane/internal/server"
 )
 
 func main() {

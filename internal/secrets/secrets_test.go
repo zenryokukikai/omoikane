@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/config"
+	"github.com/zenryokukikai/omoikane/internal/config"
 )
 
 func TestDetectsGitHubToken(t *testing.T) {

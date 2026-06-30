@@ -51,7 +51,7 @@ ARG GIT_SHA=dev
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 go build -tags sqlite_fts5 \
-        -ldflags="-s -w -X github.com/kojira/omoikane/internal/version.Build=${GIT_SHA}" \
+        -ldflags="-s -w -X github.com/zenryokukikai/omoikane/internal/version.Build=${GIT_SHA}" \
         -trimpath -o /out/kb-server ./cmd/kb-server
 
 FROM alpine:3.20

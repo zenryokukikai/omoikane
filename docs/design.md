@@ -1038,7 +1038,7 @@ example でも拒否される。その種の entry を書くときは `KB_SECRET
 | **skill 契約版** | `internal/dashboard.skillVersion` | skill.md の契約が実質変わったとき手動 | `GET /skill.md` の `X-Skill-Version` |
 
 - アプリ semver は design.md の文書バージョンとは別トラック（文書は設計を、semver はビルドを表す）。
-- ビルド SHA は手動 bump を忘れても「何が動いてるか」を常に正確にする保険。`-X github.com/kojira/omoikane/internal/version.Build=<sha>` で注入、未注入なら `dev`。
+- ビルド SHA は手動 bump を忘れても「何が動いてるか」を常に正確にする保険。`-X github.com/zenryokukikai/omoikane/internal/version.Build=<sha>` で注入、未注入なら `dev`。
 - **挙動・契約・スキーマを変える変更では、関係するバージョンを同じ変更内で上げる**（design-discipline）。
 
 ### 12.4 バックアップ

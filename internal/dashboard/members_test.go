@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // mountAuthed creates alice as role=admin → /members should be visible.

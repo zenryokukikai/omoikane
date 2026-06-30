@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kojira/omoikane/internal/auth"
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/auth"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // lookupResponse is the shape returned by all four lookup endpoints. We

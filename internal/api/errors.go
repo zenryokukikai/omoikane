@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/kojira/omoikane/internal/store"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // Envelope is the JSON error shape used across the API (docs/design.md §5.1.1).

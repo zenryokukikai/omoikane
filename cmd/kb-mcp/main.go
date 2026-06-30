@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kojira/omoikane/internal/mcp"
+	"github.com/zenryokukikai/omoikane/internal/mcp"
 )
 
 func main() {

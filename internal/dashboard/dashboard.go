@@ -275,6 +275,9 @@ type pageCtx struct {
 	IndexedList  []*store.IndexedEntrySummary // browse list when no query (legacy)
 	UseCaseList  []*store.UseCaseSummary      // new browse list — UseCase-first
 
+	// Entry page — author user (resolved from created_by)
+	EntryAuthor   *store.User
+
 	// Entry page — this entry's reverse-lookup index (symptom/trigger → here)
 	EntrySymptoms []string
 	EntryTriggers []store.IndexedTrigger
@@ -664,6 +667,12 @@ func (h *Handler) entry(w http.ResponseWriter, r *http.Request) {
 	// UseCases this entry belongs to (chips on the entry page).
 	if ucs, uErr := h.Store.ListEntryUseCases(r.Context(), id); uErr == nil {
 		pc.EntryUseCases = ucs
+	}
+	// Entry author — resolve created_by user ID to a full User for avatar display.
+	if e.CreatedBy != "" {
+		if au, aErr := h.Store.GetUser(r.Context(), e.CreatedBy); aErr == nil {
+			pc.EntryAuthor = au
+		}
 	}
 	// Review/discussion comments (humans + agents) — §23.21.
 	if cs, cErr := h.Store.ListComments(r.Context(), id); cErr == nil {

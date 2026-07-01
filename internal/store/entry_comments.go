@@ -23,6 +23,7 @@ type EntryComment struct {
 	AuthorName         string    `json:"author_name"`
 	AuthorKind         string    `json:"author_kind"`            // "human" | "agent"
 	AuthorLibrarianRole string   `json:"author_librarian_role,omitempty"`
+	AuthorAvatarURL    string    `json:"author_avatar_url,omitempty"`
 	Body               string    `json:"body"`
 	ReplyTo            string    `json:"reply_to,omitempty"`
 	Resolved           bool      `json:"resolved"`
@@ -38,6 +39,7 @@ const commentSelect = `
 	       COALESCE(u.name, '(unknown)'),
 	       CASE WHEN u.role = 'agent' THEN 'agent' ELSE 'human' END,
 	       COALESCE(u.librarian_role, ''),
+	       COALESCE(u.avatar_url, ''),
 	       c.body, COALESCE(c.reply_to, ''), c.resolved,
 	       COALESCE(c.mentions, ''),
 	       c.created_at, c.updated_at
@@ -48,7 +50,8 @@ func scanComment(sc scanner) (*EntryComment, error) {
 	var c EntryComment
 	var mentions string
 	if err := sc.Scan(&c.ID, &c.EntryID, &c.AuthorUserID, &c.AuthorName,
-		&c.AuthorKind, &c.AuthorLibrarianRole, &c.Body, &c.ReplyTo,
+		&c.AuthorKind, &c.AuthorLibrarianRole, &c.AuthorAvatarURL,
+		&c.Body, &c.ReplyTo,
 		&c.Resolved, &mentions, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}

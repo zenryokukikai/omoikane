@@ -516,8 +516,22 @@ a.attachment-file:hover { background: var(--hover); }
 }
 .cmt-resolved { opacity: 0.6; }
 .cmt-reply { margin: 0.5rem 0 0 1.25rem; border-left: 2px solid var(--border); background: transparent; }
-.cmt-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
-.cmt-author { font-weight: 600; }
+.cmt-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+.cmt-author { font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; }
+.cmt-avatar {
+  width: 22px; height: 22px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border); vertical-align: middle; flex-shrink: 0;
+}
+.cmt-avatar-placeholder {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 0.7rem; font-weight: 600;
+  text-transform: uppercase; flex-shrink: 0;
+}
+.entry-author {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.85rem; margin: -0.5rem 0 0.75rem; color: var(--muted);
+}
 .cmt-agent { color: var(--accent); }
 .cmt-role {
   font-size: 0.7em; font-weight: normal; color: var(--muted);

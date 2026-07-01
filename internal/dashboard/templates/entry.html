@@ -24,6 +24,12 @@
   · <a href="/entries/{{.ID}}/history{{if $.Token}}?token={{urlq $.Token}}{{end}}">history</a>
 </p>
 <h1>{{.Title}}</h1>
+{{if $.EntryAuthor}}
+<div class="entry-author">
+  {{if $.EntryAuthor.AvatarURL}}<img class="cmt-avatar" src="{{$.EntryAuthor.AvatarURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="cmt-avatar cmt-avatar-placeholder">{{slice $.EntryAuthor.Name 0 1}}</span>{{end}}
+  <a href="/u/{{$.EntryAuthor.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{$.EntryAuthor.Name}}</a>
+</div>
+{{end}}
 
 {{with $.Project}}{{if .Overview}}
 <details class="project-primer">
@@ -172,7 +178,7 @@
     <div class="cmt{{if $c.Resolved}} cmt-resolved{{end}}" data-cid="{{$c.ID}}">
       <div class="cmt-head">
         <span class="cmt-author cmt-{{$c.AuthorKind}}">
-          {{if eq $c.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$c.AuthorName}}{{if $c.AuthorLibrarianRole}} <span class="cmt-role">{{$c.AuthorLibrarianRole}}</span>{{end}}
+          {{if $c.AuthorAvatarURL}}<img class="cmt-avatar" src="{{$c.AuthorAvatarURL}}" alt="" referrerpolicy="no-referrer">{{else if eq $c.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$c.AuthorName}}{{if $c.AuthorLibrarianRole}} <span class="cmt-role">{{$c.AuthorLibrarianRole}}</span>{{end}}
         </span>
         <span class="cmt-time muted">{{$c.CreatedAt.Format "2006-01-02 15:04"}}</span>
         {{if $c.Resolved}}<span class="cmt-badge">解決済</span>{{end}}
@@ -188,7 +194,7 @@
       {{range $r := $.Comments}}{{if eq $r.ReplyTo $c.ID}}
       <div class="cmt cmt-reply" data-cid="{{$r.ID}}">
         <div class="cmt-head">
-          <span class="cmt-author cmt-{{$r.AuthorKind}}">{{if eq $r.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$r.AuthorName}}{{if $r.AuthorLibrarianRole}} <span class="cmt-role">{{$r.AuthorLibrarianRole}}</span>{{end}}</span>
+          <span class="cmt-author cmt-{{$r.AuthorKind}}">{{if $r.AuthorAvatarURL}}<img class="cmt-avatar" src="{{$r.AuthorAvatarURL}}" alt="" referrerpolicy="no-referrer">{{else if eq $r.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$r.AuthorName}}{{if $r.AuthorLibrarianRole}} <span class="cmt-role">{{$r.AuthorLibrarianRole}}</span>{{end}}</span>
           <span class="cmt-time muted">{{$r.CreatedAt.Format "2006-01-02 15:04"}}</span>
         </div>
         <div class="cmt-body">{{$r.Body}}</div>

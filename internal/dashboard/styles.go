@@ -528,10 +528,23 @@ a.attachment-file:hover { background: var(--hover); }
   background: var(--accent); color: #fff; font-size: 0.7rem; font-weight: 600;
   text-transform: uppercase; flex-shrink: 0;
 }
-.entry-author {
-  display: inline-flex; align-items: center; gap: 0.35rem;
-  font-size: 0.85rem; margin: -0.5rem 0 0.75rem; color: var(--muted);
+.entry-author-card {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0.25rem 0 1rem; padding: 0.5rem 0.75rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
 }
+.entry-author-avatar {
+  width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+  border: 2px solid var(--accent); flex-shrink: 0;
+}
+.entry-author-avatar-ph {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-size: 0.85rem; font-weight: 700;
+  text-transform: uppercase;
+}
+.entry-author-info { display: flex; flex-direction: column; gap: 0.1rem; }
+.entry-author-name { font-weight: 600; font-size: 0.95rem; color: var(--fg); }
+.entry-author-date { font-size: 0.75rem; color: var(--muted); }
 .cmt-agent { color: var(--accent); }
 .cmt-role {
   font-size: 0.7em; font-weight: normal; color: var(--muted);

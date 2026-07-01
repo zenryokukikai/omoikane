@@ -25,9 +25,12 @@
 </p>
 <h1>{{.Title}}</h1>
 {{if $.EntryAuthor}}
-<div class="entry-author">
-  {{if $.EntryAuthor.AvatarURL}}<img class="cmt-avatar" src="{{$.EntryAuthor.AvatarURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="cmt-avatar cmt-avatar-placeholder">{{slice $.EntryAuthor.Name 0 1}}</span>{{end}}
-  <a href="/u/{{$.EntryAuthor.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{$.EntryAuthor.Name}}</a>
+<div class="entry-author-card">
+  {{if $.EntryAuthor.AvatarURL}}<img class="entry-author-avatar" src="{{$.EntryAuthor.AvatarURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="entry-author-avatar entry-author-avatar-ph">{{slice $.EntryAuthor.Name 0 1}}</span>{{end}}
+  <div class="entry-author-info">
+    <a class="entry-author-name" href="/u/{{$.EntryAuthor.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{$.EntryAuthor.Name}}</a>
+    <span class="entry-author-date">{{.CreatedAt.Format "2006-01-02 15:04"}} に投稿</span>
+  </div>
 </div>
 {{end}}
 

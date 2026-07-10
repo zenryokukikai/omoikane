@@ -4,7 +4,7 @@
 {{if .Project.Overview}}
 <div class="project-primer-body md reading">{{renderContent .Project.Overview .Token}}</div>
 {{else}}
-<p class="muted"><em>ドメイン概要(用語集)が未設定。固有名詞の多いエントリを他プロジェクトの読み手が解読できるよう、<code>PATCH /v1/projects/{{.Project.ID}}</code> で overview を設定してくだサイ。</em></p>
+<p class="muted"><em>ドメイン概要(用語集)が未設定。固有名詞の多いエントリを他プロジェクトの読み手が解読できるよう、<code>PATCH /v1/projects/{{.Project.ID}}</code> で overview を設定してください。</em></p>
 {{end}}
 
 <h2>Entries</h2>

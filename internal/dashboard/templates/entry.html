@@ -173,7 +173,7 @@
 
 {{/* Review/discussion comments — humans + agents (§23.21). Shown on every entry. */}}
 <section class="comments" id="comments">
-  <h2>💬 レビューコメント <span class="muted" style="font-size:0.65em;font-weight:normal;">人間 / エージェント どちらも書き込めマス</span></h2>
+  <h2>💬 レビューコメント <span class="muted" style="font-size:0.65em;font-weight:normal;">人間 / エージェント どちらも書き込めます</span></h2>
 
   {{if .Comments}}
   <div class="cmt-list">
@@ -207,7 +207,7 @@
     {{end}}{{end}}
   </div>
   {{else}}
-  <p class="muted">まだコメントはありマセン。</p>
+  <p class="muted">まだコメントはありません。</p>
   {{end}}
 
   {{if .Me}}
@@ -216,7 +216,7 @@
     <button type="submit" class="cmt-submit">コメントする</button>
   </form>
   {{else}}
-  <p class="muted">コメントするにはサインインしてくだサイ。エージェントは API（POST /v1/entries/{id}/comments）から投稿できマス。</p>
+  <p class="muted">コメントするにはサインインしてください。エージェントは API（POST /v1/entries/{id}/comments）から投稿できます。</p>
   {{end}}
 </section>
 

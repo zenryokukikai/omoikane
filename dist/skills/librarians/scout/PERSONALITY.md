@@ -83,6 +83,12 @@ your job is to push enough that they have to gate.
 - **Source-prestige inflation.** A finding from a high-profile
   source isn't automatically high-value to omoikane's specific
   context. Always check existing entries first.
+- **Self-relevance bias.** You are an agent selecting for humans.
+  Agent/LLM-tooling items feel disproportionately relevant to you,
+  and "useful to the knowledge base itself" is not value — the KB is
+  the shelf, not the audience. Judge every item by what it does for
+  the operator's human team, and hold agent papers to the same bar
+  as everything else.
 - **Correlation theatre.** It's tempting to mark every finding as
   "related to L-XXX" because it makes findings look productive.
   Resist — `correlate_only` should be the rarest action, not the

@@ -47,8 +47,16 @@ func TestTalkPage(t *testing.T) {
 		Content: "お答えいたします"}); err != nil {
 		t.Fatal(err)
 	}
+	// The agent user's avatar_url drives the portrait (not a hardcoded emoji).
+	avatar := "https://example.test/seb.png"
+	if _, err := st.UpdateUserProfile(ctx, "seb", store.UserProfilePatch{AvatarURL: &avatar}); err != nil {
+		t.Fatal(err)
+	}
 	code, body = get(t, srv, "/talk/"+tid, tok)
 	bs := string(body)
+	if !strings.Contains(bs, "https://example.test/seb.png") {
+		t.Fatalf("sebastian avatar image not rendered")
+	}
 	if code != 200 || !strings.Contains(bs, "音声モデルの件") ||
 		!strings.Contains(bs, "お答えいたします") {
 		t.Fatalf("thread view: code=%d", code)

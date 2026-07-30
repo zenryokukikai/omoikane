@@ -21,9 +21,11 @@
 
   <section class="talk-main">
     <div class="talk-head">
-      <span class="talk-avatar">🎩</span>
+      {{if and .TalkAgent .TalkAgent.AvatarURL}}
+      <img class="talk-avatar-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+      {{else}}<span class="talk-avatar">🎩</span>{{end}}
       <div>
-        <div class="talk-name">セバスチャン</div>
+        <div class="talk-name">{{if .TalkAgent}}{{.TalkAgent.Name}}{{else}}セバスチャン{{end}}</div>
         <div class="muted talk-sub">書庫の記録を検索して、根拠つきでお答えします</div>
       </div>
     </div>
@@ -32,6 +34,11 @@
       {{if .ChatThread}}
         {{range .ChatMessages}}
         <div class="talk-msg {{if eq .AuthorUserID $.Me.ID}}talk-msg-me{{else}}talk-msg-bot{{end}}">
+          {{if ne .AuthorUserID $.Me.ID}}
+            {{if and $.TalkAgent $.TalkAgent.AvatarURL}}
+            <img class="talk-avatar-sm-img" src="{{$.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+            {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
+          {{end}}
           <div class="talk-bubble">
             <div class="md">{{renderContent .Content $.Token}}</div>
             <div class="talk-time muted">{{.Timestamp.Format "15:04"}}</div>
@@ -45,7 +52,10 @@
         </div>
       {{end}}
       <div class="talk-pending" id="talk-pending" hidden>
-        <span class="talk-avatar-sm">🎩</span> <span class="talk-dots" id="talk-status">考えております…</span>
+        {{if and .TalkAgent .TalkAgent.AvatarURL}}
+        <img class="talk-avatar-sm-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+        {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
+        <span class="talk-dots" id="talk-status">考えております…</span>
       </div>
     </div>
 

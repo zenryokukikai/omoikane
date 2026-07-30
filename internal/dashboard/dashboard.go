@@ -296,6 +296,7 @@ type pageCtx struct {
 	ChatThread       *store.ChatThread
 	ChatMessages     []*store.ChatMessage
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's ask-sebastian threads
+	TalkAgent        *store.User         // /talk: the answering agent (avatar + display name)
 	ChatStatusFilter string // "OPEN" default, "CLOSED", or "" (= all). Used by chat_threads.html to render the filter UI.
 
 	// Phase A — login page
@@ -1074,6 +1075,18 @@ func (h *Handler) claimPage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 	pc := h.renderCtx(r)
 	pc.Title = "omoikane — セバスチャンに聞く"
+	// The answering agent's own profile drives the header/bubble avatar,
+	// so a re-uploaded portrait shows up here without a code change.
+	// Matched by name (the chat author_role is "chronicler", but the
+	// user is the one displayed).
+	if users, err := h.Store.ListUsers(r.Context(), "agent", 200); err == nil {
+		for _, u := range users {
+			if u.Name == "セバスチャン" {
+				pc.TalkAgent = u
+				break
+			}
+		}
+	}
 	if pc.Me == nil {
 		// The whole page is per-user; render the signed-out shell and
 		// let the template show the login prompt.

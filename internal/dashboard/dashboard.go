@@ -1295,6 +1295,9 @@ func (h *Handler) render(w http.ResponseWriter, page string, data any) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Pages carry live-update JS that evolves with deploys; no-cache
+	// makes every (re)load revalidate so stale scripts can't linger.
+	w.Header().Set("Cache-Control", "no-cache")
 	if err := tpl.ExecuteTemplate(w, "layout", data); err != nil {
 		_, _ = w.Write([]byte("<pre>template error: " + template.HTMLEscapeString(err.Error()) + "</pre>"))
 	}

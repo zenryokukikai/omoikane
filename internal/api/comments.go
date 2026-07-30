@@ -55,7 +55,8 @@ func (h *Handler) createEntryComment(w http.ResponseWriter, r *http.Request) {
 	}
 	entryID := chi.URLParam(r, "id")
 	// Reject comments on unknown entries up front (404, not a dangling row).
-	if _, err := h.Store.GetEntry(httpCtx(r), entryID); err != nil {
+	entry, err := h.Store.GetEntry(httpCtx(r), entryID)
+	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
@@ -68,9 +69,9 @@ func (h *Handler) createEntryComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeMissingFields, "body required", nil)
 		return
 	}
-	c, err := h.Store.CreateComment(httpCtx(r), entryID, tok.UserID,
+	c, cerr := h.Store.CreateComment(httpCtx(r), entryID, tok.UserID,
 		req.Body, strings.TrimSpace(req.ReplyTo), req.Mentions)
-	if err != nil {
+	if err := cerr; err != nil {
 		if err == store.ErrNotFound {
 			writeError(w, http.StatusBadRequest, CodeBadRequest, "reply_to comment not found", nil)
 			return
@@ -81,6 +82,16 @@ func (h *Handler) createEntryComment(w http.ResponseWriter, r *http.Request) {
 		}
 		writeStoreError(w, err)
 		return
+	}
+	// Push to SSE listeners (comment responders etc.) with the entry
+	// context they filter on — same shape as the recent-comments feed.
+	if h.Events != nil {
+		h.Events.Publish(Event{Type: "comment.created", Data: store.RecentComment{
+			Comment:        c,
+			EntryTitle:     entry.Title,
+			EntryType:      entry.Type,
+			EntryCreatedBy: entry.CreatedBy,
+		}})
 	}
 	writeJSON(w, http.StatusCreated, c)
 }

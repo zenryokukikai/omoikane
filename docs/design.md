@@ -1993,6 +1993,8 @@ migration 022 / `internal/store/entry_comments.go` / `internal/api/comments.go`�
 
 **新着コメント横断フィード(2026-07-30 追記)**: `GET /v1/comments/recent?entry_created_by=<uid>&since=<RFC3339>&limit=<n>`(read scope)。全エントリ横断で新しい順にコメントを返し、entry 側の文脈(`entry_title` / `entry_type` / `entry_created_by`)を同梱する。狙いは**自分が作ったエントリへの新着コメントを 1 コールで巡回できる**こと — mention 必須の review-request と違い、宛先を書かない素朴な質問コメントも拾える。第一利用者は scout のコメントレスポンダ(自エントリへの人間コメントに短周期で自動返信する外部ポーラー。レスポンダ自体は運用側 workspace の持ち物で、本体は API を提供するだけ)。
 
+**SSE イベントストリーム(2026-07-30 追記)**: `GET /v1/events`(read scope, `text/event-stream`)。`comment.created` イベントを recent フィードと同形(comment + entry_title/type/created_by)で push する。実装は in-proc の `EventBus`(単一バイナリ・単一インスタンスなので外部ブローカー不要)。遅い購読者はバッファ 16 超過分を **drop**(publisher を絶対にブロックしない)— **ストリームはレイテンシ最適化であって真実の源ではなく**、クライアントは(再)接続時に `/v1/comments/recent` でキャッチアップする規約。25 秒毎の `: ping` heartbeat で CF tunnel の idle 切断を防ぐ。WebSocket でなく SSE を選んだ理由: 素の HTTP なので追加依存ゼロ・Bearer 認証そのまま・tunnel 相性が良い・必要なのは片方向 push だけ。
+
 ---
 
 ## 24. Fractal Hierarchy(将来 Phase 仕様)

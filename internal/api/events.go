@@ -60,18 +60,22 @@ func (b *EventBus) Publish(e Event) {
 // Clients should catch up via GET /v1/comments/recent on (re)connect —
 // the stream is a latency optimisation, not the source of truth.
 func (h *Handler) streamEvents(w http.ResponseWriter, r *http.Request) {
-	fl, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, CodeInternal, "streaming unsupported", nil)
-		return
-	}
+	// ResponseController reaches Flush/deadlines through middleware
+	// wrappers (statusRecorder implements Flush+Unwrap). The server's
+	// global 30s WriteTimeout would kill a long-lived stream, so lift
+	// the write deadline for this connection only.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+	_ = rc.SetReadDeadline(time.Time{})
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, ": connected\n\n")
-	fl.Flush()
+	if err := rc.Flush(); err != nil {
+		return
+	}
 
 	events, cancel := h.Events.Subscribe()
 	defer cancel()
@@ -84,14 +88,18 @@ func (h *Handler) streamEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-heartbeat.C:
 			fmt.Fprint(w, ": ping\n\n")
-			fl.Flush()
+			if err := rc.Flush(); err != nil {
+				return
+			}
 		case e := <-events:
 			payload, err := json.Marshal(e.Data)
 			if err != nil {
 				continue
 			}
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, payload)
-			fl.Flush()
+			if err := rc.Flush(); err != nil {
+				return
+			}
 		}
 	}
 }

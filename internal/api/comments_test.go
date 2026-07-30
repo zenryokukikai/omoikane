@@ -185,3 +185,75 @@ func TestReviewRequestNotification(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// The cross-entry recent-comments feed: filter by entry author, since,
+// and default ordering newest-first. This is what a responder agent
+// polls to answer questions on its own findings.
+func TestRecentCommentsFeed(t *testing.T) {
+	base, adminTok, st := testServer(t)
+	ctx := context.Background()
+
+	if err := st.CreateProject(ctx, &store.Project{ID: "p", Name: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateUser(ctx, &store.User{ID: "bot", Name: "mac-pi-scout", Role: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	botEntry, err := st.CreateEntry(ctx, &store.Entry{ProjectID: "p", Type: "external_finding",
+		Title: "finding", Body: "B", CreatedBy: "bot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherEntry, err := st.CreateEntry(ctx, &store.Entry{ProjectID: "p", Type: "design",
+		Title: "other", Body: "B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateComment(ctx, botEntry, "admin", "question for scout", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateComment(ctx, otherEntry, "admin", "unrelated", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	get := func(path string) map[string]any {
+		req, _ := http.NewRequest("GET", base+path, nil)
+		req.Header.Set("Authorization", "Bearer "+adminTok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: got %d", path, resp.StatusCode)
+		}
+		var out map[string]any
+		json.NewDecoder(resp.Body).Decode(&out)
+		return out
+	}
+
+	// Unfiltered: both comments, newest first.
+	all := get("/v1/comments/recent")
+	if int(all["total"].(float64)) != 2 {
+		t.Fatalf("unfiltered total = %v, want 2", all["total"])
+	}
+
+	// Filtered to the bot's entries: only the question, with entry context.
+	mine := get("/v1/comments/recent?entry_created_by=bot")
+	if int(mine["total"].(float64)) != 1 {
+		t.Fatalf("entry_created_by total = %v, want 1", mine["total"])
+	}
+	rc := mine["comments"].([]any)[0].(map[string]any)
+	if rc["entry_created_by"] != "bot" || rc["entry_title"] != "finding" {
+		t.Fatalf("entry context wrong: %v", rc)
+	}
+	if rc["comment"].(map[string]any)["body"] != "question for scout" {
+		t.Fatalf("comment body wrong: %v", rc)
+	}
+
+	// since in the future → empty.
+	future := get("/v1/comments/recent?entry_created_by=bot&since=2999-01-01T00:00:00Z")
+	if int(future["total"].(float64)) != 0 {
+		t.Fatalf("future since total = %v, want 0", future["total"])
+	}
+}

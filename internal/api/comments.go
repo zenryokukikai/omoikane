@@ -167,6 +167,30 @@ func (h *Handler) deleteComment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": cid, "deleted": true})
 }
 
+// GET /v1/comments/recent — newest comments across ALL entries, optionally
+// filtered by ?entry_created_by=<uid> and ?since=<RFC3339>. One call lets a
+// responder agent (e.g. scout answering questions on its own findings) see
+// every fresh comment on its entries without walking them (§23.21).
+func (h *Handler) listRecentComments(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = n
+		}
+	}
+	out, err := h.Store.ListRecentComments(httpCtx(r),
+		strings.TrimSpace(r.URL.Query().Get("entry_created_by")),
+		strings.TrimSpace(r.URL.Query().Get("since")), limit)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"comments": out,
+		"total":    len(out),
+	})
+}
+
 // GET /v1/me/review-requests — the open comments that @mention the caller
 // (by user id or librarian role) and that they didn't write. This is the
 // pull side of the X-Review-Requests header notification (§23.21).

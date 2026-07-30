@@ -192,6 +192,66 @@ func (s *Store) DeleteComment(ctx context.Context, id string) error {
 	return nil
 }
 
+// RecentComment is one comment joined with the minimal entry context a
+// responder agent needs to decide "is this addressed to my entry, and
+// have I answered it yet?" without a per-entry round-trip.
+type RecentComment struct {
+	Comment        *EntryComment `json:"comment"`
+	EntryTitle     string        `json:"entry_title"`
+	EntryType      string        `json:"entry_type"`
+	EntryCreatedBy string        `json:"entry_created_by"`
+}
+
+// ListRecentComments returns comments newest-first across ALL entries,
+// optionally filtered to entries created by entryCreatedBy and/or to
+// comments strictly after `since` (RFC3339 or SQLite datetime). This is
+// the cross-entry feed that lets an agent poll "new comments on my
+// entries" with one call instead of walking every entry it authored.
+func (s *Store) ListRecentComments(ctx context.Context, entryCreatedBy, since string, limit int) ([]*RecentComment, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	q := commentSelect + `
+	  JOIN entries e ON e.id = c.entry_id`
+	where := []string{}
+	args := []any{}
+	if entryCreatedBy != "" {
+		where = append(where, "e.created_by = ?")
+		args = append(args, entryCreatedBy)
+	}
+	if since != "" {
+		where = append(where, "c.created_at > ?")
+		args = append(args, since)
+	}
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	q += " ORDER BY c.created_at DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*RecentComment
+	for rows.Next() {
+		c, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &RecentComment{Comment: c})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, rc := range out {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT title, type, COALESCE(created_by,'') FROM entries WHERE id = ?`,
+			rc.Comment.EntryID).Scan(&rc.EntryTitle, &rc.EntryType, &rc.EntryCreatedBy)
+	}
+	return out, nil
+}
+
 // reviewRequestWhere matches unresolved comments that @mention the user
 // (by id or by their librarian role) and were written by someone else.
 // The two bound params are both userID; the role is resolved inline.

@@ -576,4 +576,73 @@ a.attachment-file:hover { background: var(--hover); }
 }
 .cmt-submit:hover { background: var(--accent-strong); }
 .cmt-reply-form { margin: 0.5rem 0 0 1.25rem; }
+
+/* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
+.talk-layout { display: flex; gap: 1rem; min-height: 70vh; }
+.talk-side { flex: 0 0 220px; display: flex; flex-direction: column; gap: 0.5rem; }
+.talk-new {
+  display: block; text-align: center; padding: 0.45rem 0.6rem; border-radius: 6px;
+  border: 1px dashed var(--border); color: var(--accent); text-decoration: none;
+  font-size: 0.9rem;
+}
+.talk-new:hover, .talk-new.talk-active { border-style: solid; background: var(--bg-soft); }
+.talk-threads { display: flex; flex-direction: column; gap: 0.15rem; overflow-y: auto; }
+.talk-thread {
+  display: flex; flex-direction: column; padding: 0.4rem 0.6rem; border-radius: 6px;
+  text-decoration: none; color: inherit;
+}
+.talk-thread:hover { background: var(--bg-soft); }
+.talk-thread.talk-active { background: var(--bg-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.talk-thread-title {
+  font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.talk-thread-date { font-size: 0.7rem; }
+.talk-empty { font-size: 0.8rem; padding: 0.4rem 0.6rem; }
+.talk-main {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.talk-head {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.talk-avatar { font-size: 1.6rem; }
+.talk-avatar-sm { font-size: 1rem; }
+.talk-name { font-weight: 600; }
+.talk-sub { font-size: 0.75rem; }
+.talk-messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.talk-msg { display: flex; }
+.talk-msg-me { justify-content: flex-end; }
+.talk-msg-bot { justify-content: flex-start; }
+.talk-bubble {
+  max-width: 78%; padding: 0.5rem 0.8rem; border-radius: 12px; font-size: 0.92rem;
+  border: 1px solid var(--border); overflow-wrap: anywhere;
+}
+.talk-msg-me .talk-bubble { background: var(--accent); color: #fff; border-color: var(--accent); }
+.talk-msg-me .talk-bubble a { color: #eaf2ff; }
+.talk-msg-me .talk-time { color: rgba(255,255,255,0.75); }
+.talk-msg-bot .talk-bubble { background: var(--bg-soft); }
+.talk-bubble .md p:first-child { margin-top: 0; }
+.talk-bubble .md p:last-child { margin-bottom: 0; }
+.talk-time { font-size: 0.68rem; text-align: right; margin-top: 0.2rem; }
+.talk-greeting { margin: auto; text-align: center; max-width: 34rem; }
+.talk-pending { padding: 0.3rem 0.4rem; font-size: 0.85rem; color: var(--muted); }
+.talk-dots::after { content: ""; animation: talkdots 1.5s steps(4) infinite; }
+@keyframes talkdots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+.talk-compose {
+  display: flex; gap: 0.5rem; padding: 0.7rem; border-top: 1px solid var(--border);
+}
+.talk-compose textarea {
+  flex: 1; resize: none; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.5rem 0.7rem; font: inherit; background: var(--bg); color: inherit;
+}
+.talk-send {
+  align-self: flex-end; background: var(--accent); color: #fff; border: none;
+  border-radius: 8px; padding: 0.5rem 1.1rem; cursor: pointer; font-size: 0.9rem;
+}
+.talk-send:hover { background: var(--accent-strong); }
+@media (max-width: 720px) {
+  .talk-layout { flex-direction: column; }
+  .talk-side { flex: none; }
+}
 `

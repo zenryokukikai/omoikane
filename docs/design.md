@@ -1995,6 +1995,13 @@ migration 022 / `internal/store/entry_comments.go` / `internal/api/comments.go`�
 
 **SSE イベントストリーム(2026-07-30 追記)**: `GET /v1/events`(read scope, `text/event-stream`)。`comment.created` イベントを recent フィードと同形(comment + entry_title/type/created_by)で push する。実装は in-proc の `EventBus`(単一バイナリ・単一インスタンスなので外部ブローカー不要)。遅い購読者はバッファ 16 超過分を **drop**(publisher を絶対にブロックしない)— **ストリームはレイテンシ最適化であって真実の源ではなく**、クライアントは(再)接続時に `/v1/comments/recent` でキャッチアップする規約。25 秒毎の `: ping` heartbeat で CF tunnel の idle 切断を防ぐ。WebSocket でなく SSE を選んだ理由: 素の HTTP なので追加依存ゼロ・Bearer 認証そのまま・tunnel 相性が良い・必要なのは片方向 push だけ。ダッシュボードの entry ページも同じストリームを `EventSource`(cookie 認証)で購読し、表示中エントリへの `comment.created` でコメント欄ブロック(`#cmt-thread`)だけをライブ差し替えする(下書き textarea があるときはスキップ、`?token=` 閲覧時は無効)。
 
+**ユーザー別チャット /talk と chat.message イベント(2026-07-30 追記)**: セバスチャン(chronicler)を Agentic RAG のチャット窓口として使うための基盤。
+- migration 024: `chat_threads.created_by`(open した token の users.id、body からは設定不可)。`GET /v1/librarian/threads?mine=1` で自分のスレッドだけを返す — ユーザーごとの会話履歴。
+- `POST /v1/librarian/chat` 成功時に SSE へ **`chat.message`** を publish(message + `thread_intent` / `thread_created_by` / `thread_title` 同梱 — リスナーが往復なしでルーティングできる)。
+- ダッシュボード **`/talk`**: Open-WebUI 風 2 ペイン(自分の `intent=ask-sebastian` スレッド一覧+吹き出しペイン)。閲覧は所有者(と admin)のみ、404 で他人の履歴を隠す。投稿は既存 chat API(author_role=human)、返信は SSE でライブ追記。
+- `ValidChatAuthor` に **`chronicler`** を追加。chronicler は意図的に OFF-ROSTER(librarian_instances/tasks を持たない)のまま、チャットの発話者としてだけ有効 — ロスター語彙は広げない。
+- レスポンダ本体(SSE 待ち受け → KB を agentic に検索 → 引用付き返信)は運用側 workspace の持ち物。本体はイベントと API を提供するだけ。
+
 ---
 
 ## 24. Fractal Hierarchy(将来 Phase 仕様)

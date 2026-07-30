@@ -86,7 +86,7 @@ func TestChatThreadsAndMessages(t *testing.T) {
 		t.Fatalf("list-messages: %+v err=%v", msgs, err)
 	}
 
-	threads, err := s.ListThreads(ctx, "OPEN", 10)
+	threads, err := s.ListThreads(ctx, "OPEN", "", 10)
 	if err != nil || len(threads) != 1 {
 		t.Fatalf("threads-open: %+v err=%v", threads, err)
 	}
@@ -98,7 +98,7 @@ func TestChatThreadsAndMessages(t *testing.T) {
 		t.Fatalf("close-missing: %v", err)
 	}
 
-	threads, err = s.ListThreads(ctx, "CLOSED", 10)
+	threads, err = s.ListThreads(ctx, "CLOSED", "", 10)
 	if err != nil || len(threads) != 1 || threads[0].ClosedAt == nil {
 		t.Fatalf("threads-closed: %+v err=%v", threads, err)
 	}

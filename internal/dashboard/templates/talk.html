@@ -1,0 +1,126 @@
+{{define "content"}}
+{{if not .Me}}
+<h1>🎩 セバスチャンに聞く</h1>
+<p class="muted">ナレッジベースを横断検索して答える執事エージェントとの対話ページです。会話履歴はアカウントごとに保存されます。</p>
+<p><a class="btn" href="/login">サインインして始める</a></p>
+{{else}}
+<div class="talk-layout">
+  <aside class="talk-side">
+    <a class="talk-new{{if not .ChatThread}} talk-active{{end}}" href="/talk">＋ 新しい会話</a>
+    <div class="talk-threads">
+      {{range .TalkThreads}}
+      <a class="talk-thread{{if and $.ChatThread (eq $.ChatThread.ThreadID .ThreadID)}} talk-active{{end}}" href="/talk/{{.ThreadID}}">
+        <span class="talk-thread-title">{{if .Title}}{{.Title}}{{else}}(untitled){{end}}</span>
+        <span class="talk-thread-date muted">{{.OpenedAt.Format "01-02 15:04"}}</span>
+      </a>
+      {{else}}
+      <p class="muted talk-empty">まだ会話がありません。</p>
+      {{end}}
+    </div>
+  </aside>
+
+  <section class="talk-main">
+    <div class="talk-head">
+      <span class="talk-avatar">🎩</span>
+      <div>
+        <div class="talk-name">セバスチャン</div>
+        <div class="muted talk-sub">書庫の記録を検索して、根拠つきでお答えします</div>
+      </div>
+    </div>
+
+    <div class="talk-messages" id="talk-messages">
+      {{if .ChatThread}}
+        {{range .ChatMessages}}
+        <div class="talk-msg {{if eq .AuthorUserID $.Me.ID}}talk-msg-me{{else}}talk-msg-bot{{end}}">
+          <div class="talk-bubble">
+            <div class="md">{{renderContent .Content $.Token}}</div>
+            <div class="talk-time muted">{{.Timestamp.Format "15:04"}}</div>
+          </div>
+        </div>
+        {{end}}
+      {{else}}
+        <div class="talk-greeting">
+          <p>ご用の際は、下の欄からお申し付けください。</p>
+          <p class="muted">例:「今週の scout の見つけた音声系のネタをまとめて」「MCP のステートレス接続の件、どのエントリに書いてある?」</p>
+        </div>
+      {{end}}
+      <div class="talk-pending" id="talk-pending" hidden>
+        <span class="talk-avatar-sm">🎩</span> <span class="talk-dots">考えております…</span>
+      </div>
+    </div>
+
+    <form class="talk-compose" onsubmit="return talkSend(event)">
+      <textarea id="talk-input" rows="2" placeholder="セバスチャンへの質問…(Enter で送信 / Shift+Enter で改行)"></textarea>
+      <button type="submit" class="talk-send">送信</button>
+    </form>
+  </section>
+</div>
+
+<script>
+const TALK_THREAD = "{{with .ChatThread}}{{.ThreadID}}{{end}}";
+const TALK_ME = "{{.Me.ID}}";
+const talkBox = document.getElementById('talk-messages');
+function talkScroll(){ talkBox.scrollTop = talkBox.scrollHeight; }
+talkScroll();
+
+async function talkAPI(path, body){
+  const r = await fetch(path, {method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if(!r.ok){ alert('送信に失敗しました: '+r.status); throw new Error(r.status); }
+  return r.json();
+}
+
+async function talkRefresh(){
+  const r = await fetch(location.href, {credentials:'same-origin'});
+  if(!r.ok) return;
+  const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+  const fresh = doc.getElementById('talk-messages');
+  if(fresh){
+    const pendingShown = !document.getElementById('talk-pending').hidden;
+    talkBox.innerHTML = fresh.innerHTML;
+    if(pendingShown) document.getElementById('talk-pending').hidden = false;
+    talkScroll();
+  }
+}
+
+async function talkSend(e){
+  e.preventDefault();
+  const t = document.getElementById('talk-input');
+  const v = t.value.trim();
+  if(!v) return false;
+  t.value = '';
+  let tid = TALK_THREAD;
+  if(!tid){
+    const d = await talkAPI('/v1/librarian/threads',
+      {title: v.slice(0, 48), intent: 'ask-sebastian'});
+    tid = d.thread_id;
+  }
+  await talkAPI('/v1/librarian/chat',
+    {thread_id: tid, author_role: 'human', content: v});
+  if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
+  document.getElementById('talk-pending').hidden = false;
+  await talkRefresh();
+  return false;
+}
+
+// Enter sends; Shift+Enter inserts a newline.
+document.getElementById('talk-input').addEventListener('keydown', (ev) => {
+  if(ev.key === 'Enter' && !ev.shiftKey){ ev.preventDefault(); ev.target.closest('form').requestSubmit(); }
+});
+
+// Live updates: Sebastian's reply (or any message on this thread)
+// arrives over the SSE stream → swap the message block.
+if (window.EventSource && TALK_THREAD) {
+  const es = new EventSource('/v1/events');
+  es.addEventListener('chat.message', async (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.thread_id !== TALK_THREAD) return;
+      if (d.author_user_id !== TALK_ME) document.getElementById('talk-pending').hidden = true;
+      await talkRefresh();
+    } catch (_) {}
+  });
+}
+</script>
+{{end}}
+{{end}}

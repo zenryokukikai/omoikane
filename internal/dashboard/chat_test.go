@@ -132,7 +132,7 @@ func TestChatNewThreadForm(t *testing.T) {
 		t.Fatalf("redirect: %s", resp.Header.Get("Location"))
 	}
 	// Verify the thread now exists
-	threads, _ := s.ListThreads(context.Background(), "", 10)
+	threads, _ := s.ListThreads(context.Background(), "", "", 10)
 	found := false
 	for _, x := range threads {
 		if x.Title == "form-thread" {
@@ -252,7 +252,7 @@ func TestChatCloseForm(t *testing.T) {
 	if resp.StatusCode != 303 {
 		t.Fatalf("close: %d", resp.StatusCode)
 	}
-	threads, _ := s.ListThreads(context.Background(), "CLOSED", 10)
+	threads, _ := s.ListThreads(context.Background(), "CLOSED", "", 10)
 	if len(threads) != 1 || threads[0].Summary != "all sorted" {
 		t.Fatalf("threads: %+v", threads)
 	}

@@ -111,7 +111,12 @@ var ValidLibrarianRoles = map[string]bool{
 // shared chat. Phase 5 ships this so the dashboard chat room is
 // actually two-way.
 func ValidChatAuthor(r string) bool {
-	if r == "human" {
+	// Humans and every rostered librarian may speak; "chronicler" is the
+	// deliberately OFF-ROSTER community agent (Sebastian) — it never
+	// holds librarian_instances/tasks, but it does answer in chat
+	// (/talk), so it is a valid chat author without widening the
+	// librarian-role vocabulary.
+	if r == "human" || r == "chronicler" {
 		return true
 	}
 	return ValidLibrarianRole(r)
@@ -253,6 +258,10 @@ type ChatThread struct {
 	Summary        string     `json:"summary,omitempty"`
 	RelatedEntries string     `json:"related_entries,omitempty"`
 	Metadata       string     `json:"metadata,omitempty"`
+	// CreatedBy is the users.id that opened the thread (auth-context
+	// authority, like ChatMessage.AuthorUserID). Empty for legacy
+	// librarian threads (pre-migration 024).
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 type ChatMessage struct {
@@ -284,14 +293,39 @@ func (s *Store) OpenThread(ctx context.Context, t *ChatThread) (string, error) {
 		t.Status = "OPEN"
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO chat_threads(thread_id, title, intent, status, summary, related_entries, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO chat_threads(thread_id, title, intent, status, summary, related_entries, metadata, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ThreadID, nullable(t.Title), nullable(t.Intent), t.Status,
-		nullable(t.Summary), nullable(t.RelatedEntries), nullable(t.Metadata))
+		nullable(t.Summary), nullable(t.RelatedEntries), nullable(t.Metadata),
+		nullable(t.CreatedBy))
 	if err != nil {
 		return "", translateErr(err)
 	}
 	return t.ThreadID, nil
+}
+
+// GetThread fetches one thread by id.
+func (s *Store) GetThread(ctx context.Context, threadID string) (*ChatThread, error) {
+	var t ChatThread
+	var closed nullTimeBox
+	err := s.db.QueryRowContext(ctx, `
+		SELECT thread_id, COALESCE(title,''), COALESCE(intent,''), status,
+		       opened_at, closed_at, COALESCE(summary,''), COALESCE(related_entries,''),
+		       COALESCE(metadata,''), COALESCE(created_by,'')
+		  FROM chat_threads WHERE thread_id = ?`, threadID).
+		Scan(&t.ThreadID, &t.Title, &t.Intent, &t.Status, &t.OpenedAt, &closed,
+			&t.Summary, &t.RelatedEntries, &t.Metadata, &t.CreatedBy)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if closed.Valid {
+		x := closed.Time
+		t.ClosedAt = &x
+	}
+	return &t, nil
 }
 
 func (s *Store) CloseThread(ctx context.Context, threadID, summary string) error {
@@ -309,7 +343,7 @@ func (s *Store) CloseThread(ctx context.Context, threadID, summary string) error
 	return nil
 }
 
-func (s *Store) ListThreads(ctx context.Context, status string, limit int) ([]*ChatThread, error) {
+func (s *Store) ListThreads(ctx context.Context, status, createdBy string, limit int) ([]*ChatThread, error) {
 	// Clamp explicitly: cap at the upper bound rather than
 	// silently dropping to the default on overflow.
 	if limit <= 0 {
@@ -323,11 +357,15 @@ func (s *Store) ListThreads(ctx context.Context, status string, limit int) ([]*C
 	)
 	sb.WriteString(`SELECT thread_id, COALESCE(title,''), COALESCE(intent,''), status,
 		opened_at, closed_at, COALESCE(summary,''), COALESCE(related_entries,''),
-		COALESCE(metadata,'')
+		COALESCE(metadata,''), COALESCE(created_by,'')
 		FROM chat_threads WHERE 1=1`)
 	if status != "" {
 		sb.WriteString(` AND status = ?`)
 		args = append(args, status)
+	}
+	if createdBy != "" {
+		sb.WriteString(` AND created_by = ?`)
+		args = append(args, createdBy)
 	}
 	sb.WriteString(` ORDER BY opened_at DESC LIMIT ?`)
 	args = append(args, limit)
@@ -338,7 +376,8 @@ func (s *Store) ListThreads(ctx context.Context, status string, limit int) ([]*C
 	values, err := mapRows[ChatThread](rows, func(c rowScanner, t *ChatThread) error {
 		var closed nullTimeBox
 		if err := c.Scan(&t.ThreadID, &t.Title, &t.Intent, &t.Status,
-			&t.OpenedAt, &closed, &t.Summary, &t.RelatedEntries, &t.Metadata); err != nil {
+			&t.OpenedAt, &closed, &t.Summary, &t.RelatedEntries, &t.Metadata,
+			&t.CreatedBy); err != nil {
 			return err
 		}
 		if closed.Valid {

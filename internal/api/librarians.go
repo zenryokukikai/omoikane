@@ -331,10 +331,16 @@ func (h *Handler) chatOpenThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
 		return
 	}
+	// Ownership from the auth context, never the body (same authority
+	// rule as ChatMessage.AuthorUserID).
+	var createdBy string
+	if tok := auth.FromContext(r.Context()); tok != nil {
+		createdBy = tok.UserID
+	}
 	id, err := h.Store.OpenThread(httpCtx(r), &store.ChatThread{
 		ThreadID: req.ThreadID, Title: req.Title, Intent: req.Intent,
 		Summary: req.Summary, RelatedEntries: req.RelatedEntries,
-		Metadata: req.Metadata,
+		Metadata: req.Metadata, CreatedBy: createdBy,
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -369,7 +375,15 @@ func (h *Handler) chatCloseThread(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) chatListThreads(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	list, err := h.Store.ListThreads(httpCtx(r), status, limit)
+	// ?mine=1 narrows to threads the caller opened (per-user chat
+	// history). Ownership comes from the token, not a parameter.
+	createdBy := ""
+	if r.URL.Query().Get("mine") == "1" {
+		if tok := auth.FromContext(r.Context()); tok != nil {
+			createdBy = tok.UserID
+		}
+	}
+	list, err := h.Store.ListThreads(httpCtx(r), status, createdBy, limit)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -419,6 +433,21 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	// Push to SSE listeners (chat responders, live frontends). Thread
+	// context rides along so listeners can route without a round-trip.
+	if h.Events != nil && req.ThreadID != "" {
+		ev := map[string]any{
+			"id": id, "thread_id": req.ThreadID,
+			"author_user_id": authorUserID, "author_role": req.AuthorRole,
+			"content": req.Content, "intent": req.Intent,
+		}
+		if th, terr := h.Store.GetThread(httpCtx(r), req.ThreadID); terr == nil {
+			ev["thread_intent"] = th.Intent
+			ev["thread_created_by"] = th.CreatedBy
+			ev["thread_title"] = th.Title
+		}
+		h.Events.Publish(Event{Type: "chat.message", Data: ev})
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }

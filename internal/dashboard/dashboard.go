@@ -129,7 +129,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	for _, name := range []string{"home", "journal", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index", "lookup", "use_case", "entries",
-		"chat_threads", "chat_thread", "login", "claim", "agents", "profile",
+		"chat_threads", "chat_thread", "talk", "login", "claim", "agents", "profile",
 		"members", "member_claim"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
@@ -206,6 +206,8 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/use_cases/{ref}", h.useCasePage)
 		r.Get("/chat", h.chatThreadsPage)
 		r.Get("/chat/{id}", h.chatThreadPage)
+		r.Get("/talk", h.talkPage)
+		r.Get("/talk/{id}", h.talkPage)
 		r.Get("/agents", h.agentsPage)
 		r.Get("/u/{id}", h.profilePage)
 		r.Get("/members", h.membersPage)
@@ -293,6 +295,7 @@ type pageCtx struct {
 	ChatThreads      []*store.ChatThread
 	ChatThread       *store.ChatThread
 	ChatMessages     []*store.ChatMessage
+	TalkThreads      []*store.ChatThread // /talk: the signed-in user's ask-sebastian threads
 	ChatStatusFilter string // "OPEN" default, "CLOSED", or "" (= all). Used by chat_threads.html to render the filter UI.
 
 	// Phase A — login page
@@ -1064,6 +1067,52 @@ func (h *Handler) claimPage(w http.ResponseWriter, r *http.Request) {
 // Phase 5 — librarian chat room (read + write from the dashboard)
 // ----------------------------------------------------------------------
 
+// talkPage is the per-user "セバスチャンに聞く" chat: an Open-WebUI-style
+// two-pane page over the existing chat_threads/librarian_chat machinery.
+// Threads are the signed-in user's own (created_by) with intent
+// "ask-sebastian"; the Sebastian responder answers via the same chat API.
+func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — セバスチャンに聞く"
+	if pc.Me == nil {
+		// The whole page is per-user; render the signed-out shell and
+		// let the template show the login prompt.
+		h.render(w, "talk", pc)
+		return
+	}
+	all, err := h.Store.ListThreads(r.Context(), "", pc.Me.ID, 200)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	for _, t := range all {
+		if t.Intent == "ask-sebastian" {
+			pc.TalkThreads = append(pc.TalkThreads, t)
+		}
+	}
+	if id := chi.URLParam(r, "id"); id != "" {
+		th, err := h.Store.GetThread(r.Context(), id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		// Private history: only the owner (or an admin) may read it.
+		if th.CreatedBy != pc.Me.ID && pc.Me.Role != "admin" {
+			http.NotFound(w, r)
+			return
+		}
+		msgs, err := h.Store.ListChatMessages(r.Context(), id, 500)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		pc.ChatThread = th
+		pc.ChatMessages = msgs
+		pc.Title = "omoikane — " + firstNonEmpty(th.Title, "セバスチャンに聞く")
+	}
+	h.render(w, "talk", pc)
+}
+
 func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {
 	// Default view hides closed / archived threads — they're typically
 	// post-mortem state (the live phase has ended). To browse the
@@ -1080,7 +1129,7 @@ func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {
 	if status == "all" {
 		status = "" // store treats empty as no filter
 	}
-	threads, err := h.Store.ListThreads(r.Context(), status, 100)
+	threads, err := h.Store.ListThreads(r.Context(), status, "", 100)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -1094,7 +1143,7 @@ func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) chatThreadPage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	threads, _ := h.Store.ListThreads(r.Context(), "", 500)
+	threads, _ := h.Store.ListThreads(r.Context(), "", "", 500)
 	var thread *store.ChatThread
 	for _, t := range threads {
 		if t.ThreadID == id {

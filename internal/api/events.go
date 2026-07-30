@@ -54,6 +54,29 @@ func (b *EventBus) Publish(e Event) {
 	}
 }
 
+// POST /v1/events/broadcast — publish an EPHEMERAL event to SSE
+// listeners (no persistence, no fan-in to storage). This is how an
+// external responder daemon shows live progress ("searching …") in the
+// frontend while a slow agentic job runs. Only whitelisted types are
+// accepted so the stream stays a typed contract, not a free-for-all.
+func (h *Handler) broadcastEvent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
+		return
+	}
+	if req.Type != "chat.status" {
+		writeError(w, http.StatusBadRequest, CodeBadRequest,
+			"unsupported event type (allowed: chat.status)", nil)
+		return
+	}
+	h.Events.Publish(Event{Type: req.Type, Data: req.Data})
+	writeJSON(w, http.StatusAccepted, map[string]any{"published": true})
+}
+
 // GET /v1/events — Server-Sent Events stream of comment.created (and
 // future) events for authenticated readers. Heartbeat comments every
 // 25s keep proxies (Cloudflare tunnel) from idling the connection out.

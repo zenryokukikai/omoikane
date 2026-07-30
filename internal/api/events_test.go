@@ -195,3 +195,68 @@ func TestChatOwnershipAndStream(t *testing.T) {
 		t.Fatal("no chat.message event within 8s")
 	}
 }
+
+// POST /v1/events/broadcast publishes an ephemeral chat.status to SSE
+// listeners; unknown types are rejected.
+func TestBroadcastEvent(t *testing.T) {
+	base, adminTok, _ := testServer(t)
+
+	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sreq, _ := http.NewRequestWithContext(sctx, "GET", base+"/v1/events", nil)
+	sreq.Header.Set("Authorization", "Bearer "+adminTok)
+	sresp, err := http.DefaultClient.Do(sreq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sresp.Body.Close()
+	events := make(chan map[string]any, 1)
+	go func() {
+		sc := bufio.NewScanner(sresp.Body)
+		var hit bool
+		for sc.Scan() {
+			line := sc.Text()
+			if line == "event: chat.status" {
+				hit = true
+				continue
+			}
+			if hit && strings.HasPrefix(line, "data: ") {
+				var d map[string]any
+				if json.Unmarshal([]byte(line[len("data: "):]), &d) == nil {
+					events <- d
+				}
+				return
+			}
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	post := func(body map[string]any) int {
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest("POST", base+"/v1/events/broadcast", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+adminTok)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := post(map[string]any{"type": "entry.deleted", "data": map[string]any{}}); code != http.StatusBadRequest {
+		t.Fatalf("unknown type: got %d want 400", code)
+	}
+	if code := post(map[string]any{"type": "chat.status",
+		"data": map[string]any{"thread_id": "th1", "text": "🔎 検索中…"}}); code != http.StatusAccepted {
+		t.Fatalf("chat.status: got %d want 202", code)
+	}
+	select {
+	case d := <-events:
+		if d["thread_id"] != "th1" || d["text"] != "🔎 検索中…" {
+			t.Fatalf("payload wrong: %v", d)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("no chat.status event within 8s")
+	}
+}

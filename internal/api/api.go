@@ -21,6 +21,7 @@ import (
 
 type Handler struct {
 	Store       *store.Store
+	Events      *EventBus // SSE fan-out; nil-safe via EnsureEvents
 	Enricher    enrich.Enricher
 	SecretsMode config.SecretsMode
 	PiiMode     config.SecretsMode
@@ -53,6 +54,9 @@ type Handler struct {
 func (h *Handler) Mount(r chi.Router) {
 	if h.Logger == nil {
 		h.Logger = slog.Default()
+	}
+	if h.Events == nil {
+		h.Events = NewEventBus()
 	}
 	authMW := &auth.Middleware{S: h.Store}
 
@@ -118,6 +122,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("write")).Post("/entries/{id}/index", h.putEntryIndex)
 
 			// Entry comments — review/discussion threads, humans + agents (§23.21).
+			r.With(auth.RequireScope("read")).Get("/events", h.streamEvents)
 			r.With(auth.RequireScope("read")).Get("/comments/recent", h.listRecentComments)
 			r.With(auth.RequireScope("read")).Get("/entries/{id}/comments", h.listEntryComments)
 			r.With(auth.RequireScope("write")).Post("/entries/{id}/comments", h.createEntryComment)

@@ -578,7 +578,12 @@ a.attachment-file:hover { background: var(--hover); }
 .cmt-reply-form { margin: 0.5rem 0 0 1.25rem; }
 
 /* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
-.talk-layout { display: flex; gap: 1rem; min-height: 70vh; }
+/* The chat page escapes the 880px article column and follows the
+   viewport: full-width fluid layout, tall message pane. Bubbles keep
+   a readable line length via their own cap. (:has-less browsers just
+   keep the narrow column — harmless.) */
+main:has(.talk-layout) { max-width: none; }
+.talk-layout { display: flex; gap: 1rem; height: calc(100vh - 8.5rem); min-height: 60vh; }
 .talk-side { flex: 0 0 220px; display: flex; flex-direction: column; gap: 0.5rem; }
 .talk-new {
   display: block; text-align: center; padding: 0.45rem 0.6rem; border-radius: 6px;
@@ -615,7 +620,7 @@ a.attachment-file:hover { background: var(--hover); }
 .talk-msg-me { justify-content: flex-end; }
 .talk-msg-bot { justify-content: flex-start; }
 .talk-bubble {
-  max-width: 78%; padding: 0.5rem 0.8rem; border-radius: 12px; font-size: 0.92rem;
+  max-width: min(78%, 56rem); padding: 0.5rem 0.8rem; border-radius: 12px; font-size: 0.92rem;
   border: 1px solid var(--border); overflow-wrap: anywhere;
 }
 .talk-msg-me .talk-bubble { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -642,7 +647,8 @@ a.attachment-file:hover { background: var(--hover); }
 }
 .talk-send:hover { background: var(--accent-strong); }
 @media (max-width: 720px) {
-  .talk-layout { flex-direction: column; }
+  .talk-layout { flex-direction: column; height: auto; }
   .talk-side { flex: none; }
+  .talk-main { min-height: 70vh; }
 }
 `

@@ -483,3 +483,57 @@ func jsonBody(t *testing.T, raw []byte) map[string]any {
 
 // _ keeps unused helpers around for future tests.
 var _ = jsonBody
+
+// SSE must survive the FULL middleware stack (AccessLog/Audit wrap the
+// ResponseWriter; the api-layer test alone misses that) — regression for
+// the production-only 500 "streaming unsupported".
+func TestBuildRouterSSEThroughMiddleware(t *testing.T) {
+	setupEnv(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(context.Background(), cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h, err := BuildRouter(st, cfg, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ctx := context.Background()
+	if err := st.CreateUser(ctx, &store.User{ID: "sse", Name: "sse", Role: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := st.CreateToken(ctx, "sse", "sse", []string{"read"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(rctx, "GET", srv.URL+"/v1/events", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("SSE through middleware: status=%d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type=%q", ct)
+	}
+	// The ": connected" preamble arriving proves Flush reaches the socket.
+	buf := make([]byte, 32)
+	n, err := resp.Body.Read(buf)
+	if err != nil || !strings.Contains(string(buf[:n]), ": connected") {
+		t.Fatalf("first read n=%d err=%v buf=%q", n, err, string(buf[:n]))
+	}
+}

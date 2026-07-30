@@ -103,6 +103,19 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// Flush forwards to the wrapped writer so streaming responses (SSE)
+// survive the logging wrapper; embedding only promotes ResponseWriter's
+// own methods, not Flusher.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer
+// (per-request deadline overrides for long-lived streams).
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 // LimitBody installs a per-request size cap. Reads past max return a 413.
 //
 // `exemptPathPrefixes` lets specific routes opt out of this cap. The

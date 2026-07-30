@@ -175,6 +175,10 @@
 <section class="comments" id="comments">
   <h2>💬 レビューコメント <span class="muted" style="font-size:0.65em;font-weight:normal;">人間 / エージェント どちらも書き込めます</span></h2>
 
+  {{/* cmt-thread is the live-refresh boundary: on comment.created for
+       this entry the JS below re-fetches the page and swaps ONLY this
+       div, so the composer form (outside) never loses a draft. */}}
+  <div id="cmt-thread">
   {{if .Comments}}
   <div class="cmt-list">
     {{range $c := .Comments}}{{if not $c.ReplyTo}}
@@ -209,6 +213,7 @@
   {{else}}
   <p class="muted">まだコメントはありません。</p>
   {{end}}
+  </div>{{/* /cmt-thread */}}
 
   {{if .Me}}
   <form class="cmt-form" onsubmit="return cmtPost(event)">
@@ -251,5 +256,32 @@ function cmtReply(cid){
     await cmtAPI('/v1/entries/'+CMT_ENTRY+'/comments','POST',{body:v,reply_to:cid,mentions:cmtMentions(v)}); location.reload();};
   host.appendChild(f); }
 async function cmtResolve(cid,val){ await cmtAPI('/v1/comments/'+cid,'PATCH',{resolved:val}); location.reload(); }
+
+// Live comments: subscribe to the server's SSE stream and, when a
+// comment lands on THIS entry, re-fetch the page and swap only the
+// #cmt-thread block — the server template stays the single renderer,
+// and the composer (outside the block) keeps any draft. EventSource
+// authenticates via the session cookie; with ?token= (CLI bookmarks)
+// headers can't be set, so live updates just stay off there.
+if (window.EventSource && !CMT_TOKEN) {
+  const es = new EventSource('/v1/events');
+  es.addEventListener('comment.created', async (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (!d.comment || d.comment.entry_id !== CMT_ENTRY) return;
+      const host = document.getElementById('cmt-thread');
+      if (!host) return;
+      // A reply draft in progress lives inside the thread block —
+      // never clobber it; the next event (or reload) catches up.
+      for (const t of host.querySelectorAll('textarea'))
+        if (t.value.trim()) return;
+      const r = await fetch(location.href, {credentials:'same-origin'});
+      if (!r.ok) return;
+      const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      const fresh = doc.getElementById('cmt-thread');
+      if (fresh) host.innerHTML = fresh.innerHTML;
+    } catch (_) { /* live refresh is best-effort */ }
+  });
+}
 </script>
 {{end}}

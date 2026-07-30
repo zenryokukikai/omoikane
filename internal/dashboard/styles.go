@@ -613,10 +613,20 @@ main:has(.talk-layout) { max-width: none; }
 }
 .talk-avatar { font-size: 1.6rem; }
 .talk-avatar-sm { font-size: 1rem; }
+/* Real portrait when the agent user has an avatar_url (uploaded
+   attachment) — the emoji stays as the fallback. */
+.talk-avatar-img {
+  width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border); flex-shrink: 0;
+}
+.talk-avatar-sm-img {
+  width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border); flex-shrink: 0; align-self: flex-end;
+}
 .talk-name { font-weight: 600; }
 .talk-sub { font-size: 0.75rem; }
 .talk-messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
-.talk-msg { display: flex; }
+.talk-msg { display: flex; gap: 0.45rem; align-items: flex-end; }
 .talk-msg-me { justify-content: flex-end; }
 .talk-msg-bot { justify-content: flex-start; }
 .talk-bubble {
@@ -631,7 +641,10 @@ main:has(.talk-layout) { max-width: none; }
 .talk-bubble .md p:last-child { margin-bottom: 0; }
 .talk-time { font-size: 0.68rem; text-align: right; margin-top: 0.2rem; }
 .talk-greeting { margin: auto; text-align: center; max-width: 34rem; }
-.talk-pending { padding: 0.3rem 0.4rem; font-size: 0.85rem; color: var(--muted); }
+.talk-pending {
+  display: flex; align-items: center; gap: 0.45rem;
+  padding: 0.3rem 0.4rem; font-size: 0.85rem; color: var(--muted);
+}
 .talk-dots::after { content: ""; animation: talkdots 1.5s steps(4) infinite; }
 @keyframes talkdots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 .talk-compose {

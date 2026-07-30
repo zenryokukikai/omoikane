@@ -173,7 +173,7 @@
 
 {{/* Review/discussion comments — humans + agents (§23.21). Shown on every entry. */}}
 <section class="comments" id="comments">
-  <h2>💬 レビューコメント <span class="muted" style="font-size:0.65em;font-weight:normal;">人間 / エージェント どちらも書き込めます</span></h2>
+  <h2>💬 レビューコメント <span class="muted" style="font-size:0.65em;font-weight:normal;">人間 / エージェント どちらも書き込めます</span> <span id="cmt-live" title="接続状態">⚪</span></h2>
 
   {{/* cmt-thread is the live-refresh boundary: on comment.created for
        this entry the JS below re-fetches the page and swaps ONLY this
@@ -257,31 +257,52 @@ function cmtReply(cid){
   host.appendChild(f); }
 async function cmtResolve(cid,val){ await cmtAPI('/v1/comments/'+cid,'PATCH',{resolved:val}); location.reload(); }
 
-// Live comments: subscribe to the server's SSE stream and, when a
-// comment lands on THIS entry, re-fetch the page and swap only the
-// #cmt-thread block — the server template stays the single renderer,
-// and the composer (outside the block) keeps any draft. EventSource
-// authenticates via the session cookie; with ?token= (CLI bookmarks)
-// headers can't be set, so live updates just stay off there.
-if (window.EventSource && !CMT_TOKEN) {
-  const es = new EventSource('/v1/events');
-  es.addEventListener('comment.created', async (ev) => {
+// Live comments: SSE push + belt-and-braces fallbacks. The 🟢/⚪ dot
+// next to the section header shows whether THIS tab's stream is
+// connected; even without it, returning focus to the tab and a 60s
+// idle poll keep the thread current. The server template stays the
+// single renderer — we re-fetch the page and swap only #cmt-thread,
+// so the composer (outside the block) never loses a draft.
+(function(){
+  const dot = document.getElementById('cmt-live');
+  let live = false;
+  function setLive(ok){
+    live = ok;
+    if (dot){ dot.textContent = ok ? '🟢' : '⚪';
+      dot.title = ok ? 'リアルタイム更新中' : '接続待ち — フォーカス時と60秒毎に自動更新'; }
+  }
+  async function refreshThread(){
+    const host = document.getElementById('cmt-thread');
+    if (!host) return;
+    // A reply draft in progress lives inside the thread block —
+    // never clobber it; the next refresh catches up.
+    for (const t of host.querySelectorAll('textarea'))
+      if (t.value.trim()) return;
     try {
-      const d = JSON.parse(ev.data);
-      if (!d.comment || d.comment.entry_id !== CMT_ENTRY) return;
-      const host = document.getElementById('cmt-thread');
-      if (!host) return;
-      // A reply draft in progress lives inside the thread block —
-      // never clobber it; the next event (or reload) catches up.
-      for (const t of host.querySelectorAll('textarea'))
-        if (t.value.trim()) return;
-      const r = await fetch(location.href, {credentials:'same-origin'});
+      const r = await fetch(location.href, {credentials:'same-origin', cache:'no-store'});
       if (!r.ok) return;
       const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
       const fresh = doc.getElementById('cmt-thread');
-      if (fresh) host.innerHTML = fresh.innerHTML;
-    } catch (_) { /* live refresh is best-effort */ }
-  });
-}
+      if (fresh && fresh.innerHTML !== host.innerHTML) host.innerHTML = fresh.innerHTML;
+    } catch (_) { /* best-effort */ }
+  }
+  if (window.EventSource && !CMT_TOKEN) {
+    const es = new EventSource('/v1/events');
+    es.onopen = () => setLive(true);
+    es.onerror = () => setLive(false);
+    es.addEventListener('comment.created', (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.comment && d.comment.entry_id === CMT_ENTRY) refreshThread();
+      } catch (_) {}
+    });
+  }
+  // Fallbacks: catch up when the tab regains focus, and poll gently
+  // while the stream is down. Covers stale tabs, sleeping laptops,
+  // and proxies that quietly kill idle connections.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshThread(); });
+  window.addEventListener('focus', refreshThread);
+  setInterval(() => { if (!live) refreshThread(); }, 60000);
+})();
 </script>
 {{end}}

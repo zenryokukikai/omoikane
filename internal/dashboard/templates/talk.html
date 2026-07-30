@@ -103,23 +103,34 @@ async function talkSend(e){
   return false;
 }
 
-// Enter sends; Shift+Enter inserts a newline.
+// Enter sends; Shift+Enter inserts a newline. IME composition
+// (日本語入力の変換確定) also fires Enter — isComposing / keyCode 229
+// marks it, and we must NOT send then.
 document.getElementById('talk-input').addEventListener('keydown', (ev) => {
+  if(ev.isComposing || ev.keyCode === 229) return;
   if(ev.key === 'Enter' && !ev.shiftKey){ ev.preventDefault(); ev.target.closest('form').requestSubmit(); }
 });
 
-// Live updates: Sebastian's reply (or any message on this thread)
-// arrives over the SSE stream → swap the message block.
-if (window.EventSource && TALK_THREAD) {
-  const es = new EventSource('/v1/events');
-  es.addEventListener('chat.message', async (ev) => {
-    try {
-      const d = JSON.parse(ev.data);
-      if (d.thread_id !== TALK_THREAD) return;
-      if (d.author_user_id !== TALK_ME) document.getElementById('talk-pending').hidden = true;
-      await talkRefresh();
-    } catch (_) {}
-  });
+// Live updates: SSE push + fallbacks (focus refresh, idle poll while
+// the stream is down) — same resilience as the entry-page comments.
+if (TALK_THREAD) {
+  let live = false;
+  if (window.EventSource) {
+    const es = new EventSource('/v1/events');
+    es.onopen = () => { live = true; };
+    es.onerror = () => { live = false; };
+    es.addEventListener('chat.message', async (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.thread_id !== TALK_THREAD) return;
+        if (d.author_user_id !== TALK_ME) document.getElementById('talk-pending').hidden = true;
+        await talkRefresh();
+      } catch (_) {}
+    });
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) talkRefresh(); });
+  window.addEventListener('focus', () => talkRefresh());
+  setInterval(() => { if (!live) talkRefresh(); }, 60000);
 }
 </script>
 {{end}}

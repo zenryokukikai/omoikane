@@ -123,6 +123,7 @@ func (h *Handler) Mount(r chi.Router) {
 
 			// Entry comments — review/discussion threads, humans + agents (§23.21).
 			r.With(auth.RequireScope("read")).Get("/events", h.streamEvents)
+			r.With(auth.RequireScope("write")).Post("/events/broadcast", h.broadcastEvent)
 			r.With(auth.RequireScope("read")).Get("/comments/recent", h.listRecentComments)
 			r.With(auth.RequireScope("read")).Get("/entries/{id}/comments", h.listEntryComments)
 			r.With(auth.RequireScope("write")).Post("/entries/{id}/comments", h.createEntryComment)

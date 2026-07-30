@@ -45,7 +45,7 @@
         </div>
       {{end}}
       <div class="talk-pending" id="talk-pending" hidden>
-        <span class="talk-avatar-sm">🎩</span> <span class="talk-dots">考えております…</span>
+        <span class="talk-avatar-sm">🎩</span> <span class="talk-dots" id="talk-status">考えております…</span>
       </div>
     </div>
 
@@ -70,15 +70,25 @@ async function talkAPI(path, body){
   return r.json();
 }
 
+function talkPending(show, text){
+  const p = document.getElementById('talk-pending');
+  if(!p) return;
+  if(text) document.getElementById('talk-status').textContent = text;
+  p.hidden = !show;
+  if(show) talkScroll();
+}
+
 async function talkRefresh(){
-  const r = await fetch(location.href, {credentials:'same-origin'});
+  const r = await fetch(location.href, {credentials:'same-origin', cache:'no-store'});
   if(!r.ok) return;
   const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
   const fresh = doc.getElementById('talk-messages');
   if(fresh){
-    const pendingShown = !document.getElementById('talk-pending').hidden;
+    const p = document.getElementById('talk-pending');
+    const pendingShown = p && !p.hidden;
+    const pendingText = document.getElementById('talk-status')?.textContent;
     talkBox.innerHTML = fresh.innerHTML;
-    if(pendingShown) document.getElementById('talk-pending').hidden = false;
+    if(pendingShown) talkPending(true, pendingText);
     talkScroll();
   }
 }
@@ -98,7 +108,7 @@ async function talkSend(e){
   await talkAPI('/v1/librarian/chat',
     {thread_id: tid, author_role: 'human', content: v});
   if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
-  document.getElementById('talk-pending').hidden = false;
+  talkPending(true, '考えております…');
   await talkRefresh();
   return false;
 }
@@ -123,8 +133,18 @@ if (TALK_THREAD) {
       try {
         const d = JSON.parse(ev.data);
         if (d.thread_id !== TALK_THREAD) return;
-        if (d.author_user_id !== TALK_ME) document.getElementById('talk-pending').hidden = true;
         await talkRefresh();
+      } catch (_) {}
+    });
+    // Live tool activity from the responder while it works — the
+    // pending line shows what Sebastian is actually doing (searching,
+    // reading an entry, …). done:true turns the line off.
+    es.addEventListener('chat.status', (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.thread_id !== TALK_THREAD) return;
+        if (d.done) { talkPending(false); return; }
+        if (d.text) talkPending(true, d.text);
       } catch (_) {}
     });
   }

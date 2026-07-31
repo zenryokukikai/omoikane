@@ -238,3 +238,27 @@ func TestAttachmentRoleVocabStable(t *testing.T) {
 		}
 	}
 }
+
+// Blobs must be group/world readable: os.CreateTemp yields 0600 and the
+// rename carries it over, which makes every attachment 500 the moment
+// the server runs under a different uid (image rebuild / userns remap).
+func TestAttachmentBlobIsReadableAcrossUIDs(t *testing.T) {
+	s, projectID, userID := seedAttachmentFixture(t)
+	ctx := context.Background()
+
+	a, err := s.CreateAttachment(ctx, CreateAttachmentParams{
+		ProjectID: projectID, Mime: "image/webp", Filename: "avatar.webp",
+		Role: "screenshot", Caption: "agent avatar", UploadedBy: userID,
+		Content: bytes.NewReader([]byte("pretend webp bytes")), MaxBytes: 1 << 20,
+	})
+	if err != nil {
+		t.Fatalf("CreateAttachment: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(s.dataDir, a.StoragePath))
+	if err != nil {
+		t.Fatalf("stat blob: %v", err)
+	}
+	if mode := fi.Mode().Perm(); mode&0o044 == 0 {
+		t.Fatalf("blob mode %o is not readable beyond its owner", mode)
+	}
+}

@@ -190,6 +190,15 @@ func (s *Store) CreateAttachment(ctx context.Context, p CreateAttachmentParams) 
 			return nil, fmt.Errorf("rename to storage: %w", err)
 		}
 		tmpPath = "" // don't try to remove the now-moved file
+		// os.CreateTemp makes 0600, and the rename carries that mode
+		// over: a blob then becomes unreadable the moment the server
+		// runs under a different uid (image rebuild, userns remap,
+		// restore to another host) — the row survives, the bytes 500.
+		// Widen to 0644; the secret is the API's auth layer, not the
+		// file mode (the data dir is operator-owned either way).
+		if err := os.Chmod(absPath, 0o644); err != nil {
+			return nil, fmt.Errorf("chmod storage: %w", err)
+		}
 	}
 
 	// 4. Mint id and insert row. The row is the source of truth — a

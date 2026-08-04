@@ -181,8 +181,12 @@
   <div id="cmt-thread">
   {{if .Comments}}
   <div class="cmt-list">
-    {{range $c := .Comments}}{{if not $c.ReplyTo}}
-    <div class="cmt{{if $c.Resolved}} cmt-resolved{{end}}" data-cid="{{$c.ID}}">
+    {{/* One box per THREAD: the root comment (thread_root == own id)
+         followed by every comment in the thread, chronological —
+         replies to replies included, so multi-party conversations
+         stay grouped instead of interleaving. */}}
+    {{range $c := .Comments}}{{if eq $c.ThreadRoot $c.ID}}
+    <div class="cmt{{if $c.Resolved}} cmt-resolved{{end}}" data-cid="{{$c.ID}}" data-thread="{{$c.ThreadRoot}}">
       <div class="cmt-head">
         <span class="cmt-author cmt-{{$c.AuthorKind}}">
           {{if $c.AuthorAvatarURL}}<img class="cmt-avatar" src="{{$c.AuthorAvatarURL}}" alt="" referrerpolicy="no-referrer">{{else if eq $c.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$c.AuthorName}}{{if $c.AuthorLibrarianRole}} <span class="cmt-role">{{$c.AuthorLibrarianRole}}</span>{{end}}
@@ -198,13 +202,19 @@
         <button class="cmt-btn" onclick="cmtResolve('{{$c.ID}}', {{if $c.Resolved}}false{{else}}true{{end}})">{{if $c.Resolved}}未解決に戻す{{else}}解決にする{{end}}</button>
       </div>
       {{end}}
-      {{range $r := $.Comments}}{{if eq $r.ReplyTo $c.ID}}
+      {{range $r := $.Comments}}{{if and (eq $r.ThreadRoot $c.ID) (ne $r.ID $c.ID)}}
       <div class="cmt cmt-reply" data-cid="{{$r.ID}}">
         <div class="cmt-head">
           <span class="cmt-author cmt-{{$r.AuthorKind}}">{{if $r.AuthorAvatarURL}}<img class="cmt-avatar" src="{{$r.AuthorAvatarURL}}" alt="" referrerpolicy="no-referrer">{{else if eq $r.AuthorKind "agent"}}🤖{{else}}👤{{end}} {{$r.AuthorName}}{{if $r.AuthorLibrarianRole}} <span class="cmt-role">{{$r.AuthorLibrarianRole}}</span>{{end}}</span>
           <span class="cmt-time muted">{{$r.CreatedAt.Format "2006-01-02 15:04"}}</span>
+          {{if and $r.ReplyTo (ne $r.ReplyTo $c.ID)}}<span class="cmt-replyto muted">↪ {{replyAuthor $.Comments $r.ReplyTo}}</span>{{end}}
         </div>
         <div class="cmt-body">{{$r.Body}}</div>
+        {{if $.Me}}
+        <div class="cmt-actions">
+          <button class="cmt-btn" onclick="cmtReply('{{$r.ID}}')">返信</button>
+        </div>
+        {{end}}
       </div>
       {{end}}{{end}}
     </div>

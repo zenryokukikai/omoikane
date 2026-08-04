@@ -26,7 +26,11 @@ type EntryComment struct {
 	AuthorAvatarURL    string    `json:"author_avatar_url,omitempty"`
 	Body               string    `json:"body"`
 	ReplyTo            string    `json:"reply_to,omitempty"`
-	Resolved           bool      `json:"resolved"`
+	// ThreadRoot is the id of the thread's root comment (== own ID for
+	// roots). Grouping key for the whole conversation, so replies to
+	// replies still land in one visual thread.
+	ThreadRoot string `json:"thread_root,omitempty"`
+	Resolved   bool   `json:"resolved"`
 	// Mentions names who the comment is FOR (user ids or librarian roles,
 	// e.g. "detective"). Only mentioned users get a review request.
 	Mentions  []string  `json:"mentions,omitempty"`
@@ -40,7 +44,7 @@ const commentSelect = `
 	       CASE WHEN u.role = 'agent' THEN 'agent' ELSE 'human' END,
 	       COALESCE(u.librarian_role, ''),
 	       COALESCE(u.avatar_url, ''),
-	       c.body, COALESCE(c.reply_to, ''), c.resolved,
+	       c.body, COALESCE(c.reply_to, ''), COALESCE(c.thread_root, c.id), c.resolved,
 	       COALESCE(c.mentions, ''),
 	       c.created_at, c.updated_at
 	  FROM entry_comments c
@@ -51,7 +55,7 @@ func scanComment(sc scanner) (*EntryComment, error) {
 	var mentions string
 	if err := sc.Scan(&c.ID, &c.EntryID, &c.AuthorUserID, &c.AuthorName,
 		&c.AuthorKind, &c.AuthorLibrarianRole, &c.AuthorAvatarURL,
-		&c.Body, &c.ReplyTo,
+		&c.Body, &c.ReplyTo, &c.ThreadRoot,
 		&c.Resolved, &mentions, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -84,10 +88,15 @@ func (s *Store) CreateComment(ctx context.Context, entryID, authorUserID, body, 
 	if body == "" {
 		return nil, errors.New("comment body required")
 	}
+	// Replying to ANY comment in a thread is allowed (including a
+	// reply); the new comment inherits the parent's thread_root so the
+	// whole conversation stays grouped under one key.
+	threadRoot := ""
 	if replyTo != "" {
-		var parentEntry string
+		var parentEntry, parentThread string
 		err := s.db.QueryRowContext(ctx,
-			`SELECT entry_id FROM entry_comments WHERE id = ?`, replyTo).Scan(&parentEntry)
+			`SELECT entry_id, COALESCE(thread_root, id) FROM entry_comments WHERE id = ?`,
+			replyTo).Scan(&parentEntry, &parentThread)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -97,8 +106,12 @@ func (s *Store) CreateComment(ctx context.Context, entryID, authorUserID, body, 
 		if parentEntry != entryID {
 			return nil, errors.New("reply_to belongs to a different entry")
 		}
+		threadRoot = parentThread
 	}
 	id := newLibrarianID("C")
+	if threadRoot == "" {
+		threadRoot = id // a fresh root starts its own thread
+	}
 	var replyArg any
 	if replyTo != "" {
 		replyArg = replyTo
@@ -109,9 +122,9 @@ func (s *Store) CreateComment(ctx context.Context, entryID, authorUserID, body, 
 		mentionsArg = string(b)
 	}
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO entry_comments(id, entry_id, author_user_id, body, reply_to, mentions)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, entryID, authorUserID, body, replyArg, mentionsArg); err != nil {
+		INSERT INTO entry_comments(id, entry_id, author_user_id, body, reply_to, thread_root, mentions)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, entryID, authorUserID, body, replyArg, threadRoot, mentionsArg); err != nil {
 		return nil, err
 	}
 	return s.GetComment(ctx, id)

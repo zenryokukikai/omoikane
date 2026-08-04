@@ -55,6 +55,16 @@ func New(s *store.Store, open bool) (*Handler, error) {
 func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	funcs := template.FuncMap{
 		"trunc":       trunc,
+		// replyAuthor names the author of the comment a reply points
+		// at, for the ↪ indicator inside threads (reply-to-reply).
+		"replyAuthor": func(all []*store.EntryComment, id string) string {
+			for _, c := range all {
+				if c.ID == id {
+					return c.AuthorName
+				}
+			}
+			return ""
+		},
 		"urlq":        url.QueryEscape,
 		"minus":       func(a, b int) int { return a - b },
 		"langSwitch":  langSwitch,

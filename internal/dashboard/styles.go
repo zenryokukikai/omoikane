@@ -576,11 +576,20 @@ a.attachment-file:hover { background: var(--hover); }
 }
 .cmt-submit:hover { background: var(--accent-strong); }
 .cmt-reply-form { margin: 0.5rem 0 0 1.25rem; }
-/* Markdown comments: keep the bubble compact — no leading/trailing
-   paragraph margins, sane spacing for lists and code. */
+/* Markdown comments: chat-grade compact spacing. Without these the
+   browser defaults (1em top+bottom on p/ul) apply — the .md element
+   rules are scoped to .body.md / .chat-body.md and never matched
+   .cmt-body, which made comments look full of holes. */
+.cmt-body.md p { margin: 0.3em 0; }
+.cmt-body.md ul, .cmt-body.md ol { margin: 0.3em 0; padding-left: 1.4em; }
+.cmt-body.md li { margin: 0.1em 0; }
+.cmt-body.md li > p { margin: 0; }
+.cmt-body.md h1, .cmt-body.md h2, .cmt-body.md h3, .cmt-body.md h4 {
+  margin: 0.5em 0 0.25em; font-size: 1em; line-height: 1.3;
+}
 .cmt-body.md p:first-child, .cmt-body.md ul:first-child, .cmt-body.md ol:first-child { margin-top: 0; }
 .cmt-body.md p:last-child, .cmt-body.md ul:last-child, .cmt-body.md ol:last-child { margin-bottom: 0; }
-.cmt-body.md pre { overflow-x: auto; }
+.cmt-body.md pre { overflow-x: auto; margin: 0.4em 0; }
 
 /* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
 /* The chat page escapes the 880px article column and follows the

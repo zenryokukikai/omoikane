@@ -195,7 +195,7 @@
         {{if $c.Resolved}}<span class="cmt-badge">解決済</span>{{end}}
         {{range $c.Mentions}}<span class="cmt-mention">@{{.}}</span>{{end}}
       </div>
-      <div class="cmt-body">{{$c.Body}}</div>
+      <div class="cmt-body md">{{renderContent $c.Body $.Token}}</div>
       {{if $.Me}}
       <div class="cmt-actions">
         <button class="cmt-btn" onclick="cmtReply('{{$c.ID}}')">返信</button>
@@ -209,7 +209,7 @@
           <span class="cmt-time muted">{{$r.CreatedAt.Format "2006-01-02 15:04"}}</span>
           {{if and $r.ReplyTo (ne $r.ReplyTo $c.ID)}}<span class="cmt-replyto muted">↪ {{replyAuthor $.Comments $r.ReplyTo}}</span>{{end}}
         </div>
-        <div class="cmt-body">{{$r.Body}}</div>
+        <div class="cmt-body md">{{renderContent $r.Body $.Token}}</div>
         {{if $.Me}}
         <div class="cmt-actions">
           <button class="cmt-btn" onclick="cmtReply('{{$r.ID}}')">返信</button>

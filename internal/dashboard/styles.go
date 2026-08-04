@@ -576,6 +576,11 @@ a.attachment-file:hover { background: var(--hover); }
 }
 .cmt-submit:hover { background: var(--accent-strong); }
 .cmt-reply-form { margin: 0.5rem 0 0 1.25rem; }
+/* Markdown comments: keep the bubble compact — no leading/trailing
+   paragraph margins, sane spacing for lists and code. */
+.cmt-body.md p:first-child, .cmt-body.md ul:first-child, .cmt-body.md ol:first-child { margin-top: 0; }
+.cmt-body.md p:last-child, .cmt-body.md ul:last-child, .cmt-body.md ol:last-child { margin-bottom: 0; }
+.cmt-body.md pre { overflow-x: auto; }
 
 /* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
 /* The chat page escapes the 880px article column and follows the

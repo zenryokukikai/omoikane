@@ -84,6 +84,9 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Use(h.reviewRequestHeader)
 			r.Get("/auth/me", h.authMe)
 			r.With(auth.RequireScope("read")).Get("/me/review-requests", h.listMyReviewRequests)
+			r.With(auth.RequireScope("read")).Get("/me/bookmarks", h.listMyBookmarks)
+			r.With(auth.RequireScope("write")).Put("/entries/{id}/bookmark", h.addBookmark)
+			r.With(auth.RequireScope("write")).Delete("/entries/{id}/bookmark", h.removeBookmark)
 			r.Post("/agents/claim/{code}", h.agentClaimPost)
 			// Invite issuance — any authenticated human can issue invites
 			// for their own agents.

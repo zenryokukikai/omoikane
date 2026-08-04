@@ -1,0 +1,34 @@
+{{define "content"}}
+<h1>🔖 ブックマーク</h1>
+{{if not .Me}}
+<p class="muted">ブックマークはアカウントごとに保存されます。<a href="/login">サインイン</a>してご利用ください。</p>
+{{else}}
+{{if .Bookmarks}}
+<p class="muted">{{len .Bookmarks}} 件 — エントリページの「🔖 ブックマーク」ボタンで追加・解除できます。</p>
+<table>
+  <thead><tr><th>エントリ</th><th>種別</th><th>プロジェクト</th><th>保存日</th><th></th></tr></thead>
+  <tbody>
+    {{range .Bookmarks}}
+    <tr data-bm="{{.EntryID}}">
+      <td><a href="/entries/{{.EntryID}}">{{if .EntryTitle}}{{.EntryTitle}}{{else}}{{.EntryID}}{{end}}</a>
+          {{if eq .Status "SUPERSEDED"}}<span class="badge badge-status-SUPERSEDED">SUPERSEDED</span>{{end}}</td>
+      <td><span class="badge">{{.EntryType}}</span></td>
+      <td class="muted">{{.ProjectID}}</td>
+      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+      <td><button class="cmt-btn" onclick="bmRemove('{{.EntryID}}')">解除</button></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">まだブックマークがありません。エントリページの「🔖 ブックマーク」ボタンで保存できます。</div>
+{{end}}
+<script>
+async function bmRemove(id){
+  const r = await fetch('/v1/entries/'+id+'/bookmark', {method:'DELETE', credentials:'same-origin'});
+  if(r.ok){ document.querySelector('[data-bm="'+id+'"]')?.remove(); }
+  else { alert('解除に失敗しました: '+r.status); }
+}
+</script>
+{{end}}
+{{end}}

@@ -139,7 +139,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	for _, name := range []string{"home", "journal", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index", "lookup", "use_case", "entries",
-		"chat_threads", "chat_thread", "talk", "login", "claim", "agents", "profile",
+		"chat_threads", "chat_thread", "talk", "bookmarks", "login", "claim", "agents", "profile",
 		"members", "member_claim"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
@@ -216,6 +216,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/use_cases/{ref}", h.useCasePage)
 		r.Get("/chat", h.chatThreadsPage)
 		r.Get("/chat/{id}", h.chatThreadPage)
+		r.Get("/bookmarks", h.bookmarksPage)
 		r.Get("/talk", h.talkPage)
 		r.Get("/talk/{id}", h.talkPage)
 		r.Get("/agents", h.agentsPage)
@@ -307,6 +308,8 @@ type pageCtx struct {
 	ChatMessages     []*store.ChatMessage
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's ask-sebastian threads
 	TalkAgent        *store.User         // /talk: the answering agent (avatar + display name)
+	Bookmarked       bool                // entry page: current user starred this entry
+	Bookmarks        []*store.Bookmark   // /bookmarks: the current user's shortlist
 	ChatStatusFilter string // "OPEN" default, "CLOSED", or "" (= all). Used by chat_threads.html to render the filter UI.
 
 	// Phase A — login page
@@ -687,6 +690,9 @@ func (h *Handler) entry(w http.ResponseWriter, r *http.Request) {
 		if au, aErr := h.Store.GetUser(r.Context(), e.CreatedBy); aErr == nil {
 			pc.EntryAuthor = au
 		}
+	}
+	if pc.Me != nil {
+		pc.Bookmarked, _ = h.Store.IsBookmarked(r.Context(), pc.Me.ID, e.ID)
 	}
 	// Review/discussion comments (humans + agents) — §23.21.
 	if cs, cErr := h.Store.ListComments(r.Context(), id); cErr == nil {
@@ -1077,6 +1083,21 @@ func (h *Handler) claimPage(w http.ResponseWriter, r *http.Request) {
 // ----------------------------------------------------------------------
 // Phase 5 — librarian chat room (read + write from the dashboard)
 // ----------------------------------------------------------------------
+
+// bookmarksPage lists the signed-in user's starred entries.
+func (h *Handler) bookmarksPage(w http.ResponseWriter, r *http.Request) {
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — ブックマーク"
+	if pc.Me != nil {
+		bms, err := h.Store.ListBookmarks(r.Context(), pc.Me.ID, 200)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		pc.Bookmarks = bms
+	}
+	h.render(w, "bookmarks", pc)
+}
 
 // talkPage is the per-user "セバスチャンに聞く" chat: an Open-WebUI-style
 // two-pane page over the existing chat_threads/librarian_chat machinery.

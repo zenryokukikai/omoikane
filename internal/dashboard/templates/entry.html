@@ -22,6 +22,7 @@
   · updated {{.UpdatedAt.Format "2006-01-02 15:04"}}
   · v{{.Version}}
   · <a href="/entries/{{.ID}}/history{{if $.Token}}?token={{urlq $.Token}}{{end}}">history</a>
+  {{if $.Me}}· <button id="bm-btn" class="bm-btn{{if $.Bookmarked}} bm-on{{end}}" onclick="bmToggle('{{.ID}}')" title="ブックマーク">{{if $.Bookmarked}}🔖 保存済み{{else}}🔖 ブックマーク{{end}}</button>{{end}}
 </p>
 <h1>{{.Title}}</h1>
 {{if $.EntryAuthor}}
@@ -243,6 +244,16 @@ const CMT_ENTRY = "{{.Entry.ID}}";
 // the same write works. Production browsing has no ?token=, so the cookie
 // is used and tokens never sit in URLs there.
 const CMT_TOKEN = new URLSearchParams(location.search).get('token');
+let BM_ON = document.getElementById('bm-btn')?.classList.contains('bm-on') ?? false;
+async function bmToggle(id){
+  const r = await fetch('/v1/entries/'+id+'/bookmark',
+    {method: BM_ON ? 'DELETE' : 'PUT', credentials:'same-origin'});
+  if(!r.ok){ alert('ブックマークに失敗しました: '+r.status); return; }
+  BM_ON = !BM_ON;
+  const b = document.getElementById('bm-btn');
+  b.classList.toggle('bm-on', BM_ON);
+  b.textContent = BM_ON ? '🔖 保存済み' : '🔖 ブックマーク';
+}
 async function cmtAPI(path, method, body) {
   const headers = {'Content-Type':'application/json'};
   if (CMT_TOKEN) headers['Authorization'] = 'Bearer ' + CMT_TOKEN;

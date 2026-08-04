@@ -591,6 +591,14 @@ a.attachment-file:hover { background: var(--hover); }
 .cmt-body.md p:last-child, .cmt-body.md ul:last-child, .cmt-body.md ol:last-child { margin-bottom: 0; }
 .cmt-body.md pre { overflow-x: auto; margin: 0.4em 0; }
 
+/* Bookmark toggle (entry meta row) */
+.bm-btn {
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.78rem; cursor: pointer;
+}
+.bm-btn:hover { color: var(--accent); border-color: var(--accent); }
+.bm-btn.bm-on { color: var(--accent); border-color: var(--accent); background: var(--bg-soft); }
+
 /* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
 /* The chat page escapes the 880px article column and follows the
    viewport: full-width fluid layout, tall message pane. Bubbles keep

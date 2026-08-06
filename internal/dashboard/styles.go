@@ -95,6 +95,13 @@ table {
   width: 100%; border-collapse: collapse;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
+/* Mobile: a wide table scrolls INSIDE its own box instead of widening
+   the page (issue #19 — up to 844px-wide tables at 375px). display:
+   block turns the table element into its own scroll container without
+   any template changes; cell content keeps table layout. */
+@media (max-width: 720px) {
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
 th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
 th { background: var(--badge-bg); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
 tr:last-child td { border-bottom: none; }

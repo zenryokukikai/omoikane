@@ -653,9 +653,14 @@ a.attachment-file:hover { background: var(--hover); }
 .entry-row-meta { margin-top: 0.15rem; font-size: 0.78rem; overflow-wrap: anywhere; }
 
 /* Forms never force a min-width (issue #19: /agents invite form was
-   406px wide at a 375px viewport). */
+   406px wide at a 375px viewport). max-width alone cannot beat an
+   intrinsically-sized ancestor chain — a <select> whose longest
+   <option> is ~390px sizes its label, form, and details to match.
+   Pin the controls to the container width instead. */
 form label input, form label select { max-width: 100%; min-width: 0; }
 .filter-form, .chat-newthread form { flex-wrap: wrap; }
+.chat-newthread label { display: block; width: 100%; }
+.chat-newthread label input, .chat-newthread label select { width: 100%; box-sizing: border-box; }
 
 /* ---- home front page (issue #21) ---- */
 .home-journal {

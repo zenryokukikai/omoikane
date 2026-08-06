@@ -1,90 +1,94 @@
 {{define "content"}}
-<nav class="subnav">
-  <a href="/journal{{if .Token}}?token={{urlq .Token}}{{end}}">📖 Journal</a>
-  · <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">Entries</a>
-  · <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
-  · <a href="/index{{if .Token}}?token={{urlq .Token}}{{end}}">Index</a>
-  · <a href="/lookup{{if .Token}}?token={{urlq .Token}}{{end}}">🔎 Lookup</a>
-  · <a href="/chat{{if .Token}}?token={{urlq .Token}}{{end}}">💬 Chat</a>
-  · <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}">🤖 Agents</a>
-  · <a href="/review-queue{{if .Token}}?token={{urlq .Token}}{{end}}">Review queue</a>
-  · <a href="/clusters{{if .Token}}?token={{urlq .Token}}{{end}}">Clusters</a>
-  · <a href="/situations{{if .Token}}?token={{urlq .Token}}{{end}}">Situations</a>
-  · <a href="/skill.md" title="onboarding instructions for AI agents">skill.md</a>
-</nav>
-<h1>カテゴリ <span class="muted" style="font-size:0.55em;font-weight:normal">— omoikane がカバーしている問題類型(<a href="/lookup{{if .Token}}?token={{urlq .Token}}{{end}}">全部見る →</a>)</span></h1>
-{{if .UseCaseList}}
-<ul class="uc-list">
-  {{range .UseCaseList}}
-  <li class="uc-row">
-    <div class="uc-row-head">
-      {{if .Domain}}<span class="badge">{{.Domain}}</span>{{end}}
-      <a class="uc-name" href="{{navURL (print "/use_cases/" .Slug) $.Token $.Lang}}">
-        {{if eq $.Lang "en"}}{{.NameEN}}{{else}}{{.NameJA}}{{end}}
-      </a>
-      <span class="uc-altname muted">
-        {{if eq $.Lang "en"}}{{.NameJA}}{{else}}{{.NameEN}}{{end}}
-      </span>
-      {{if gt .ChildCount 0}}<span class="uc-count muted">📁 {{.ChildCount}} sub</span>{{end}}
-      <span class="uc-count muted">📄 {{.DescendantEntryCount}} entries</span>
+{{/* Front page = "what should I look at today?", answered in one
+     screen (issue #21). Reading lanes first (journal, fresh entries),
+     finding lanes second (quick filters, categories), inventories
+     folded away. The old 11-link subnav moved to the header's ⚙ menu
+     (issue #22). */}}
+
+{{if .LatestJournal}}
+<section class="home-journal">
+  <div class="home-journal-head">
+    <span class="home-journal-icon">📖</span>
+    <div>
+      <a class="home-journal-title" href="/entries/{{.LatestJournal.ID}}{{if .Token}}?token={{urlq .Token}}{{end}}">{{journalDate .LatestJournal}} のできごと</a>
+      <div class="muted home-journal-sub">📝 {{journalPosted .LatestJournal}} に作成</div>
     </div>
-    {{$desc := .DescriptionJA}}{{if eq $.Lang "en"}}{{$desc = .DescriptionEN}}{{end}}
-    {{if $desc}}<div class="uc-desc">{{$desc}}</div>{{end}}
-  </li>
-  {{end}}
-</ul>
-{{else}}
-<div class="empty">カテゴリがまだありません(indexer が走るのを待ち中)。</div>
+  </div>
+  <p class="home-journal-teaser">{{.JournalTeaser}}</p>
+  <a class="home-more" href="/entries/{{.LatestJournal.ID}}{{if .Token}}?token={{urlq .Token}}{{end}}">続きを読む →</a>
+  <a class="home-more muted" href="/journal{{if .Token}}?token={{urlq .Token}}{{end}}">過去のジャーナル</a>
+</section>
 {{end}}
 
-<h2>Projects</h2>
-{{if .Projects}}
-<table>
-  <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Created</th></tr></thead>
-  <tbody>
-    {{range .Projects}}
-    <tr>
-      <td><span class="badge">{{.ID}}</span></td>
-      <td><a href="/projects/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Name}}</a></td>
-      <td class="muted">{{.Description}}</td>
-      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
-    </tr>
-    {{end}}
-  </tbody>
-</table>
-{{else}}
-<div class="empty">No projects yet. Create one with <code>kb projects create --id … --name …</code>.</div>
-{{end}}
-
-<h2>Quick views</h2>
-<p class="entries-quick-filter">
-  <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">📚 All entries</a>
-  · <a href="/entries?type=librarian_meta{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🗂️ Librarian output (summaries, indexes)</a>
-  · <a href="/entries?type=trap{{if .Token}}&amp;token={{urlq .Token}}{{end}}">⚠️ Traps</a>
-  · <a href="/entries?type=lesson{{if .Token}}&amp;token={{urlq .Token}}{{end}}">💡 Lessons</a>
-  · <a href="/entries?type=decision{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📋 Decisions</a>
-  · <a href="/entries?status=DRAFT{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📝 Drafts</a>
-</p>
-
-<h2>Recent entries</h2>
-{{if .Entries}}
-<table>
-  <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th><th>v</th><th>Updated</th></tr></thead>
-  <tbody>
+<section>
+  <h2 class="home-h">🆕 新着 <a class="home-more" href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">すべて見る →</a></h2>
+  {{if .Entries}}
+  <ul class="home-fresh">
     {{range .Entries}}
-    <tr>
-      <td><span class="badge">{{.ID}}</span></td>
-      <td><span class="badge">{{.Type}}</span></td>
-      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
-      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
-      <td class="muted">{{.Version}}</td>
-      <td class="muted">{{.UpdatedAt.Format "2006-01-02"}}</td>
-    </tr>
+    <li>
+      <a class="home-fresh-title" href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a>
+      <span class="home-fresh-meta muted"><span class="badge">{{.Type}}</span> {{.UpdatedAt.Format "01-02 15:04"}}</span>
+    </li>
     {{end}}
-  </tbody>
-</table>
-{{template "pager" .Pagination}}
-{{else}}
-<div class="empty">No entries yet.</div>
-{{end}}
+  </ul>
+  {{else}}
+  <div class="empty">No entries yet.</div>
+  {{end}}
+  <p class="entries-quick-filter">
+    <a href="/entries?type=trap{{if .Token}}&amp;token={{urlq .Token}}{{end}}">⚠️ Traps</a>
+    · <a href="/entries?type=lesson{{if .Token}}&amp;token={{urlq .Token}}{{end}}">💡 Lessons</a>
+    · <a href="/entries?type=decision{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📋 Decisions</a>
+    · <a href="/entries?type=external_finding{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🛰️ External</a>
+    · <a href="/entries?status=DRAFT{{if .Token}}&amp;token={{urlq .Token}}{{end}}">📝 Drafts</a>
+  </p>
+</section>
+
+<details class="home-fold">
+  <summary>🔎 カテゴリ — 扱っている問題類型{{if .UseCaseList}}({{len .UseCaseList}}){{end}}</summary>
+  <p class="muted home-fold-note"><a href="/lookup{{if .Token}}?token={{urlq .Token}}{{end}}">逆引きページで全部見る →</a></p>
+  {{if .UseCaseList}}
+  <ul class="uc-list">
+    {{range .UseCaseList}}
+    <li class="uc-row">
+      <div class="uc-row-head">
+        {{if .Domain}}<span class="badge">{{.Domain}}</span>{{end}}
+        <a class="uc-name" href="{{navURL (print "/use_cases/" .Slug) $.Token $.Lang}}">
+          {{if eq $.Lang "en"}}{{.NameEN}}{{else}}{{.NameJA}}{{end}}
+        </a>
+        <span class="uc-altname muted">
+          {{if eq $.Lang "en"}}{{.NameJA}}{{else}}{{.NameEN}}{{end}}
+        </span>
+        {{if gt .ChildCount 0}}<span class="uc-count muted">📁 {{.ChildCount}} sub</span>{{end}}
+        <span class="uc-count muted">📄 {{.DescendantEntryCount}} entries</span>
+      </div>
+      {{$desc := .DescriptionJA}}{{if eq $.Lang "en"}}{{$desc = .DescriptionEN}}{{end}}
+      {{if $desc}}<div class="uc-desc">{{$desc}}</div>{{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <div class="empty">カテゴリがまだありません(indexer が走るのを待ち中)。</div>
+  {{end}}
+</details>
+
+<details class="home-fold">
+  <summary>📁 Projects{{if .Projects}}({{len .Projects}}){{end}}</summary>
+  {{if .Projects}}
+  <table>
+    <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Created</th></tr></thead>
+    <tbody>
+      {{range .Projects}}
+      <tr>
+        <td><span class="badge">{{.ID}}</span></td>
+        <td><a href="/projects/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Name}}</a></td>
+        <td class="muted">{{.Description}}</td>
+        <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No projects yet. Create one with <code>kb projects create --id … --name …</code>.</div>
+  {{end}}
+</details>
 {{end}}

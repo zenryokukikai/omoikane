@@ -151,7 +151,7 @@ func TestHomeRendersBothProjectAndEntryTables(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	for _, want := range []string{"Projects", "Recent entries", "Mask trap v2", "<span class=\"badge\">p</span>"} {
+	for _, want := range []string{"Projects", "🆕 新着", "Mask trap v2", "<span class=\"badge\">p</span>"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Errorf("missing %q in body", want)
 		}

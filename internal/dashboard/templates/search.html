@@ -3,20 +3,20 @@
 {{if .Query}}
   <p class="muted">Results for <code>{{.Query}}</code></p>
   {{if .Results}}
-    <table>
-      <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Title</th><th>Score</th></tr></thead>
-      <tbody>
-        {{range .Results}}
-        <tr>
-          <td><span class="badge">{{.Entry.ID}}</span></td>
-          <td><span class="badge">{{.Entry.Type}}</span></td>
-          <td><span class="badge badge-status-{{.Entry.Status}}">{{.Entry.Status}}</span></td>
-          <td><a href="/entries/{{.Entry.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Entry.Title}}</a></td>
-          <td class="muted">{{printf "%.3f" .Score}}</td>
-        </tr>
-        {{end}}
-      </tbody>
-    </table>
+    {{/* Same row style as /entries — no table to overflow (issue #19). */}}
+    <ul class="entry-rows">
+      {{range .Results}}
+      <li class="entry-row">
+        <div class="entry-row-main">
+          <a class="entry-row-title" href="/entries/{{.Entry.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Entry.Title}}</a>
+          <span class="badge badge-status-{{.Entry.Status}}">{{.Entry.Status}}</span>
+        </div>
+        <div class="entry-row-meta muted">
+          <span class="badge">{{.Entry.ID}}</span> · {{.Entry.Type}} · score {{printf "%.3f" .Score}}
+        </div>
+      </li>
+      {{end}}
+    </ul>
   {{else}}
     <div class="empty">No matches.</div>
   {{end}}

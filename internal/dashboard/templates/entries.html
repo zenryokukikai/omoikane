@@ -66,23 +66,21 @@
 {{template "pager" .Pagination}}
 
 {{if .Entries}}
-<table>
-  <thead><tr>
-    <th>ID</th><th>Type</th><th>Status</th><th>Project</th><th>Title</th><th>Updated</th>
-  </tr></thead>
-  <tbody>
-    {{range .Entries}}
-    <tr>
-      <td><span class="badge">{{.ID}}</span></td>
-      <td class="muted">{{.Type}}</td>
-      <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
-      <td class="muted">{{.ProjectID}}</td>
-      <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}"><strong>{{.Title}}</strong></a></td>
-      <td class="muted">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
-    </tr>
-    {{end}}
-  </tbody>
-</table>
+{{/* GitHub-issue-style rows: title first, metadata second line —
+     works at every width, no table to overflow (issue #19). */}}
+<ul class="entry-rows">
+  {{range .Entries}}
+  <li class="entry-row">
+    <div class="entry-row-main">
+      <a class="entry-row-title" href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a>
+      <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
+    </div>
+    <div class="entry-row-meta muted">
+      <span class="badge">{{.ID}}</span> · {{.Type}} · {{.ProjectID}} · {{.UpdatedAt.Format "2006-01-02 15:04"}}
+    </div>
+  </li>
+  {{end}}
+</ul>
 {{template "pager" .Pagination}}
 {{else}}
 <div class="empty">No entries match the current filter.</div>

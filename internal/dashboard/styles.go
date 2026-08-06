@@ -642,6 +642,21 @@ a.attachment-file:hover { background: var(--hover); }
 .nav-ops-menu a:hover { background: var(--bg-soft); }
 .nav-ops-menu hr { border: none; border-top: 1px solid var(--border); margin: 0.3rem 0; }
 
+/* ---- entry row lists (/entries, /search — issue #19) ---- */
+.entry-rows { list-style: none; padding: 0; margin: 0.4rem 0; }
+.entry-row {
+  padding: 0.55rem 0.3rem; border-bottom: 1px solid var(--border);
+}
+.entry-row:last-child { border-bottom: none; }
+.entry-row-main { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.entry-row-title { font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.entry-row-meta { margin-top: 0.15rem; font-size: 0.78rem; overflow-wrap: anywhere; }
+
+/* Forms never force a min-width (issue #19: /agents invite form was
+   406px wide at a 375px viewport). */
+form label input, form label select { max-width: 100%; min-width: 0; }
+.filter-form, .chat-newthread form { flex-wrap: wrap; }
+
 /* ---- home front page (issue #21) ---- */
 .home-journal {
   border: 1px solid var(--border); border-left: 3px solid var(--accent);

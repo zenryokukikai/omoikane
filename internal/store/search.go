@@ -78,8 +78,8 @@ type ChatSearchResult struct {
 // project_id, and OPEN/CLOSED filtering happens at the thread level
 // (a future extension can join chat_threads and filter on status).
 func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*ChatSearchResult, error) {
-	match := sanitizeFTSQuery(q)
-	if match == "" {
+	long, short := splitFTSTokens(q)
+	if len(long) == 0 && len(short) == 0 {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
 	// Clamp explicitly: cap at the upper bound rather than
@@ -89,18 +89,41 @@ func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*Chat
 	} else if limit > 500 {
 		limit = 500
 	}
+	useFTS := len(long) > 0
+	conds := []string{}
+	args := []any{}
+	fromSQL := `FROM librarian_chat m
+		JOIN librarian_chat_fts f ON f.rowid = m.rowid`
+	scoreSQL := "-bm25(librarian_chat_fts)"
+	if useFTS {
+		conds = append(conds, "librarian_chat_fts MATCH ?")
+		args = append(args, sanitizeFTSQuery(strings.Join(long, " ")))
+	} else {
+		// Short tokens only — trigram cannot index them; LIKE-scan the
+		// (small) chat table instead, newest first.
+		fromSQL = `FROM librarian_chat m`
+		scoreSQL = "0"
+	}
+	for _, tok := range short {
+		conds = append(conds, `m.content LIKE ? ESCAPE '\'`)
+		args = append(args, likePattern(tok))
+	}
+	orderSQL := "score DESC"
+	if !useFTS {
+		orderSQL = "m.timestamp DESC"
+	}
+	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT m.id, COALESCE(m.thread_id,''), m.timestamp, m.author_role,
 		       COALESCE(m.author_instance_id,''), COALESCE(m.author_user_id,''),
 		       COALESCE(m.reply_to,''), COALESCE(m.mentions,''),
 		       COALESCE(m.intent,''), m.content, COALESCE(m.related_entries,''),
 		       m.input_tokens, m.output_tokens, COALESCE(m.metadata,''),
-		       -bm25(librarian_chat_fts) AS score
-		FROM librarian_chat m
-		JOIN librarian_chat_fts f ON f.rowid = m.rowid
-		WHERE librarian_chat_fts MATCH ?
-		ORDER BY score DESC
-		LIMIT ?`, match, limit)
+		       `+scoreSQL+` AS score
+		`+fromSQL+`
+		WHERE `+strings.Join(conds, " AND ")+`
+		ORDER BY `+orderSQL+`
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -125,13 +148,58 @@ func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*Chat
 
 // SearchFTS runs FTS5 against entries_fts with optional filters and pagination.
 // Returns matched entries plus total match count (for pagination).
+// splitFTSTokens separates search terms into trigram-indexable tokens
+// (>=3 runes; the trailing-* prefix form rides along) and short tokens
+// (1-2 runes) that the trigram tokenizer cannot index at all — those
+// become LIKE filters instead of silently matching nothing.
+func splitFTSTokens(q string) (long, short []string) {
+	for _, f := range strings.Fields(q) {
+		// Queries are keywords, not FTS syntax: quotes are noise, and
+		// the old trailing-* prefix operator is subsumed by trigram's
+		// substring matching (under trigram both would otherwise be
+		// matched as literal characters and kill recall).
+		core := strings.ReplaceAll(strings.TrimSuffix(f, "*"), `"`, "")
+		if core == "" {
+			continue
+		}
+		if len([]rune(core)) >= 3 {
+			long = append(long, core)
+		} else {
+			short = append(short, core)
+		}
+	}
+	return
+}
+
+// likePattern wraps a token for a substring LIKE with escaping.
+func likePattern(tok string) string {
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(tok)
+	return "%" + esc + "%"
+}
+
+// entriesTextBlob is the concatenation LIKE fallbacks scan — the same
+// fields entries_fts indexes.
+const entriesTextBlob = `(e.title || ' ' || COALESCE(e.symptom,'') || ' ' ||
+	COALESCE(e.root_cause,'') || ' ' || COALESCE(e.resolution,'') || ' ' ||
+	COALESCE(e.attempted_approaches,'') || ' ' || COALESCE(e.observed_behavior,'') || ' ' ||
+	COALESCE(e.hypotheses,'') || ' ' || COALESCE(e.body,''))`
+
 func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*SearchResult, int, error) {
-	match := sanitizeFTSQuery(q)
-	if match == "" {
+	long, short := splitFTSTokens(q)
+	if len(long) == 0 && len(short) == 0 {
 		return nil, 0, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	conds := []string{"entries_fts MATCH ?"}
-	args := []any{match}
+	useFTS := len(long) > 0
+	conds := []string{}
+	args := []any{}
+	if useFTS {
+		conds = append(conds, "entries_fts MATCH ?")
+		args = append(args, sanitizeFTSQuery(strings.Join(long, " ")))
+	}
+	for _, tok := range short {
+		conds = append(conds, entriesTextBlob+` LIKE ? ESCAPE '\'`)
+		args = append(args, likePattern(tok))
+	}
 	if f.ProjectID != "" {
 		conds = append(conds, "e.project_id = ?")
 		args = append(args, f.ProjectID)
@@ -162,20 +230,30 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 		limit = 200
 	}
 
-	// Total count first (cheap because FTS uses an index).
-	countSQL := `SELECT COUNT(*) FROM entries_fts
-		JOIN entries e ON e.rowid = entries_fts.rowid ` + tagJoin + `
+	// Short-token-only queries scan entries directly (trigram cannot
+	// index 1-2 rune tokens); relevance rank is meaningless there, so
+	// newest-first stands in.
+	fromSQL := `FROM entries_fts
+		JOIN entries e ON e.rowid = entries_fts.rowid `
+	rankSQL := "bm25(entries_fts)"
+	orderSQL := "rank ASC"
+	if !useFTS {
+		fromSQL = `FROM entries e `
+		rankSQL = "0"
+		orderSQL = "e.updated_at DESC"
+	}
+
+	countSQL := `SELECT COUNT(*) ` + fromSQL + tagJoin + `
 		WHERE ` + strings.Join(conds, " AND ")
 	var total int
 	if err := s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	sqlStr := `SELECT ` + selectColumnsForEntry("e") + `, bm25(entries_fts) AS rank
-		FROM entries_fts
-		JOIN entries e ON e.rowid = entries_fts.rowid ` + tagJoin + `
+	sqlStr := `SELECT ` + selectColumnsForEntry("e") + `, ` + rankSQL + ` AS rank
+		` + fromSQL + tagJoin + `
 		WHERE ` + strings.Join(conds, " AND ") + `
-		ORDER BY rank ASC
+		ORDER BY ` + orderSQL + `
 		LIMIT ?`
 	args = append(args, limit)
 

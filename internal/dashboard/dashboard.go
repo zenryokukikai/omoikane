@@ -897,7 +897,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	pc.Title = "omoikane — search"
 	pc.Query = q
 	if q != "" {
-		res, _, err := h.Store.SearchFTS(r.Context(), prepareFTSQuery(q), store.EntryFilter{
+		res, _, err := h.Store.SearchFTS(r.Context(), q, store.EntryFilter{
 			ProjectID: r.URL.Query().Get("project"),
 			Limit:     50,
 		})
@@ -1462,23 +1462,3 @@ func wikiHref(id, token string) string {
 	return base
 }
 
-// prepareFTSQuery wraps each token in double quotes and a prefix marker so a
-// user-friendly "mask training" becomes the safe FTS5 expression `"mask"* "training"*`.
-//
-// strings.FieldsFunc never emits empty tokens (it collapses runs of
-// separators), so we don't bother filtering them out.
-func prepareFTSQuery(q string) string {
-	fields := strings.FieldsFunc(q, func(r rune) bool {
-		switch r {
-		case ' ', '\t', '\n', ',', ';', '.', '(', ')', '[', ']', '{', '}',
-			'"', '\'', '`', ':', '/', '\\', '!', '?', '=', '<', '>', '|':
-			return true
-		}
-		return false
-	})
-	toks := make([]string, 0, len(fields))
-	for _, f := range fields {
-		toks = append(toks, `"`+strings.ReplaceAll(f, `"`, `""`)+`"*`)
-	}
-	return strings.Join(toks, " ")
-}

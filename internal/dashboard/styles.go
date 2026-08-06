@@ -32,6 +32,15 @@ header {
   background: var(--surface); border-bottom: 1px solid var(--border);
   padding: 0.75rem 1.25rem; display: flex; align-items: center; gap: 1rem;
   position: sticky; top: 0; z-index: 10;
+  /* Mobile: wrap instead of forcing a ~1000px min-width on every page
+     (issue #18 — the single dominant cause of site-wide horizontal
+     scroll at 375px). */
+  flex-wrap: wrap; row-gap: 0.4rem;
+}
+@media (max-width: 720px) {
+  header { padding: 0.6rem 0.9rem; gap: 0.7rem; }
+  header .header-search { flex-basis: 100%; }
+  header .header-search input { flex: 1; min-width: 0; }
 }
 header a { text-decoration: none; color: var(--fg); font-weight: 600; }
 header a:hover { color: var(--accent); }

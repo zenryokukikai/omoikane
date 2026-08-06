@@ -568,6 +568,15 @@ a.attachment-file:hover { background: var(--hover); }
   border-radius: 3px; padding: 0 0.35em; font-weight: 600;
 }
 .cmt-body { margin-top: 0.35rem; white-space: pre-wrap; line-height: 1.55; }
+/* Markdown comments are HTML — pre-wrap would render the whitespace
+   between block tags as phantom blank lines. Long URLs and inline code
+   must break rather than push the thread wide (issue #20). */
+.cmt-body.md { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+.cmt-body.md pre { max-width: 100%; }
+.cmt-body.md code { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .cmt-reply { margin-left: 0.6rem; padding-left: 0.5rem; }
+}
 .cmt-actions { margin-top: 0.4rem; display: flex; gap: 0.5rem; }
 .cmt-btn {
   font-size: 0.75rem; background: none; border: 1px solid var(--border); border-radius: 4px;

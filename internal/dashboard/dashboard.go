@@ -309,6 +309,8 @@ type pageCtx struct {
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's ask-sebastian threads
 	TalkAgent        *store.User         // /talk: the answering agent (avatar + display name)
 	Bookmarked       bool                // entry page: current user starred this entry
+	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
+	JournalTeaser    string              // home: its first lines, markdown stripped
 	Bookmarks        []*store.Bookmark   // /bookmarks: the current user's shortlist
 	ChatStatusFilter string // "OPEN" default, "CLOSED", or "" (= all). Used by chat_threads.html to render the filter UI.
 
@@ -422,7 +424,7 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	const pageSize = 20
+	const pageSize = 8 // front page shows a short "what's new" list; the full browser is /entries
 	page := pageParam(r)
 	entries, total, err := h.Store.ListEntries(ctx, store.EntryFilter{Limit: pageSize, Offset: (page - 1) * pageSize})
 	if err != nil {
@@ -435,6 +437,19 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 	cats, _, cErr := h.Store.ListUseCases(ctx, store.UseCaseFilter{Level: "top"}, 50, 0)
 	pc := h.renderCtx(r)
 	pc.Title = "omoikane — home"
+	// Today's journal teaser — the single most valuable thing on the
+	// front page for a human (issue #21). Non-fatal on error.
+	if js, _, jErr := h.Store.ListEntries(ctx, store.EntryFilter{
+		Type: "librarian_meta", Status: "ACTIVE", Limit: 30,
+	}); jErr == nil {
+		for _, j := range js {
+			if metaKind(j) == "daily_journal" {
+				pc.LatestJournal = j
+				pc.JournalTeaser = teaser(j.Body, 180)
+				break
+			}
+		}
+	}
 	pc.Projects = ps
 	pc.Entries = entries
 	if cErr == nil {

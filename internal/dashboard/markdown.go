@@ -232,3 +232,21 @@ func attachmentHTML(a *store.Attachment, altFromMarkdown, token string) string {
 			template.HTMLEscapeString(label) + `</a>`
 	}
 }
+
+// teaser flattens markdown to plain text and clips it for front-page
+// previews: strip headings/links/emphasis markers, collapse whitespace,
+// cut at a rune boundary.
+func teaser(md string, maxRunes int) string {
+	t := md
+	t = regexp.MustCompile(`(?m)^#{1,6}\s*`).ReplaceAllString(t, "")
+	t = regexp.MustCompile(`\[\[([^\]]+)\]\]`).ReplaceAllString(t, "$1")
+	t = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`).ReplaceAllString(t, "$1")
+	t = strings.NewReplacer("**", "", "*", "", "`", "", ">", "").Replace(t)
+	t = regexp.MustCompile(`\s+`).ReplaceAllString(t, " ")
+	t = strings.TrimSpace(t)
+	r := []rune(t)
+	if len(r) > maxRunes {
+		return string(r[:maxRunes]) + "…"
+	}
+	return t
+}

@@ -624,6 +624,56 @@ a.attachment-file:hover { background: var(--hover); }
 .bm-btn:hover { color: var(--accent); border-color: var(--accent); }
 .bm-btn.bm-on { color: var(--accent); border-color: var(--accent); background: var(--bg-soft); }
 
+/* ---- header ⚙ ops menu (issue #22) — pure CSS dropdown ---- */
+.nav-ops { position: relative; }
+.nav-ops > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: 0.15rem 0.45rem; border-radius: 6px; border: 1px solid transparent;
+}
+.nav-ops > summary::-webkit-details-marker { display: none; }
+.nav-ops[open] > summary { border-color: var(--border); background: var(--bg-soft); }
+.nav-ops-menu {
+  position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 30;
+  display: flex; flex-direction: column; min-width: 12rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12); padding: 0.4rem 0;
+}
+.nav-ops-menu a { padding: 0.35rem 0.9rem; font-weight: 500; font-size: 0.9rem; }
+.nav-ops-menu a:hover { background: var(--bg-soft); }
+.nav-ops-menu hr { border: none; border-top: 1px solid var(--border); margin: 0.3rem 0; }
+
+/* ---- home front page (issue #21) ---- */
+.home-journal {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: var(--surface); padding: 0.9rem 1.1rem; margin: 0.4rem 0 1.2rem;
+}
+.home-journal-head { display: flex; align-items: center; gap: 0.6rem; }
+.home-journal-icon { font-size: 1.4rem; }
+.home-journal-title { font-weight: 700; font-size: 1.05rem; text-decoration: none; }
+.home-journal-sub { font-size: 0.75rem; }
+.home-journal-teaser { margin: 0.6rem 0 0.4rem; color: var(--fg); font-size: 0.92rem; line-height: 1.6; }
+.home-more { font-size: 0.85rem; margin-right: 0.9rem; }
+.home-h { display: flex; align-items: baseline; gap: 0.8rem; }
+.home-fresh { list-style: none; padding: 0; margin: 0.3rem 0 0.5rem; }
+.home-fresh li {
+  display: flex; align-items: baseline; gap: 0.6rem; padding: 0.35rem 0.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.home-fresh li:last-child { border-bottom: none; }
+.home-fresh-title { flex: 1; min-width: 0; text-decoration: none; overflow-wrap: anywhere; }
+.home-fresh-meta { flex-shrink: 0; font-size: 0.75rem; display: inline-flex; gap: 0.4rem; align-items: center; }
+.home-fold { margin: 1rem 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.home-fold > summary {
+  cursor: pointer; padding: 0.6rem 0.9rem; font-weight: 600; user-select: none;
+}
+.home-fold[open] > summary { border-bottom: 1px solid var(--border); }
+.home-fold > *:not(summary) { margin-left: 0.9rem; margin-right: 0.9rem; }
+.home-fold > table { margin-bottom: 0.9rem; width: calc(100% - 1.8rem); }
+.home-fold-note { margin-top: 0.6rem; }
+@media (max-width: 720px) {
+  .home-fresh li { flex-direction: column; gap: 0.15rem; }
+}
+
 /* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
 /* The chat page escapes the 880px article column and follows the
    viewport: full-width fluid layout, tall message pane. Bubbles keep

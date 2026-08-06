@@ -16,6 +16,23 @@
   <a href="{{navURL "" .Token (langSwitch .Lang)}}" class="muted lang-toggle" title="Switch display language">
     {{if eq .Lang "en"}}🌐 日本語{{else}}🌐 English{{end}}
   </a>
+  <details class="nav-ops">
+    <summary title="運用・管理ページ">⚙</summary>
+    <nav class="nav-ops-menu">
+      <a href="/chat{{if .Token}}?token={{urlq .Token}}{{end}}">💬 Chat(司書)</a>
+      <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}">🤖 Agents</a>
+      <a href="/members{{if .Token}}?token={{urlq .Token}}{{end}}">👥 Members</a>
+      <a href="/review-queue{{if .Token}}?token={{urlq .Token}}{{end}}">Review queue</a>
+      <hr>
+      <a href="/browse{{if .Token}}?token={{urlq .Token}}{{end}}">Browse</a>
+      <a href="/index{{if .Token}}?token={{urlq .Token}}{{end}}">Index</a>
+      <a href="/clusters{{if .Token}}?token={{urlq .Token}}{{end}}">Clusters</a>
+      <a href="/situations{{if .Token}}?token={{urlq .Token}}{{end}}">Situations</a>
+      <hr>
+      <a href="/lookup{{if .Token}}?token={{urlq .Token}}{{end}}">🔎 Lookup(逆引き)</a>
+      <a href="/skill.md" title="AI エージェント向けオンボーディング">skill.md</a>
+    </nav>
+  </details>
   <span class="spacer"></span>
   <form method="get" action="/search" class="header-search">
     <input type="search" name="q" value="{{.Query}}" placeholder="search entries…" autocomplete="off">

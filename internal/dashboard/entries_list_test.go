@@ -174,7 +174,7 @@ func TestHomeQuickViewLinks(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	body := string(b)
 	for _, link := range []string{
-		`href="/entries?type=librarian_meta`,
+		`href="/entries?type=external_finding`,
 		`href="/entries?type=trap`,
 		`href="/entries?type=lesson`,
 		`href="/entries?status=DRAFT`,

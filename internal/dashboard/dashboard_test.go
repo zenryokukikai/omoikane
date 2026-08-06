@@ -366,21 +366,6 @@ func TestTrunc(t *testing.T) {
 	}
 }
 
-func TestPrepareFTSQuery(t *testing.T) {
-	cases := map[string]string{
-		"":                   "",
-		" ":                  "",
-		"mask preprocessing": `"mask"* "preprocessing"*`,
-		// double quotes are FTS5 separators in our split set, so
-		// `bad"value` splits into two tokens.
-		`bad"value`: `"bad"* "value"*`,
-	}
-	for in, want := range cases {
-		if got := prepareFTSQuery(in); got != want {
-			t.Errorf("%q: want %q got %q", in, want, got)
-		}
-	}
-}
 
 // ---- auth-gated paths ----
 

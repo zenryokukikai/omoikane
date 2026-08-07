@@ -139,7 +139,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	for _, name := range []string{"home", "journal", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index", "lookup", "use_case", "entries",
-		"chat_threads", "chat_thread", "talk", "bookmarks", "login", "claim", "agents", "profile",
+		"chat_threads", "chat_thread", "talk", "bookmarks", "directives", "login", "claim", "agents", "profile",
 		"members", "member_claim"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
@@ -217,6 +217,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/chat", h.chatThreadsPage)
 		r.Get("/chat/{id}", h.chatThreadPage)
 		r.Get("/bookmarks", h.bookmarksPage)
+		r.Get("/directives", h.directivesPage)
 		r.Get("/talk", h.talkPage)
 		r.Get("/talk/{id}", h.talkPage)
 		r.Get("/agents", h.agentsPage)
@@ -312,6 +313,7 @@ type pageCtx struct {
 	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
 	JournalTeaser    string              // home: its first lines, markdown stripped
 	Bookmarks        []*store.Bookmark   // /bookmarks: the current user's shortlist
+	Directives       []*store.Directive  // /directives: operator watch-topics for scout
 	ChatStatusFilter string // "OPEN" default, "CLOSED", or "" (= all). Used by chat_threads.html to render the filter UI.
 
 	// Phase A — login page
@@ -1098,6 +1100,20 @@ func (h *Handler) claimPage(w http.ResponseWriter, r *http.Request) {
 // ----------------------------------------------------------------------
 // Phase 5 — librarian chat room (read + write from the dashboard)
 // ----------------------------------------------------------------------
+
+// directivesPage manages operator watch-topics for the scout (issue
+// #31) — visible to everyone (the team's shared attention list).
+func (h *Handler) directivesPage(w http.ResponseWriter, r *http.Request) {
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — 巡回指示"
+	ds, err := h.Store.ListDirectives(r.Context(), "scout", false)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	pc.Directives = ds
+	h.render(w, "directives", pc)
+}
 
 // bookmarksPage lists the signed-in user's starred entries.
 func (h *Handler) bookmarksPage(w http.ResponseWriter, r *http.Request) {

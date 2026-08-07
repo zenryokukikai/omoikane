@@ -1,0 +1,51 @@
+{{define "content"}}
+<h1>🧭 巡回指示 <span class="muted" style="font-size:0.55em;font-weight:normal">— scout に「注目してほしいトピック」を渡す</span></h1>
+<p class="muted">指示は通常の巡回・選別基準への<strong>追加</strong>です(視野は狭めません)。scout は各指示について arXiv・Hacker News を能動的に検索し、通常の投稿枠とは別枠で持ち帰ります。</p>
+
+{{if .Me}}
+<form class="directive-form" onsubmit="return dirAdd(event)">
+  <textarea id="dir-text" rows="2" placeholder="例: ○○系モデルの新リリースと実運用報告に注目して"></textarea>
+  <button type="submit" class="cmt-submit">指示を追加</button>
+</form>
+{{else}}
+<p class="muted">指示を追加するにはサインインしてください。</p>
+{{end}}
+
+{{if .Directives}}
+<ul class="directive-list">
+  {{range .Directives}}
+  <li class="directive-row{{if not .Active}} directive-off{{end}}" data-did="{{.ID}}">
+    <div class="directive-text">{{.Text}}</div>
+    <div class="directive-meta muted">
+      {{if .CreatedByName}}{{.CreatedByName}}{{else}}{{.CreatedBy}}{{end}}
+      · {{.CreatedAt.Format "2006-01-02"}}
+      {{if not .Active}}· <span class="badge">無効</span>{{end}}
+    </div>
+    {{if $.Me}}
+    <div class="cmt-actions">
+      <button class="cmt-btn" onclick="dirToggle('{{.ID}}', {{if .Active}}false{{else}}true{{end}})">{{if .Active}}無効化{{else}}有効化{{end}}</button>
+      <button class="cmt-btn" onclick="dirDelete('{{.ID}}')">削除</button>
+    </div>
+    {{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<div class="empty">まだ指示はありません。scout は通常の巡回のみ行います。</div>
+{{end}}
+
+<script>
+async function dirAPI(path, method, body){
+  const r = await fetch(path, {method, credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined});
+  if(!r.ok){ alert('失敗: '+r.status); throw new Error(r.status); }
+  return r;
+}
+async function dirAdd(e){ e.preventDefault();
+  const t = document.getElementById('dir-text'); const v = t.value.trim(); if(!v) return false;
+  await dirAPI('/v1/librarian/directives','POST',{role:'scout', text:v}); location.reload(); return false; }
+async function dirToggle(id, active){ await dirAPI('/v1/librarian/directives/'+id,'PATCH',{active}); location.reload(); }
+async function dirDelete(id){ if(!confirm('この指示を削除しますか?')) return;
+  await dirAPI('/v1/librarian/directives/'+id,'DELETE'); location.reload(); }
+</script>
+{{end}}

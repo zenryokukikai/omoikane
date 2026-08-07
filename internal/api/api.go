@@ -225,6 +225,11 @@ func (h *Handler) Mount(r chi.Router) {
 				// re-processes them (e.g. re-summarise after a template change).
 				r.With(auth.RequireScope("write")).Post("/backlog/reprocess", h.librarianBacklogReprocess)
 
+				r.With(auth.RequireScope("read")).Get("/directives", h.listDirectives)
+				r.With(auth.RequireScope("write")).Post("/directives", h.createDirective)
+				r.With(auth.RequireScope("write")).Patch("/directives/{id}", h.patchDirective)
+				r.With(auth.RequireScope("write")).Delete("/directives/{id}", h.deleteDirective)
+
 				r.With(auth.RequireScope("read")).Get("/threads", h.chatListThreads)
 				r.With(auth.RequireScope("write")).Post("/threads", h.chatOpenThread)
 				r.With(auth.RequireScope("write")).Post("/threads/{id}/close", h.chatCloseThread)

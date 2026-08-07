@@ -662,6 +662,19 @@ form label input, form label select { max-width: 100%; min-width: 0; }
 .chat-newthread label { display: block; width: 100%; }
 .chat-newthread label input, .chat-newthread label select { width: 100%; box-sizing: border-box; }
 
+/* ---- /directives (issue #31) ---- */
+.directive-form { display: flex; gap: 0.5rem; margin: 0.6rem 0 1rem; }
+.directive-form textarea {
+  flex: 1; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.5rem 0.7rem; font: inherit; background: var(--bg); color: inherit; resize: vertical;
+}
+.directive-list { list-style: none; padding: 0; margin: 0; }
+.directive-row { padding: 0.6rem 0.3rem; border-bottom: 1px solid var(--border); }
+.directive-row:last-child { border-bottom: none; }
+.directive-off .directive-text { color: var(--muted); text-decoration: line-through; }
+.directive-text { overflow-wrap: anywhere; }
+.directive-meta { font-size: 0.78rem; margin-top: 0.15rem; }
+
 /* ---- home front page (issue #21) ---- */
 .home-journal {
   border: 1px solid var(--border); border-left: 3px solid var(--accent);

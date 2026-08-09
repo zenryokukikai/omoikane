@@ -46,6 +46,11 @@ func (h *Handler) createDirective(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	// Push to SSE/webhook listeners — an external agent runtime can
+	// react to a fresh watch-topic without waiting for its next patrol.
+	if h.Events != nil {
+		h.Events.Publish(Event{Type: "directive.created", Data: d})
+	}
 	writeJSON(w, http.StatusCreated, d)
 }
 

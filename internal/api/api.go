@@ -58,6 +58,7 @@ func (h *Handler) Mount(r chi.Router) {
 	if h.Events == nil {
 		h.Events = NewEventBus()
 	}
+	h.startWebhookDispatcher()
 	authMW := &auth.Middleware{S: h.Store}
 
 	r.Route("/v1", func(r chi.Router) {
@@ -110,6 +111,13 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("admin")).Post("/admin/members/invitations", h.issueMemberInvite)
 			r.With(auth.RequireScope("admin")).Get("/admin/members/invitations", h.listMemberInvites)
 			r.With(auth.RequireScope("admin")).Patch("/admin/users/{id}/role", h.updateUserRole)
+
+				// Webhook subscriptions (issue #33) — push events to
+				// external agent runtimes; delivery contract in design.md.
+				r.With(auth.RequireScope("admin")).Post("/admin/webhooks", h.createWebhook)
+				r.With(auth.RequireScope("admin")).Get("/admin/webhooks", h.listWebhooks)
+				r.With(auth.RequireScope("admin")).Patch("/admin/webhooks/{id}", h.patchWebhook)
+				r.With(auth.RequireScope("admin")).Delete("/admin/webhooks/{id}", h.deleteWebhook)
 
 			r.With(auth.RequireScope("read")).Get("/projects", h.listProjects)
 			r.With(auth.RequireScope("read")).Get("/projects/{id}", h.getProject)

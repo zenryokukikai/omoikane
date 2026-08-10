@@ -127,7 +127,9 @@ function talkFirstId(){
 }
 function talkLastId(){
   if(!talkList) return '';
-  const els = talkList.querySelectorAll('.talk-msg[data-mid]');
+  // Unconfirmed echoes carry a temporary id the server doesn't know —
+  // never use one as a fetch cursor.
+  const els = talkList.querySelectorAll('.talk-msg[data-mid]:not(.talk-msg-sending)');
   return els.length ? els[els.length-1].dataset.mid : '';
 }
 async function talkFetchFrag(mode, cursor){
@@ -202,46 +204,65 @@ function talkPoll(){
   if(TALK_THREAD) talkLoadNew();
 }
 
+// Optimistic echo (#45): the bubble appears dimmed the instant the user
+// sends, and turns solid once the server has confirmed receipt (the POST
+// returned the stored message id). Plain text is fine for an echo;
+// talkLoadNew swaps in the canonical server render keyed on data-mid.
+function talkEcho(text){
+  const row = document.createElement('div');
+  row.className = 'talk-msg talk-msg-me talk-msg-sending';
+  row.dataset.mid = 'tmp-' + Math.random().toString(36).slice(2);
+  const bub = document.createElement('div');
+  bub.className = 'talk-bubble';
+  const md = document.createElement('div');
+  md.className = 'md';
+  md.textContent = text;
+  bub.appendChild(md);
+  const tm = document.createElement('div');
+  tm.className = 'talk-time muted';
+  const tt = document.createElement('time');
+  tt.setAttribute('data-p', 't');
+  tt.setAttribute('datetime', new Date().toISOString());
+  tm.appendChild(tt);
+  bub.appendChild(tm);
+  row.appendChild(bub);
+  return row;
+}
+
 async function talkSend(e){
   e.preventDefault();
   const t = document.getElementById('talk-input');
   const v = t.value.trim();
   if(!v) return false;
   t.value = '';
-  let tid = TALK_THREAD;
-  if(!tid){
-    const d = await talkAPI('/v1/librarian/threads',
-      {title: v.slice(0, 48), intent: 'ask-sebastian'});
-    tid = d.thread_id;
-  }
-  const posted = await talkAPI('/v1/librarian/chat',
-    {thread_id: tid, author_role: 'human', content: v});
-  if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
-  // Optimistic echo: the user's bubble appears the instant the POST
-  // succeeds instead of waiting on a re-fetch (which a flaky mobile
-  // link can drop, making the message seem lost until it pops up with
-  // the next one). Plain text is fine for an echo; talkLoadNew swaps
-  // in the canonical server render keyed on the same data-mid.
-  if(talkList && posted.id && !talkList.querySelector('.talk-msg[data-mid="' + posted.id + '"]')){
-    const row = document.createElement('div');
-    row.className = 'talk-msg talk-msg-me';
-    row.dataset.mid = posted.id;
-    const bub = document.createElement('div');
-    bub.className = 'talk-bubble';
-    const md = document.createElement('div');
-    md.className = 'md';
-    md.textContent = v;
-    bub.appendChild(md);
-    const tm = document.createElement('div');
-    tm.className = 'talk-time muted';
-    const t = document.createElement('time');
-    t.setAttribute('data-p', 't');
-    t.setAttribute('datetime', new Date().toISOString());
-    tm.appendChild(t);
-    bub.appendChild(tm);
-    row.appendChild(bub);
+  // Dimmed echo goes up BEFORE any network round-trip.
+  let row = null;
+  if(TALK_THREAD && talkList){
+    row = talkEcho(v);
     talkList.appendChild(row);
     talkScroll();
+  }
+  try {
+    let tid = TALK_THREAD;
+    if(!tid){
+      const d = await talkAPI('/v1/librarian/threads',
+        {title: v.slice(0, 48), intent: 'ask-sebastian'});
+      tid = d.thread_id;
+    }
+    const posted = await talkAPI('/v1/librarian/chat',
+      {thread_id: tid, author_role: 'human', content: v});
+    if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
+    if(row && posted.id){
+      // Server has it: adopt the real id and drop the dimmed state.
+      row.dataset.mid = posted.id;
+      row.classList.remove('talk-msg-sending');
+    }
+  } catch(err){
+    // Delivery failed: remove the dimmed bubble and give the draft
+    // back so nothing the user typed is lost. talkAPI already alerted.
+    if(row) row.remove();
+    t.value = v;
+    return false;
   }
   talkPending(true, '考えております…');
   await talkLoadNew();

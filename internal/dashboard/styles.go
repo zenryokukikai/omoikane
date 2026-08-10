@@ -776,6 +776,9 @@ main:has(.talk-layout) { max-width: none; }
    offscreen rows skip layout+paint entirely — long threads stay light. */
 .talk-frag { display: contents; }
 .talk-msg { content-visibility: auto; contain-intrinsic-size: auto 90px; }
+/* Own message awaiting server confirmation — dimmed until the POST
+   returns the stored id, then the class drops and it turns solid. */
+.talk-msg-sending { opacity: 0.45; transition: opacity 0.2s ease; }
 .talk-top-sentinel { text-align: center; font-size: 0.8rem; padding: 0.4rem; }
 .talk-pending {
   display: flex; align-items: center; gap: 0.45rem;

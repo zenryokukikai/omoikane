@@ -68,6 +68,13 @@ func TestTalkPage(t *testing.T) {
 	if !strings.Contains(bs, "talk-msg-bot") {
 		t.Fatalf("missing bot bubble class")
 	}
+	// The live listener must clear the pending line when a responder
+	// message arrives — the defence for responders that never send
+	// chat.status done (#36). Guarded on author_role so the asker's own
+	// message keeps 考えております….
+	if !strings.Contains(bs, "d.author_role !== 'human') talkPending(false)") {
+		t.Fatalf("chat.message listener missing responder pending-clear guard")
+	}
 
 	// Privacy: a plain member can't open alice's thread.
 	if err := st.CreateUser(ctx, &store.User{ID: "bob", Name: "Bob", Role: "member"}); err != nil {

@@ -143,6 +143,13 @@ if (TALK_THREAD) {
       try {
         const d = JSON.parse(ev.data);
         if (d.thread_id !== TALK_THREAD) return;
+        // A responder message ends the working state even when the
+        // responder never sends chat.status done (crash, step cap,
+        // forgotten cleanup). Intermediate messages also clear it, but
+        // the responder's next chat.status text re-opens the line, so
+        // live progress survives. Human messages keep the pending line
+        // (the asker just saw 考えております…).
+        if (d.author_role && d.author_role !== 'human') talkPending(false);
         await talkRefresh();
       } catch (_) {}
     });

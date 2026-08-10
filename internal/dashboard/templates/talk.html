@@ -171,8 +171,13 @@ async function talkLoadNew(){
     if(!cur) return;
     const frag = await talkFetchFrag('since', cur);
     if(!frag) return;
+    // Rows already in the list (optimistic echoes, or a racing append)
+    // are REPLACED by the server copy — the echo is plain text, the
+    // server row is the canonical markdown render. replaceWith moves
+    // the node out of the fragment, so what remains is genuinely new.
     frag.querySelectorAll('.talk-msg[data-mid]').forEach(el => {
-      if(talkList.querySelector('.talk-msg[data-mid="' + el.dataset.mid + '"]')) el.remove();
+      const ex = talkList.querySelector('.talk-msg[data-mid="' + el.dataset.mid + '"]');
+      if(ex) ex.replaceWith(el);
     });
     if(!frag.children.length) return;
     const nearBottom = talkBox.scrollHeight - talkBox.scrollTop - talkBox.clientHeight < 120;
@@ -209,9 +214,35 @@ async function talkSend(e){
       {title: v.slice(0, 48), intent: 'ask-sebastian'});
     tid = d.thread_id;
   }
-  await talkAPI('/v1/librarian/chat',
+  const posted = await talkAPI('/v1/librarian/chat',
     {thread_id: tid, author_role: 'human', content: v});
   if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
+  // Optimistic echo: the user's bubble appears the instant the POST
+  // succeeds instead of waiting on a re-fetch (which a flaky mobile
+  // link can drop, making the message seem lost until it pops up with
+  // the next one). Plain text is fine for an echo; talkLoadNew swaps
+  // in the canonical server render keyed on the same data-mid.
+  if(talkList && posted.id && !talkList.querySelector('.talk-msg[data-mid="' + posted.id + '"]')){
+    const row = document.createElement('div');
+    row.className = 'talk-msg talk-msg-me';
+    row.dataset.mid = posted.id;
+    const bub = document.createElement('div');
+    bub.className = 'talk-bubble';
+    const md = document.createElement('div');
+    md.className = 'md';
+    md.textContent = v;
+    bub.appendChild(md);
+    const tm = document.createElement('div');
+    tm.className = 'talk-time muted';
+    const t = document.createElement('time');
+    t.setAttribute('data-p', 't');
+    t.setAttribute('datetime', new Date().toISOString());
+    tm.appendChild(t);
+    bub.appendChild(tm);
+    row.appendChild(bub);
+    talkList.appendChild(row);
+    talkScroll();
+  }
   talkPending(true, '考えております…');
   await talkLoadNew();
   return false;

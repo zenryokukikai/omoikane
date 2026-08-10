@@ -45,7 +45,7 @@
       <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
       <td class="muted">{{.Intent}}</td>
       <td><a href="/chat/{{.ThreadID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{if .Title}}{{.Title}}{{else}}<span class="muted">(no title)</span>{{end}}</a></td>
-      <td class="muted">{{.OpenedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{ltime .OpenedAt "dt"}}</td>
     </tr>
     {{end}}
   </tbody>

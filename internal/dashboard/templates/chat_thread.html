@@ -7,8 +7,8 @@
   <span class="badge">{{.ThreadID}}</span>
   · <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
   {{if .Intent}}· <span class="badge">{{.Intent}}</span>{{end}}
-  · opened {{.OpenedAt.Format "2006-01-02 15:04"}}
-  {{if .ClosedAt}}· closed {{.ClosedAt.Format "2006-01-02 15:04"}}{{end}}
+  · opened {{ltime .OpenedAt "dt"}}
+  {{if .ClosedAt}}· closed {{ltime .ClosedAt "dt"}}{{end}}
 </p>
 <h1>{{if .Title}}{{.Title}}{{else}}<span class="muted">(no title)</span>{{end}}</h1>
 {{if .Summary}}<div class="banner">📝 {{.Summary}}</div>{{end}}
@@ -26,7 +26,7 @@
       {{end}}
       {{if .AuthorInstanceID}}<span class="muted">{{.AuthorInstanceID}}</span>{{end}}
       {{if .Intent}}<span class="badge">{{.Intent}}</span>{{end}}
-      <span class="muted">{{.Timestamp.Format "2006-01-02 15:04:05"}}</span>
+      <span class="muted">{{ltime .Timestamp "dts"}}</span>
     </div>
     <div class="chat-body md">{{renderContent .Content $.Token}}</div>
   </div>

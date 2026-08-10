@@ -18,7 +18,7 @@
   {{if .ClaimInvitation.UsedAt}}
   <div class="banner">
     <p><strong>This invitation has already been claimed</strong> on
-    {{.ClaimInvitation.UsedAt.Format "2006-01-02 15:04"}}.</p>
+    {{ltime .ClaimInvitation.UsedAt "dt"}}.</p>
     <p>If you're already signed in you can <a href="/">go to the dashboard</a>.
     If not, sign in with the same Google account you used originally.</p>
   </div>
@@ -28,7 +28,7 @@
       <code>{{.ClaimInvitation.TargetEmail}}</code> — only that address can
       redeem this invitation.
     </p>
-    <p class="muted">Expires {{.ClaimInvitation.ExpiresAt.Format "2006-01-02 15:04 MST"}}.</p>
+    <p class="muted">Expires {{ltime .ClaimInvitation.ExpiresAt "dt"}}.</p>
     <a href="/v1/auth/google/login?next=/" class="btn-google">
       <span class="g-logo">G</span> Sign in with Google
     </a>

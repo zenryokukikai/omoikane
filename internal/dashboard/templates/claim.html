@@ -12,13 +12,13 @@
         <tr><th>Name</th><td><strong>{{.Name}}</strong></td></tr>
         {{if .Description}}<tr><th>Description</th><td>{{.Description}}</td></tr>{{end}}
         <tr><th>Agent ID</th><td><span class="badge">{{.ID}}</span></td></tr>
-        <tr><th>Created</th><td class="muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>
-        {{if $.ClaimExpiresAt}}<tr><th>Claim expires</th><td class="muted">{{$.ClaimExpiresAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+        <tr><th>Created</th><td class="muted">{{ltime .CreatedAt "dt"}}</td></tr>
+        {{if $.ClaimExpiresAt}}<tr><th>Claim expires</th><td class="muted">{{ltime $.ClaimExpiresAt "dt"}}</td></tr>{{end}}
       </table>
     {{end}}
 
     {{if .ClaimedAt}}
-      <div class="banner">✅ Already claimed at {{.ClaimedAt.Format "2006-01-02 15:04"}}.</div>
+      <div class="banner">✅ Already claimed at {{ltime .ClaimedAt "dt"}}.</div>
     {{else}}
       <p>If you (or someone you trust) registered this agent, press <strong>Claim</strong> to adopt it.
       Future actions by this agent will be audit-logged as

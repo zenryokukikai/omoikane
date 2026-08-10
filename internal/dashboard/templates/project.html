@@ -20,7 +20,7 @@
       <td><a href="/entries/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
       <td>{{range .Tags}}<span class="badge">{{.}}</span>{{end}}</td>
       <td class="muted">{{.Version}}</td>
-      <td class="muted">{{.UpdatedAt.Format "2006-01-02"}}</td>
+      <td class="muted">{{ltime .UpdatedAt "date"}}</td>
     </tr>
     {{end}}
   </tbody>

@@ -15,7 +15,7 @@
       <td><span class="badge">{{.ID}}</span></td>
       <td class="muted">{{.Domain}}</td>
       <td><a href="/situations/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{trunc .Description 120}}</a></td>
-      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+      <td class="muted">{{ltime .CreatedAt "date"}}</td>
     </tr>
     {{end}}
   </tbody>

@@ -25,7 +25,7 @@
          onclick="this.select();" aria-label="claim URL">
   <p class="muted">When they open it and sign in with Google using <code>{{.TargetEmail}}</code>,
   they'll be granted role <code>{{.TargetRole}}</code> automatically. The link expires
-  {{.ExpiresAt.Format "2006-01-02 15:04"}}.</p>
+  {{ltime .ExpiresAt "dt"}}.</p>
 </div>
 {{end}}{{end}}
 {{end}}
@@ -64,8 +64,8 @@
       <td>
         <span class="badge badge-role-{{.Role}}">{{.Role}}</span>
       </td>
-      <td class="muted">{{.CreatedAt.Format "2006-01-02"}}</td>
-      <td class="muted">{{if .LastLoginAt}}{{.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}<em>never</em>{{end}}</td>
+      <td class="muted">{{ltime .CreatedAt "date"}}</td>
+      <td class="muted">{{if .LastLoginAt}}{{ltime .LastLoginAt "dt"}}{{else}}<em>never</em>{{end}}</td>
       <td>
         {{if ne .ID $.Me.ID}}
         <form method="post" action="/members/{{.ID}}/role{{if $.Token}}?token={{urlq $.Token}}{{end}}" class="role-form">
@@ -97,8 +97,8 @@
       <td><code>{{.TargetEmail}}</code></td>
       <td><span class="badge badge-role-{{.TargetRole}}">{{.TargetRole}}</span></td>
       <td class="muted">{{.Note}}</td>
-      <td class="muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
-      <td class="muted">{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{ltime .CreatedAt "dt"}}</td>
+      <td class="muted">{{ltime .ExpiresAt "dt"}}</td>
       <td>
         {{if .UsedAt}}
           <span class="badge badge-status-PROMOTED">claimed</span>

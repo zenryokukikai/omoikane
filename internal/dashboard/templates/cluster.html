@@ -7,7 +7,7 @@
   <span class="badge">{{.ID}}</span>
   · <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
   · members: {{.MemberCount}}
-  · updated {{.UpdatedAt.Format "2006-01-02 15:04"}}
+  · updated {{ltime .UpdatedAt "dt"}}
   {{if .PromotedToEntryID}}· promoted to <a href="/entries/{{.PromotedToEntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.PromotedToEntryID}}</a>{{end}}
 </p>
 <h1>{{.Title}}</h1>
@@ -22,7 +22,7 @@
     <tr>
       <td><a href="/entries/{{.EntryID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.EntryID}}</a></td>
       <td>{{printf "%.2f" .Similarity}}</td>
-      <td class="muted">{{.AddedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{ltime .AddedAt "dt"}}</td>
       <td class="muted">{{.AddedBy}}</td>
     </tr>
     {{end}}

@@ -13,7 +13,7 @@
     {{range .History}}
     <tr>
       <td>{{.Version}}</td>
-      <td class="muted">{{.ChangedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{ltime .ChangedAt "dt"}}</td>
       <td class="muted">{{.ChangedBy}}{{if .ChangedByRole}} <span class="badge">{{.ChangedByRole}}</span>{{end}}</td>
       <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
       <td>{{.Title}}</td>

@@ -7,6 +7,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -97,6 +98,11 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		"renderContent": func(text, token string) template.HTML {
 			return renderContent(text, token, s)
 		},
+		// ltime renders a timestamp as a <time> element that layout.html's
+		// localizer script rewrites into the viewer's timezone (#43). The
+		// UTC-formatted text is the no-JS fallback. p picks the shape:
+		// date / dt / t / dts / md (see localizer for the exact formats).
+		"ltime": ltime,
 		// appVersion lets layout.html's footer show the running version
 		// on every page without threading it through each handler's data.
 		"appVersion": version.String,
@@ -1383,6 +1389,44 @@ func trunc(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// ltime emits a <time> element the layout localizer rewrites into the
+// viewer's timezone (#43). The text content is the UTC rendering — what
+// a no-JS client (or a test) sees. Zero/nil times render as an empty
+// string so optional fields don't show the epoch. Accepts time.Time or
+// *time.Time — optional store fields are pointers and templates pass
+// function arguments without auto-dereferencing.
+func ltime(v any, p string) template.HTML {
+	var t time.Time
+	switch x := v.(type) {
+	case time.Time:
+		t = x
+	case *time.Time:
+		if x == nil {
+			return ""
+		}
+		t = *x
+	default:
+		return ""
+	}
+	if t.IsZero() {
+		return ""
+	}
+	layout := "2006-01-02 15:04"
+	switch p {
+	case "date":
+		layout = "2006-01-02"
+	case "t":
+		layout = "15:04"
+	case "dts":
+		layout = "2006-01-02 15:04:05"
+	case "md":
+		layout = "01-02 15:04"
+	}
+	u := t.UTC()
+	return template.HTML(fmt.Sprintf("<time data-p=%q datetime=%q>%s</time>",
+		p, u.Format(time.RFC3339), u.Format(layout)))
 }
 
 // deref unwraps a *float64 for template printf use. Returns 0 for nil.

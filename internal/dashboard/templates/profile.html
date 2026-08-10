@@ -20,8 +20,8 @@
       <p class="muted">
         <span class="badge badge-role-{{.Profile.Role}}">{{.Profile.Role}}</span>
         · <code>{{.Profile.ID}}</code>
-        · joined {{.Profile.CreatedAt.Format "2006-01-02"}}
-        {{if .Profile.LastLoginAt}}· last seen {{.Profile.LastLoginAt.Format "2006-01-02 15:04"}}{{end}}
+        · joined {{ltime .Profile.CreatedAt "date"}}
+        {{if .Profile.LastLoginAt}}· last seen {{ltime .Profile.LastLoginAt "dt"}}{{end}}
       </p>
     </div>
   </div>
@@ -87,7 +87,7 @@
           <br><span class="badge">{{.ID}}</span>
         </td>
         <td class="muted">{{.Description}}</td>
-        <td class="muted">{{if .LastLoginAt}}{{.LastLoginAt.Format "2006-01-02 15:04"}}{{else}}<em>never</em>{{end}}</td>
+        <td class="muted">{{if .LastLoginAt}}{{ltime .LastLoginAt "dt"}}{{else}}<em>never</em>{{end}}</td>
       </tr>
       {{end}}
     </tbody>

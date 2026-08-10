@@ -76,7 +76,7 @@
       <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
     </div>
     <div class="entry-row-meta muted">
-      <span class="badge">{{.ID}}</span> · {{.Type}} · {{.ProjectID}} · {{.UpdatedAt.Format "2006-01-02 15:04"}}
+      <span class="badge">{{.ID}}</span> · {{.Type}} · {{.ProjectID}} · {{ltime .UpdatedAt "dt"}}
     </div>
   </li>
   {{end}}

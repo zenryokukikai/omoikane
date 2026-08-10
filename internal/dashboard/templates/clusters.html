@@ -16,7 +16,7 @@
       <td><span class="badge badge-status-{{.Status}}">{{.Status}}</span></td>
       <td>{{.MemberCount}}</td>
       <td><a href="/clusters/{{.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Title}}</a></td>
-      <td class="muted">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+      <td class="muted">{{ltime .UpdatedAt "dt"}}</td>
     </tr>
     {{end}}
   </tbody>

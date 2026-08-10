@@ -11,7 +11,7 @@
       {{range .TalkThreads}}
       <a class="talk-thread{{if and $.ChatThread (eq $.ChatThread.ThreadID .ThreadID)}} talk-active{{end}}" href="/talk/{{.ThreadID}}">
         <span class="talk-thread-title">{{if .Title}}{{.Title}}{{else}}(untitled){{end}}</span>
-        <span class="talk-thread-date muted">{{.OpenedAt.Format "01-02 15:04"}}</span>
+        <span class="talk-thread-date muted">{{ltime .OpenedAt "md"}}</span>
       </a>
       {{else}}
       <p class="muted talk-empty">まだ会話がありません。</p>
@@ -41,7 +41,7 @@
           {{end}}
           <div class="talk-bubble">
             <div class="md">{{renderContent .Content $.Token}}</div>
-            <div class="talk-time muted">{{.Timestamp.Format "15:04"}}</div>
+            <div class="talk-time muted">{{ltime .Timestamp "t"}}</div>
           </div>
         </div>
         {{end}}

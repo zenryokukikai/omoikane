@@ -59,6 +59,37 @@
 {{block "content" .}}{{end}}
 </main>
 <footer>omoikane · audit dashboard · <span class="muted">v{{appVersion}}</span></footer>
+<script>
+// Localize every {{ltime}}-rendered <time> into the viewer's timezone
+// (#43). Server text is UTC (the no-JS fallback); this rewrites it using
+// the browser clock's zone. The MutationObserver keeps SSE/fetch-swapped
+// content (talk refresh, live comment updates) localized too.
+(function(){
+  function z(n){ return String(n).padStart(2, '0'); }
+  function fmt(d, p){
+    var date = d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate());
+    var hm = z(d.getHours()) + ':' + z(d.getMinutes());
+    if (p === 'date') return date;
+    if (p === 't') return hm;
+    if (p === 'md') return z(d.getMonth()+1) + '-' + z(d.getDate()) + ' ' + hm;
+    if (p === 'dts') return date + ' ' + hm + ':' + z(d.getSeconds());
+    return date + ' ' + hm;
+  }
+  function loc(el){
+    var d = new Date(el.getAttribute('datetime'));
+    if (!isNaN(d)) el.textContent = fmt(d, el.getAttribute('data-p'));
+  }
+  function scan(root){
+    if (root.nodeType !== 1 && root.nodeType !== 9) return;
+    if (root.matches && root.matches('time[datetime][data-p]')) loc(root);
+    root.querySelectorAll('time[datetime][data-p]').forEach(loc);
+  }
+  scan(document);
+  new MutationObserver(function(ms){
+    ms.forEach(function(m){ m.addedNodes.forEach(scan); });
+  }).observe(document.body, {childList: true, subtree: true});
+})();
+</script>
 </body>
 </html>{{end}}
 

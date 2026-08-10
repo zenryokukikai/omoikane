@@ -18,7 +18,7 @@
     <div class="directive-text">{{.Text}}</div>
     <div class="directive-meta muted">
       {{if .CreatedByName}}{{.CreatedByName}}{{else}}{{.CreatedBy}}{{end}}
-      · {{.CreatedAt.Format "2006-01-02"}}
+      · {{ltime .CreatedAt "date"}}
       {{if not .Active}}· <span class="badge">無効</span>{{end}}
     </div>
     {{if $.Me}}

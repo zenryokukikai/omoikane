@@ -6,7 +6,7 @@
 <p class="muted">
   <span class="badge">{{.ID}}</span>
   {{if .Domain}} · <span class="badge">{{.Domain}}</span>{{end}}
-  · created {{.CreatedAt.Format "2006-01-02"}}
+  · created {{ltime .CreatedAt "date"}}
 </p>
 <h1>{{.Description}}</h1>
 {{end}}

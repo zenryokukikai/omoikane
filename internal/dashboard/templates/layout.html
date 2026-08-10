@@ -60,10 +60,11 @@
 </main>
 <footer>omoikane · audit dashboard · <span class="muted">v{{appVersion}}</span></footer>
 <script>
-// Localize every {{ltime}}-rendered <time> into the viewer's timezone
+// Localize every ltime-helper-rendered <time> into the viewer's timezone
 // (#43). Server text is UTC (the no-JS fallback); this rewrites it using
 // the browser clock's zone. The MutationObserver keeps SSE/fetch-swapped
 // content (talk refresh, live comment updates) localized too.
+// (NB: no template braces in this comment — html/template executes them.)
 (function(){
   function z(n){ return String(n).padStart(2, '0'); }
   function fmt(d, p){

@@ -106,6 +106,16 @@ func TestTalkPage(t *testing.T) {
 	if !strings.Contains(bs, `data-mid=`) || !strings.Contains(bs, "talk-top-sentinel") {
 		t.Fatalf("virtualization hooks (data-mid / sentinel) missing")
 	}
+	// A template execution error is written INTO the page after partial
+	// output (200 + content), so content assertions alone can pass while
+	// the tail of the layout — including the timezone localizer script —
+	// silently never renders. Guard the full render explicitly.
+	if strings.Contains(bs, "template error:") {
+		t.Fatalf("page contains a template execution error")
+	}
+	if !strings.Contains(bs, "MutationObserver") {
+		t.Fatalf("layout localizer script missing from rendered page")
+	}
 	// Upward page: everything strictly older than the oldest rendered.
 	code, body = get(t, srv, "/talk/"+vt+"?frag=before&cursor="+ids[5], tok)
 	bs = string(body)

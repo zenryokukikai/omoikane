@@ -80,13 +80,27 @@ async function talkAPI(path, body){
   return r.json();
 }
 
+// Stale-guard: the pending line auto-hides when nothing has refreshed it
+// for a while. A working responder updates chat.status every few seconds
+// to few tens of seconds; total silence for this long means it died
+// before posting anything, and the line would otherwise stay forever.
+const TALK_PENDING_STALE_MS = 5 * 60 * 1000;
+let talkPendingSince = 0;
+
 function talkPending(show, text){
   const p = document.getElementById('talk-pending');
   if(!p) return;
   if(text) document.getElementById('talk-status').textContent = text;
   p.hidden = !show;
+  talkPendingSince = show ? Date.now() : 0;
   if(show) talkScroll();
 }
+
+setInterval(() => {
+  if(talkPendingSince && Date.now() - talkPendingSince > TALK_PENDING_STALE_MS){
+    talkPending(false);
+  }
+}, 30000);
 
 async function talkRefresh(){
   const r = await fetch(location.href, {credentials:'same-origin', cache:'no-store'});
@@ -97,8 +111,14 @@ async function talkRefresh(){
     const p = document.getElementById('talk-pending');
     const pendingShown = p && !p.hidden;
     const pendingText = document.getElementById('talk-status')?.textContent;
+    const pendingSince = talkPendingSince;
     talkBox.innerHTML = fresh.innerHTML;
-    if(pendingShown) talkPending(true, pendingText);
+    if(pendingShown){
+      talkPending(true, pendingText);
+      // Carrying the line across a refresh is not activity — keep the
+      // original timestamp so the stale-guard still fires.
+      talkPendingSince = pendingSince;
+    }
     talkScroll();
   }
 }

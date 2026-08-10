@@ -495,6 +495,69 @@ func (s *Store) ListChatMessagesSince(ctx context.Context, threadID string, sinc
 	return out, nil
 }
 
+// chatMessageCols is the SELECT list shared by the thread-window
+// queries below; keep in sync with scanChatMessage.
+const chatMessageCols = `id, COALESCE(thread_id,''), timestamp, author_role,
+	       COALESCE(author_instance_id,''), COALESCE(author_user_id,''),
+	       COALESCE(reply_to,''), COALESCE(mentions,''), COALESCE(intent,''),
+	       content, COALESCE(related_entries,''), input_tokens, output_tokens,
+	       COALESCE(metadata,'')`
+
+func scanChatMessage(c rowScanner, m *ChatMessage) error {
+	return c.Scan(&m.ID, &m.ThreadID, &m.Timestamp, &m.AuthorRole,
+		&m.AuthorInstanceID, &m.AuthorUserID, &m.ReplyTo, &m.Mentions,
+		&m.Intent, &m.Content, &m.RelatedEntries, &m.InputTokens,
+		&m.OutputTokens, &m.Metadata)
+}
+
+// listChatWindowDesc runs a newest-first window query and returns it
+// oldest-first — the order the chat UI renders in.
+func (s *Store) listChatWindowDesc(ctx context.Context, query string, args ...any) ([]*ChatMessage, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	values, err := mapRows[ChatMessage](rows, scanChatMessage)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ChatMessage, len(values))
+	for i := range values {
+		out[len(values)-1-i] = &values[i]
+	}
+	return out, nil
+}
+
+// ListChatMessagesTail returns the NEWEST `limit` messages of a thread,
+// oldest-first. This is the initial window for the virtualized /talk
+// view (#45) — the page opens at the bottom of the conversation.
+func (s *Store) ListChatMessagesTail(ctx context.Context, threadID string, limit int) ([]*ChatMessage, error) {
+	if limit <= 0 {
+		limit = 50
+	} else if limit > 500 {
+		limit = 500
+	}
+	return s.listChatWindowDesc(ctx, `
+		SELECT `+chatMessageCols+`
+		FROM librarian_chat WHERE thread_id = ?
+		ORDER BY timestamp DESC LIMIT ?`, threadID, limit)
+}
+
+// ListChatMessagesBefore returns up to `limit` messages strictly older
+// than beforeTS, oldest-first — the window that ends just before the
+// caller's oldest rendered message (upward infinite scroll, #45).
+func (s *Store) ListChatMessagesBefore(ctx context.Context, threadID string, beforeTS time.Time, limit int) ([]*ChatMessage, error) {
+	if limit <= 0 {
+		limit = 50
+	} else if limit > 500 {
+		limit = 500
+	}
+	return s.listChatWindowDesc(ctx, `
+		SELECT `+chatMessageCols+`
+		FROM librarian_chat WHERE thread_id = ? AND timestamp < ?
+		ORDER BY timestamp DESC LIMIT ?`, threadID, beforeTS, limit)
+}
+
 // GetChatMessage returns one message by id. Used by the long-poll
 // endpoint to resolve a client-supplied `since` message id to its
 // timestamp so the cursor query can use a SARGable comparison.

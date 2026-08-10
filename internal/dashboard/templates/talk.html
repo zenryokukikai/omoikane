@@ -159,14 +159,28 @@ async function talkLoadEarlier(){
   }
 }
 
+let talkLoadingNew = false;
 async function talkLoadNew(){
-  const cur = talkLastId();
-  if(!cur) return;
-  const frag = await talkFetchFrag('since', cur);
-  if(!frag || !frag.children.length) return;
-  const nearBottom = talkBox.scrollHeight - talkBox.scrollTop - talkBox.clientHeight < 120;
-  talkList.appendChild(frag);
-  if(nearBottom) talkScroll();
+  // Serialized + deduped: the send path and the SSE listener both call
+  // this, and two in-flight fetches from the same cursor would append
+  // the same messages twice.
+  if(talkLoadingNew) return;
+  talkLoadingNew = true;
+  try {
+    const cur = talkLastId();
+    if(!cur) return;
+    const frag = await talkFetchFrag('since', cur);
+    if(!frag) return;
+    frag.querySelectorAll('.talk-msg[data-mid]').forEach(el => {
+      if(talkList.querySelector('.talk-msg[data-mid="' + el.dataset.mid + '"]')) el.remove();
+    });
+    if(!frag.children.length) return;
+    const nearBottom = talkBox.scrollHeight - talkBox.scrollTop - talkBox.clientHeight < 120;
+    talkList.appendChild(frag);
+    if(nearBottom) talkScroll();
+  } finally {
+    talkLoadingNew = false;
+  }
 }
 
 let talkTopObserver = null;

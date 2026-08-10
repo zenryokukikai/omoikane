@@ -1,3 +1,19 @@
+{{define "talk_frag"}}<div class="talk-frag" data-has-more="{{if .ChatHasEarlier}}1{{end}}">
+{{range .ChatMessages}}
+<div class="talk-msg {{if eq .AuthorUserID $.Me.ID}}talk-msg-me{{else}}talk-msg-bot{{end}}" data-mid="{{.ID}}">
+  {{if ne .AuthorUserID $.Me.ID}}
+    {{if and $.TalkAgent $.TalkAgent.AvatarURL}}
+    <img class="talk-avatar-sm-img" src="{{$.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+    {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
+  {{end}}
+  <div class="talk-bubble">
+    <div class="md">{{renderContent .Content $.Token}}</div>
+    <div class="talk-time muted">{{ltime .Timestamp "t"}}</div>
+  </div>
+</div>
+{{end}}
+</div>{{end}}
+
 {{define "content"}}
 {{if not .Me}}
 <h1>🎩 セバスチャンに聞く</h1>
@@ -32,19 +48,8 @@
 
     <div class="talk-messages" id="talk-messages">
       {{if .ChatThread}}
-        {{range .ChatMessages}}
-        <div class="talk-msg {{if eq .AuthorUserID $.Me.ID}}talk-msg-me{{else}}talk-msg-bot{{end}}">
-          {{if ne .AuthorUserID $.Me.ID}}
-            {{if and $.TalkAgent $.TalkAgent.AvatarURL}}
-            <img class="talk-avatar-sm-img" src="{{$.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
-            {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
-          {{end}}
-          <div class="talk-bubble">
-            <div class="md">{{renderContent .Content $.Token}}</div>
-            <div class="talk-time muted">{{ltime .Timestamp "t"}}</div>
-          </div>
-        </div>
-        {{end}}
+        <div id="talk-top-sentinel" class="talk-top-sentinel muted"{{if not .ChatHasEarlier}} hidden{{end}}>過去の会話を読み込み中…</div>
+        <div id="talk-list">{{template "talk_frag" .}}</div>
       {{else}}
         <div class="talk-greeting">
           <p>ご用の際は、下の欄からお申し付けください。</p>
@@ -103,30 +108,79 @@ function talkStaleCheck(){
 }
 // The interval alone is not enough: mobile browsers freeze timers in
 // background tabs, so a tab reopened hours later would still show the
-// stale line for up to one tick. talkRefresh runs on visibility/focus,
+// stale line for up to one tick. talkPoll runs on visibility/focus,
 // so checking there hides it the moment the user comes back.
 setInterval(talkStaleCheck, 30000);
 
-async function talkRefresh(){
-  talkStaleCheck();
-  const r = await fetch(location.href, {credentials:'same-origin', cache:'no-store'});
-  if(!r.ok) return;
+// ---- virtualized message list (#45) ----------------------------------
+// The DOM holds only the windows the user has actually scrolled through:
+// the page opens with the newest 50, older windows arrive as rendered
+// fragments when the top sentinel becomes visible, and live updates
+// APPEND only what is new — the full-page innerHTML swap is gone, so an
+// update costs O(new messages), not O(entire history). content-visibility
+// in CSS keeps offscreen rows out of layout/paint entirely.
+const talkList = document.getElementById('talk-list');
+
+function talkFirstId(){
+  const el = talkList && talkList.querySelector('.talk-msg[data-mid]');
+  return el ? el.dataset.mid : '';
+}
+function talkLastId(){
+  if(!talkList) return '';
+  const els = talkList.querySelectorAll('.talk-msg[data-mid]');
+  return els.length ? els[els.length-1].dataset.mid : '';
+}
+async function talkFetchFrag(mode, cursor){
+  const r = await fetch(location.pathname + '?frag=' + mode + '&cursor=' + encodeURIComponent(cursor),
+    {credentials:'same-origin', cache:'no-store'});
+  if(!r.ok) return null;
   const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-  const fresh = doc.getElementById('talk-messages');
-  if(fresh){
-    const p = document.getElementById('talk-pending');
-    const pendingShown = p && !p.hidden;
-    const pendingText = document.getElementById('talk-status')?.textContent;
-    const pendingSince = talkPendingSince;
-    talkBox.innerHTML = fresh.innerHTML;
-    if(pendingShown){
-      talkPending(true, pendingText);
-      // Carrying the line across a refresh is not activity — keep the
-      // original timestamp so the stale-guard still fires.
-      talkPendingSince = pendingSince;
-    }
-    talkScroll();
+  return doc.querySelector('.talk-frag');
+}
+
+let talkLoadingEarlier = false;
+async function talkLoadEarlier(){
+  const cur = talkFirstId();
+  if(talkLoadingEarlier || !cur) return;
+  talkLoadingEarlier = true;
+  try {
+    const frag = await talkFetchFrag('before', cur);
+    if(!frag) return;
+    const sentinel = document.getElementById('talk-top-sentinel');
+    const prevHeight = talkBox.scrollHeight;
+    // .talk-frag is display:contents — the wrapper is layout-transparent,
+    // so whole fragments nest in the list without affecting flex/gap.
+    talkList.prepend(frag);
+    // Keep the viewport anchored on the message the user was reading.
+    talkBox.scrollTop += talkBox.scrollHeight - prevHeight;
+    if(frag.dataset.hasMore !== '1' && sentinel){ sentinel.hidden = true; talkTopObserver.disconnect(); }
+  } finally {
+    talkLoadingEarlier = false;
   }
+}
+
+async function talkLoadNew(){
+  const cur = talkLastId();
+  if(!cur) return;
+  const frag = await talkFetchFrag('since', cur);
+  if(!frag || !frag.children.length) return;
+  const nearBottom = talkBox.scrollHeight - talkBox.scrollTop - talkBox.clientHeight < 120;
+  talkList.appendChild(frag);
+  if(nearBottom) talkScroll();
+}
+
+let talkTopObserver = null;
+if (TALK_THREAD && talkList) {
+  talkTopObserver = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if(e.isIntersecting) talkLoadEarlier(); });
+  }, {root: talkBox, rootMargin: '200px 0px 0px 0px'});
+  const sentinel = document.getElementById('talk-top-sentinel');
+  if(sentinel && !sentinel.hidden) talkTopObserver.observe(sentinel);
+}
+
+function talkPoll(){
+  talkStaleCheck();
+  if(TALK_THREAD) talkLoadNew();
 }
 
 async function talkSend(e){
@@ -145,7 +199,7 @@ async function talkSend(e){
     {thread_id: tid, author_role: 'human', content: v});
   if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
   talkPending(true, '考えております…');
-  await talkRefresh();
+  await talkLoadNew();
   return false;
 }
 
@@ -176,7 +230,7 @@ if (TALK_THREAD) {
         // live progress survives. Human messages keep the pending line
         // (the asker just saw 考えております…).
         if (d.author_role && d.author_role !== 'human') talkPending(false);
-        await talkRefresh();
+        await talkLoadNew();
       } catch (_) {}
     });
     // Live tool activity from the responder while it works — the
@@ -191,9 +245,9 @@ if (TALK_THREAD) {
       } catch (_) {}
     });
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) talkRefresh(); });
-  window.addEventListener('focus', () => talkRefresh());
-  setInterval(() => { if (!live) talkRefresh(); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) talkPoll(); });
+  window.addEventListener('focus', () => talkPoll());
+  setInterval(() => { if (!live) talkPoll(); }, 60000);
 }
 </script>
 {{end}}

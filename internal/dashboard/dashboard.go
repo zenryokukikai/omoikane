@@ -313,6 +313,7 @@ type pageCtx struct {
 	ChatThreads      []*store.ChatThread
 	ChatThread       *store.ChatThread
 	ChatMessages     []*store.ChatMessage
+	ChatHasEarlier   bool                // /talk: older messages exist above the rendered window (#45)
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's ask-sebastian threads
 	TalkAgent        *store.User         // /talk: the answering agent (avatar + display name)
 	Bookmarked       bool                // entry page: current user starred this entry
@@ -1182,16 +1183,71 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		msgs, err := h.Store.ListChatMessages(r.Context(), id, 500)
+		// Fragment mode (#45): serve one rendered message window for the
+		// virtualized list instead of the whole page. Auth above applies.
+		if frag := r.URL.Query().Get("frag"); frag != "" {
+			h.talkFragment(w, r, &pc, id, frag)
+			return
+		}
+		// Initial window: the newest talkWindow messages. Fetching one
+		// extra tells us whether an earlier page exists without a COUNT.
+		msgs, err := h.Store.ListChatMessagesTail(r.Context(), id, talkWindow+1)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
+		}
+		if len(msgs) > talkWindow {
+			pc.ChatHasEarlier = true
+			msgs = msgs[1:] // oldest-first slice: drop the probe row
 		}
 		pc.ChatThread = th
 		pc.ChatMessages = msgs
 		pc.Title = "omoikane — " + firstNonEmpty(th.Title, "セバスチャンに聞く")
 	}
 	h.render(w, "talk", pc)
+}
+
+// talkWindow is the /talk message page size: the initial render and each
+// upward infinite-scroll fetch (#45).
+const talkWindow = 50
+
+// talkFragment renders the `talk_frag` template — a bare run of message
+// rows — for the virtualized /talk list. mode "before" pages upward from
+// the cursor message; "since" returns everything newer (live append).
+func (h *Handler) talkFragment(w http.ResponseWriter, r *http.Request, pc *pageCtx, threadID, mode string) {
+	cur, err := h.Store.GetChatMessage(r.Context(), r.URL.Query().Get("cursor"))
+	if err != nil || cur.ThreadID != threadID {
+		http.Error(w, "unknown cursor", http.StatusBadRequest)
+		return
+	}
+	switch mode {
+	case "before":
+		msgs, err := h.Store.ListChatMessagesBefore(r.Context(), threadID, cur.Timestamp, talkWindow+1)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if len(msgs) > talkWindow {
+			pc.ChatHasEarlier = true
+			msgs = msgs[1:]
+		}
+		pc.ChatMessages = msgs
+	case "since":
+		msgs, err := h.Store.ListChatMessagesSince(r.Context(), threadID, cur.Timestamp, 200)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		pc.ChatMessages = msgs
+	default:
+		http.Error(w, "frag must be before|since", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	if err := h.pages["talk"].ExecuteTemplate(w, "talk_frag", pc); err != nil {
+		http.Error(w, "template error", http.StatusInternalServerError)
+	}
 }
 
 func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {

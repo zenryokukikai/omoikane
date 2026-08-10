@@ -771,6 +771,12 @@ main:has(.talk-layout) { max-width: none; }
 .talk-bubble .md p:last-child { margin-bottom: 0; }
 .talk-time { font-size: 0.68rem; text-align: right; margin-top: 0.2rem; }
 .talk-greeting { margin: auto; text-align: center; max-width: 34rem; }
+/* Virtualized message list (#45): fragment wrappers are layout-transparent
+   so prepended/appended windows nest without affecting flex spacing, and
+   offscreen rows skip layout+paint entirely — long threads stay light. */
+.talk-frag { display: contents; }
+.talk-msg { content-visibility: auto; contain-intrinsic-size: auto 90px; }
+.talk-top-sentinel { text-align: center; font-size: 0.8rem; padding: 0.4rem; }
 .talk-pending {
   display: flex; align-items: center; gap: 0.45rem;
   padding: 0.3rem 0.4rem; font-size: 0.85rem; color: var(--muted);

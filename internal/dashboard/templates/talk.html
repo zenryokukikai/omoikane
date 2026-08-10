@@ -96,13 +96,19 @@ function talkPending(show, text){
   if(show) talkScroll();
 }
 
-setInterval(() => {
+function talkStaleCheck(){
   if(talkPendingSince && Date.now() - talkPendingSince > TALK_PENDING_STALE_MS){
     talkPending(false);
   }
-}, 30000);
+}
+// The interval alone is not enough: mobile browsers freeze timers in
+// background tabs, so a tab reopened hours later would still show the
+// stale line for up to one tick. talkRefresh runs on visibility/focus,
+// so checking there hides it the moment the user comes back.
+setInterval(talkStaleCheck, 30000);
 
 async function talkRefresh(){
+  talkStaleCheck();
   const r = await fetch(location.href, {credentials:'same-origin', cache:'no-store'});
   if(!r.ok) return;
   const doc = new DOMParser().parseFromString(await r.text(), 'text/html');

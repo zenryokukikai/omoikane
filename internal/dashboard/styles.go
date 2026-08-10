@@ -775,6 +775,10 @@ main:has(.talk-layout) { max-width: none; }
   display: flex; align-items: center; gap: 0.45rem;
   padding: 0.3rem 0.4rem; font-size: 0.85rem; color: var(--muted);
 }
+/* display:flex above overrides the UA's [hidden]{display:none} (author
+   origin wins), which kept the 考えております… line permanently visible
+   no matter what JS set p.hidden to. Restate it at author level. */
+.talk-pending[hidden] { display: none; }
 .talk-dots::after { content: ""; animation: talkdots 1.5s steps(4) infinite; }
 @keyframes talkdots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 .talk-compose {

@@ -707,7 +707,7 @@ form label input, form label select { max-width: 100%; min-width: 0; }
   .home-fresh li { flex-direction: column; gap: 0.15rem; }
 }
 
-/* ---- /talk — セバスチャンに聞く (per-user chat) ---- */
+/* ---- /talk — per-user responder chat ---- */
 /* The chat page escapes the 880px article column and follows the
    viewport: full-width fluid layout, tall message pane. Bubbles keep
    a readable line length via their own cap. (:has-less browsers just

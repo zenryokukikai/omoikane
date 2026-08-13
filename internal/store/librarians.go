@@ -112,7 +112,7 @@ var ValidLibrarianRoles = map[string]bool{
 // actually two-way.
 func ValidChatAuthor(r string) bool {
 	// Humans and every rostered librarian may speak; "chronicler" is the
-	// deliberately OFF-ROSTER community agent (Sebastian) — it never
+	// deliberately OFF-ROSTER community agent (the /talk responder) — it never
 	// holds librarian_instances/tasks, but it does answer in chat
 	// (/talk), so it is a valid chat author without widening the
 	// librarian-role vocabulary.

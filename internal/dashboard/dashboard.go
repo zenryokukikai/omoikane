@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strconv"
@@ -103,6 +104,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		// UTC-formatted text is the no-JS fallback. p picks the shape:
 		// date / dt / t / dts / md (see localizer for the exact formats).
 		"ltime": ltime,
+		"talkAgentName": talkAgentName,
 		// appVersion lets layout.html's footer show the running version
 		// on every page without threading it through each handler's data.
 		"appVersion": version.String,
@@ -314,7 +316,7 @@ type pageCtx struct {
 	ChatThread       *store.ChatThread
 	ChatMessages     []*store.ChatMessage
 	ChatHasEarlier   bool                // /talk: older messages exist above the rendered window (#45)
-	TalkThreads      []*store.ChatThread // /talk: the signed-in user's ask-sebastian threads
+	TalkThreads      []*store.ChatThread // /talk: the signed-in user's responder-chat threads
 	TalkAgent        *store.User         // /talk: the answering agent (avatar + display name)
 	Bookmarked       bool                // entry page: current user starred this entry
 	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
@@ -1137,20 +1139,20 @@ func (h *Handler) bookmarksPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "bookmarks", pc)
 }
 
-// talkPage is the per-user "セバスチャンに聞く" chat: an Open-WebUI-style
+// talkPage is the per-user responder chat: an Open-WebUI-style
 // two-pane page over the existing chat_threads/librarian_chat machinery.
 // Threads are the signed-in user's own (created_by) with intent
-// "ask-sebastian"; the Sebastian responder answers via the same chat API.
+// "ask-sebastian" (a legacy protocol id, see #51); the responder agent answers via the same chat API.
 func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 	pc := h.renderCtx(r)
-	pc.Title = "omoikane — セバスチャンに聞く"
+	pc.Title = "omoikane — " + talkAgentName() + "に聞く"
 	// The answering agent's own profile drives the header/bubble avatar,
 	// so a re-uploaded portrait shows up here without a code change.
 	// Matched by name (the chat author_role is "chronicler", but the
 	// user is the one displayed).
 	if users, err := h.Store.ListUsers(r.Context(), "agent", 200); err == nil {
 		for _, u := range users {
-			if u.Name == "セバスチャン" {
+			if u.Name == talkAgentName() {
 				pc.TalkAgent = u
 				break
 			}
@@ -1202,7 +1204,7 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 		}
 		pc.ChatThread = th
 		pc.ChatMessages = msgs
-		pc.Title = "omoikane — " + firstNonEmpty(th.Title, "セバスチャンに聞く")
+		pc.Title = "omoikane — " + firstNonEmpty(th.Title, talkAgentName()+"に聞く")
 	}
 	h.render(w, "talk", pc)
 }
@@ -1438,6 +1440,15 @@ func (h *Handler) render(w http.ResponseWriter, page string, data any) {
 	if err := tpl.ExecuteTemplate(w, "layout", data); err != nil {
 		_, _ = w.Write([]byte("<pre>template error: " + template.HTMLEscapeString(err.Error()) + "</pre>"))
 	}
+}
+
+// talkAgentName is the /talk responder's display name. The concrete
+// persona name is deployment configuration (env), never code (#51).
+func talkAgentName() string {
+	if v := os.Getenv("KB_TALK_AGENT_NAME"); v != "" {
+		return v
+	}
+	return "コンシェルジュ"
 }
 
 func trunc(s string, n int) string {

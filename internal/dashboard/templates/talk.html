@@ -16,8 +16,8 @@
 
 {{define "content"}}
 {{if not .Me}}
-<h1>🎩 セバスチャンに聞く</h1>
-<p class="muted">ナレッジベースを横断検索して答える執事エージェントとの対話ページです。会話履歴はアカウントごとに保存されます。</p>
+<h1>🎩 {{talkAgentName}}に聞く</h1>
+<p class="muted">ナレッジベースを横断検索して答える応対エージェントとの対話ページです。会話履歴はアカウントごとに保存されます。</p>
 <p><a class="btn" href="/login">サインインして始める</a></p>
 {{else}}
 <div class="talk-layout">
@@ -41,7 +41,7 @@
       <img class="talk-avatar-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
       {{else}}<span class="talk-avatar">🎩</span>{{end}}
       <div>
-        <div class="talk-name">{{if .TalkAgent}}{{.TalkAgent.Name}}{{else}}セバスチャン{{end}}</div>
+        <div class="talk-name">{{if .TalkAgent}}{{.TalkAgent.Name}}{{else}}{{talkAgentName}}{{end}}</div>
         <div class="muted talk-sub">書庫の記録を検索して、根拠つきでお答えします</div>
       </div>
     </div>
@@ -65,7 +65,7 @@
     </div>
 
     <form class="talk-compose" onsubmit="return talkSend(event)">
-      <textarea id="talk-input" rows="2" placeholder="セバスチャンへの質問…(Enter で送信 / Shift+Enter で改行)"></textarea>
+      <textarea id="talk-input" rows="2" placeholder="{{talkAgentName}}への質問…(Enter で送信 / Shift+Enter で改行)"></textarea>
       <button type="submit" class="talk-send">送信</button>
     </form>
   </section>
@@ -300,7 +300,7 @@ if (TALK_THREAD) {
       } catch (_) {}
     });
     // Live tool activity from the responder while it works — the
-    // pending line shows what Sebastian is actually doing (searching,
+    // pending line shows what the responder is actually doing (searching,
     // reading an entry, …). done:true turns the line off.
     es.addEventListener('chat.status', (ev) => {
       try {

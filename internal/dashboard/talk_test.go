@@ -9,7 +9,7 @@ import (
 	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
-// /talk is the per-user Sebastian chat: signed-out shell, own-thread
+// /talk is the per-user responder chat: signed-out shell, own-thread
 // history in the sidebar, message rendering, and privacy (a member
 // cannot open someone else's thread).
 func TestTalkPage(t *testing.T) {
@@ -40,7 +40,7 @@ func TestTalkPage(t *testing.T) {
 		Title: "librarian-only", Intent: "observation", CreatedBy: "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateUser(ctx, &store.User{ID: "seb", Name: "セバスチャン", Role: "agent"}); err != nil {
+	if err := st.CreateUser(ctx, &store.User{ID: "seb", Name: "コンシェルジュ", Role: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PostChatMessage(ctx, &store.ChatMessage{
@@ -65,7 +65,7 @@ func TestTalkPage(t *testing.T) {
 	if strings.Contains(bs, "librarian-only") {
 		t.Fatalf("non-ask-sebastian thread leaked into sidebar")
 	}
-	// Sebastian's message renders on the bot side.
+	// The responder's message renders on the bot side.
 	if !strings.Contains(bs, "talk-msg-bot") {
 		t.Fatalf("missing bot bubble class")
 	}

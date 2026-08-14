@@ -178,6 +178,11 @@ async function talkLoadNew(){
   try {
     do {
       talkNewDirty = false;
+      // Re-check per iteration, not only at entry: a send that starts
+      // while we're already looping would otherwise race its own echo
+      // (the residual window the verifier found). Breaking is safe —
+      // talkSend re-runs us when the POST settles.
+      if(talkList && talkList.querySelector('.talk-msg-sending')) break;
       const cur = talkLastId();
       // Empty list (#57-4): no cursor exists, so recover via the
       // cursorless tail window instead of going deaf.
@@ -266,9 +271,15 @@ async function talkSend(e){
       {thread_id: tid, author_role: 'human', content: v});
     if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
     if(row && posted.id){
-      // Server has it: adopt the real id and drop the dimmed state.
-      row.dataset.mid = posted.id;
-      row.classList.remove('talk-msg-sending');
+      // If a racing fetch already appended the canonical render of this
+      // very message, the echo is the duplicate — drop it. Otherwise
+      // adopt the real id and turn solid.
+      if(talkList && talkList.querySelector('.talk-msg[data-mid="' + posted.id + '"]')){
+        row.remove();
+      } else {
+        row.dataset.mid = posted.id;
+        row.classList.remove('talk-msg-sending');
+      }
     }
   } catch(err){
     // Delivery failed: remove the dimmed bubble and give the draft

@@ -1216,8 +1216,24 @@ const talkWindow = 50
 
 // talkFragment renders the `talk_frag` template — a bare run of message
 // rows — for the virtualized /talk list. mode "before" pages upward from
-// the cursor message; "since" returns everything newer (live append).
+// the cursor message; "since" returns everything newer (live append);
+// "tail" returns the newest window with no cursor — the live-update
+// recovery path for a thread rendered empty (#57-4).
 func (h *Handler) talkFragment(w http.ResponseWriter, r *http.Request, pc *pageCtx, threadID, mode string) {
+	if mode == "tail" {
+		msgs, err := h.Store.ListChatMessagesTail(r.Context(), threadID, talkWindow+1)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if len(msgs) > talkWindow {
+			pc.ChatHasEarlier = true
+			msgs = msgs[1:]
+		}
+		pc.ChatMessages = msgs
+		h.renderTalkFrag(w, pc)
+		return
+	}
 	cur, err := h.Store.GetChatMessage(r.Context(), r.URL.Query().Get("cursor"))
 	if err != nil || cur.ThreadID != threadID {
 		http.Error(w, "unknown cursor", http.StatusBadRequest)
@@ -1243,9 +1259,13 @@ func (h *Handler) talkFragment(w http.ResponseWriter, r *http.Request, pc *pageC
 		}
 		pc.ChatMessages = msgs
 	default:
-		http.Error(w, "frag must be before|since", http.StatusBadRequest)
+		http.Error(w, "frag must be before|since|tail", http.StatusBadRequest)
 		return
 	}
+	h.renderTalkFrag(w, pc)
+}
+
+func (h *Handler) renderTalkFrag(w http.ResponseWriter, pc *pageCtx) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	if err := h.pages["talk"].ExecuteTemplate(w, "talk_frag", pc); err != nil {

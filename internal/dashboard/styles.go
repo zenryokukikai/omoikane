@@ -775,6 +775,11 @@ main:has(.talk-layout) { max-width: none; }
    so prepended/appended windows nest without affecting flex spacing, and
    offscreen rows skip layout+paint entirely — long threads stay light. */
 .talk-frag { display: contents; }
+/* Upward infinite scroll does its own scroll compensation after a
+   prepend; the browser's native scroll anchoring would correct AGAIN
+   on the forced layout in between, jumping the view a whole window
+   down (#57-1, reproduced in Chromium). One corrector only: ours. */
+.talk-messages { overflow-anchor: none; }
 .talk-msg { content-visibility: auto; contain-intrinsic-size: auto 90px; }
 /* Own message awaiting server confirmation — dimmed until the POST
    returns the stored id, then the class drops and it turns solid. */

@@ -168,7 +168,7 @@ func TestWebhookChatEchoFilter(t *testing.T) {
 		t.Fatalf("create webhook: %d", code)
 	}
 	_, th := do("POST", "/v1/librarian/threads", map[string]string{
-		"title": "echo filter", "intent": "ask-sebastian"})
+		"title": "echo filter", "intent": "talk"})
 	tid, _ := th["thread_id"].(string)
 	if tid == "" {
 		t.Fatalf("no thread id: %v", th)

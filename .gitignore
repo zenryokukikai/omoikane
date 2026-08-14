@@ -17,3 +17,9 @@ client_secret_*.json
 # Claude Code local settings — per-machine, may contain IPs / hostnames.
 # A team-shared `.claude/settings.json` is fine; the .local.json isn't.
 .claude/settings.local.json
+
+# local workspace artifacts (never commit)
+.claude/
+/index.html
+/ai-interview-service.html
+/mvp-flow.html

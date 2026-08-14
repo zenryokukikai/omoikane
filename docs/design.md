@@ -2008,7 +2008,7 @@ migration 022 / `internal/store/entry_comments.go` / `internal/api/comments.go`�
 **ユーザー別チャット /talk と chat.message イベント(2026-07-30 追記)**: 応対エージェント(chronicler ロール)を Agentic RAG のチャット窓口として使うための基盤。表示名は KB_TALK_AGENT_NAME で運用側が設定する(#51)。
 - migration 024: `chat_threads.created_by`(open した token の users.id、body からは設定不可)。`GET /v1/librarian/threads?mine=1` で自分のスレッドだけを返す — ユーザーごとの会話履歴。
 - `POST /v1/librarian/chat` 成功時に SSE へ **`chat.message`** を publish(message + `thread_intent` / `thread_created_by` / `thread_title` 同梱 — リスナーが往復なしでルーティングできる)。
-- ダッシュボード **`/talk`**: Open-WebUI 風 2 ペイン(自分の `intent=ask-sebastian` スレッド一覧+吹き出しペイン)。閲覧は所有者(と admin)のみ、404 で他人の履歴を隠す。投稿は既存 chat API(author_role=human)、返信は SSE でライブ追記。
+- ダッシュボード **`/talk`**: Open-WebUI 風 2 ペイン(自分の `intent=talk` スレッド一覧(#54 で中立 id へ移行、旧 ask-sebastian は migration 030 で書換済)+吹き出しペイン)。閲覧は所有者(と admin)のみ、404 で他人の履歴を隠す。投稿は既存 chat API(author_role=human)、返信は SSE でライブ追記。
 - `ValidChatAuthor` に **`chronicler`** を追加。chronicler は意図的に OFF-ROSTER(librarian_instances/tasks を持たない)のまま、チャットの発話者としてだけ有効 — ロスター語彙は広げない。
 - レスポンダ本体(SSE 待ち受け → KB を agentic に検索 → 引用付き返信)は運用側 workspace の持ち物。本体はイベントと API を提供するだけ。
 - **`POST /v1/events/broadcast`**(write scope): 一時イベントを SSE へ publish(永続化なし)。type は whitelist(現状 `chat.status` のみ)。用途: レスポンダが agentic 作業中のツール活動(「🔎 検索中…」「📖 精読中…」)を /talk のペンディング行にライブ表示し、`done:true` で消灯。ストリームを型付き контラクトに保つため自由な type は受けない。

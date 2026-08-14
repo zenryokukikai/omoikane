@@ -1142,7 +1142,8 @@ func (h *Handler) bookmarksPage(w http.ResponseWriter, r *http.Request) {
 // talkPage is the per-user responder chat: an Open-WebUI-style
 // two-pane page over the existing chat_threads/librarian_chat machinery.
 // Threads are the signed-in user's own (created_by) with intent
-// "ask-sebastian" (a legacy protocol id, see #51); the responder agent answers via the same chat API.
+// "talk" (a neutral capability id — #54 scrubbed the legacy agent-named
+// value); the responder agent answers via the same chat API.
 func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 	pc := h.renderCtx(r)
 	pc.Title = "omoikane — " + talkAgentName() + "に聞く"
@@ -1170,7 +1171,7 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, t := range all {
-		if t.Intent == "ask-sebastian" {
+		if t.Intent == "talk" {
 			pc.TalkThreads = append(pc.TalkThreads, t)
 		}
 	}

@@ -125,7 +125,7 @@ func TestChatOwnershipAndStream(t *testing.T) {
 
 	// Admin opens a thread — created_by must come from the token.
 	resp := do("POST", "/v1/librarian/threads", adminTok,
-		map[string]string{"title": "ask", "intent": "ask-sebastian"})
+		map[string]string{"title": "ask", "intent": "talk"})
 	var opened map[string]any
 	json.NewDecoder(resp.Body).Decode(&opened)
 	resp.Body.Close()
@@ -188,7 +188,7 @@ func TestChatOwnershipAndStream(t *testing.T) {
 	select {
 	case d := <-events:
 		if d["thread_id"] != tid || d["thread_created_by"] != "admin" ||
-			d["thread_intent"] != "ask-sebastian" || d["content"] != "こんにちは" {
+			d["thread_intent"] != "talk" || d["content"] != "こんにちは" {
 			t.Fatalf("chat.message payload wrong: %v", d)
 		}
 	case <-time.After(8 * time.Second):

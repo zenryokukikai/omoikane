@@ -246,7 +246,7 @@ async function talkSend(e){
     let tid = TALK_THREAD;
     if(!tid){
       const d = await talkAPI('/v1/librarian/threads',
-        {title: v.slice(0, 48), intent: 'ask-sebastian'});
+        {title: v.slice(0, 48), intent: 'talk'});
       tid = d.thread_id;
     }
     const posted = await talkAPI('/v1/librarian/chat',

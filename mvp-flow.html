@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MVP 画面遷移フロー — 受験者・企業の体験</title>
+<style>
+  :root{
+    --bg:#0f1320; --panel:#171c2e; --panel2:#1e2438; --line:#2c3450;
+    --ink:#e8ecf6; --sub:#9aa6c4; --accent:#5b8cff; --accent2:#46d2b0;
+    --warn:#ffb454; --danger:#ff6b8a; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:linear-gradient(180deg,#0d111c,#0f1320 40%); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,-apple-system,sans-serif;
+    line-height:1.7; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1160px; margin:0 auto; padding:40px 22px 90px}
+  a{color:var(--accent)}
+
+  header.hero{background:radial-gradient(1100px 380px at 15% -10%,rgba(91,140,255,.22),transparent),
+    radial-gradient(800px 320px at 92% 0%,rgba(70,210,176,.16),transparent);
+    border:1px solid var(--line); border-radius:18px; padding:34px; margin-bottom:34px}
+  .eyebrow{color:var(--accent2); font-weight:700; letter-spacing:.08em; font-size:.8rem; margin:0 0 10px}
+  h1{font-size:1.85rem; margin:0 0 12px}
+  h1 span{color:var(--accent)}
+  .lede{color:var(--sub); max-width:760px; margin:0}
+  .back{display:inline-block; margin-top:18px; font-size:.85rem; background:var(--panel2);
+    border:1px solid var(--line); border-radius:999px; padding:7px 15px; text-decoration:none; color:var(--ink)}
+  .back:hover{border-color:var(--accent)}
+
+  h2{font-size:1.35rem; margin:50px 0 6px; display:flex; align-items:center; gap:12px}
+  h2::before{content:""; width:6px; height:24px; border-radius:3px; background:linear-gradient(var(--accent),var(--accent2))}
+  .section-sub{color:var(--sub); margin:0 0 26px; font-size:.93rem}
+
+  /* overview loop */
+  .loop{display:flex; align-items:stretch; gap:14px; flex-wrap:wrap; background:var(--panel);
+    border:1px solid var(--line); border-radius:16px; padding:22px; margin-bottom:18px}
+  .loop .node{flex:1; min-width:210px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:12px; padding:16px 18px; text-align:center}
+  .loop .node .ic{font-size:1.8rem}
+  .loop .node b{display:block; margin:6px 0 2px; font-size:1rem}
+  .loop .node span{color:var(--sub); font-size:.82rem}
+  .loop .lk{display:flex; align-items:center; color:var(--accent2); font-size:1.5rem; font-weight:800}
+  @media(max-width:760px){.loop .lk{transform:rotate(90deg); justify-content:center}}
+
+  /* persona band */
+  .band{border:1px solid var(--line); border-radius:16px; padding:8px 22px 26px; margin-bottom:14px}
+  .band.cand{background:linear-gradient(180deg,rgba(70,210,176,.08),transparent 120px)}
+  .band.corp{background:linear-gradient(180deg,rgba(91,140,255,.08),transparent 120px)}
+  .who{display:flex; align-items:center; gap:12px; margin:18px 0 4px}
+  .who .av{width:44px; height:44px; border-radius:12px; display:grid; place-items:center; font-size:1.4rem; border:1px solid var(--line)}
+  .cand .av{background:rgba(70,210,176,.16)}
+  .corp .av{background:rgba(91,140,255,.16)}
+  .who h3{margin:0; font-size:1.12rem}
+  .who p{margin:0; color:var(--sub); font-size:.82rem}
+
+  /* flow track */
+  .track{display:flex; gap:6px; flex-wrap:wrap; align-items:stretch; margin-top:18px}
+  .step{flex:1 1 200px; max-width:230px; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:14px 14px 16px; display:flex; flex-direction:column}
+  .step .head{display:flex; align-items:center; gap:8px; margin-bottom:10px}
+  .step .no{width:24px; height:24px; border-radius:50%; display:grid; place-items:center;
+    font-size:.78rem; font-weight:800; color:#0d111c; flex:none}
+  .cand .step .no{background:var(--accent2)}
+  .corp .step .no{background:var(--accent)}
+  .step .t{font-size:.93rem; font-weight:700; line-height:1.35}
+  .step .pic{display:grid; place-items:center; margin:2px 0 10px}
+  .step .d{color:var(--sub); font-size:.8rem; margin:0}
+  .step .d b{color:var(--ink); font-weight:600}
+  .arrow{display:flex; align-items:center; color:var(--sub); font-size:1.3rem; font-weight:800; padding:0 2px}
+  @media(max-width:980px){.arrow{transform:rotate(90deg); width:100%; justify-content:center; padding:4px 0}
+    .step{max-width:none}}
+
+  .tag{display:inline-block; font-size:.68rem; color:var(--accent2); border:1px solid var(--line);
+    border-radius:6px; padding:1px 7px; margin-top:8px}
+  .cut{background:rgba(255,180,84,.08); border:1px solid var(--line); border-left:3px solid var(--warn);
+    border-radius:10px; padding:16px 18px; color:var(--sub); font-size:.88rem; margin-top:30px}
+  .cut b{color:var(--ink)}
+  footer{margin-top:44px; padding-top:22px; border-top:1px solid var(--line); color:var(--sub); font-size:.82rem}
+
+  /* 印刷：ダーク→ライトに切替（白背景・濃い文字） */
+  @media print{
+    :root{
+      --bg:#fff; --panel:#fff; --panel2:#f4f6fb; --line:#c7cdda;
+      --ink:#16181d; --sub:#4b5563; --accent:#2a4bd0; --accent2:#0b7a5e;
+      --warn:#9a6206; --danger:#b3263f;
+    }
+    *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body{ background:#fff !important; color:#16181d !important; }
+    .wrap{ padding:0 6px; max-width:none; }
+    header.hero{ background:#fff !important; border:1px solid #c7cdda !important; }
+    .band.cand,.band.corp{ background:#fff !important; }
+    .back{ display:none !important; }
+    a{ color:#2a4bd0 !important; }
+    .tag{ color:#0b7a5e !important; border-color:#0b7a5e !important; }
+    h2,.who{ break-after:avoid; }
+    .loop .node,.step,.tl-step{ break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">MVP EXPERIENCE / SCREEN FLOW</p>
+    <h1>MVP 画面遷移フロー — <span>受験者</span>と<span>企業</span>の体験</h1>
+    <p class="lede">
+      最小構成（MVP）で「AI面接を受験 → 文字起こし → スコア付きレポートを確認」までの流れを、
+      受験者目線・企業側目線それぞれの画面イメージで示します。スマホ＝受験者、PC＝企業の管理画面です。
+    </p>
+    <a class="back" href="ai-interview-service.html">← 機能一覧・見積もりページへ戻る</a>
+  </header>
+
+  <!-- 全体像ループ -->
+  <h2>全体像（1サイクル）</h2>
+  <p class="section-sub">企業が招待し、受験者がAI面接を受け、企業が結果を見て合否を決める——この往復が1サイクルです。</p>
+  <div class="loop">
+    <div class="node"><div class="ic">🏢</div><b>① 企業：招待</b><span>求人・質問を設定し、候補者へ招待メールを送る</span></div>
+    <div class="lk">→</div>
+    <div class="node"><div class="ic">🧑‍💻</div><b>② 受験者：AI面接</b><span>24時間いつでも、ブラウザでAIと対話して受験</span></div>
+    <div class="lk">→</div>
+    <div class="node"><div class="ic">📊</div><b>③ 企業：レビュー</b><span>録画・文字起こし・要約＆スコアを見て合否判断</span></div>
+  </div>
+
+  <!-- ============ 受験者フロー ============ -->
+  <div class="band cand">
+    <div class="who">
+      <div class="av">🧑‍💻</div>
+      <div><h3>受験者（面接を受ける人）の体験</h3><p>スマホ／PCのブラウザで完結。アプリのインストールは不要。</p></div>
+    </div>
+    <div class="track">
+
+      <!-- 1 -->
+      <div class="step">
+        <div class="head"><span class="no">1</span><span class="t">招待メールが届く</span></div>
+        <div class="pic">
+          <svg width="120" height="220" viewBox="0 0 140 250" aria-hidden="true">
+            <rect x="6" y="4" width="128" height="242" rx="18" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="54" y="13" width="32" height="6" rx="3" fill="#2c3450"/>
+            <text x="70" y="105" font-size="42" text-anchor="middle">📧</text>
+            <rect x="26" y="132" width="88" height="9" rx="4" fill="#243049"/>
+            <rect x="38" y="150" width="64" height="7" rx="3" fill="#1b2236"/>
+            <rect x="32" y="196" width="76" height="24" rx="12" fill="#46d2b0"/>
+            <text x="70" y="212" font-size="10" fill="#06281f" text-anchor="middle" font-weight="700">受験する</text>
+          </svg>
+        </div>
+        <p class="d"><b>「面接のご案内」</b>メールのリンクをタップ。ログインは招待リンク方式で手間なし。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 2 -->
+      <div class="step">
+        <div class="head"><span class="no">2</span><span class="t">同意＆機材チェック</span></div>
+        <div class="pic">
+          <svg width="120" height="220" viewBox="0 0 140 250" aria-hidden="true">
+            <rect x="6" y="4" width="128" height="242" rx="18" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="54" y="13" width="32" height="6" rx="3" fill="#2c3450"/>
+            <text x="70" y="64" font-size="30" text-anchor="middle">✅</text>
+            <g font-size="11" fill="#9aa6c4">
+              <circle cx="32" cy="100" r="6" fill="none" stroke="#46d2b0" stroke-width="2"/><path d="M29 100 l2.5 2.5 l4 -5" stroke="#46d2b0" stroke-width="2" fill="none"/>
+              <text x="46" y="104">録画に同意</text>
+              <circle cx="32" cy="128" r="6" fill="none" stroke="#46d2b0" stroke-width="2"/><path d="M29 128 l2.5 2.5 l4 -5" stroke="#46d2b0" stroke-width="2" fill="none"/>
+              <text x="46" y="132">カメラ OK</text>
+              <circle cx="32" cy="156" r="6" fill="none" stroke="#46d2b0" stroke-width="2"/><path d="M29 156 l2.5 2.5 l4 -5" stroke="#46d2b0" stroke-width="2" fill="none"/>
+              <text x="46" y="160">マイク OK</text>
+            </g>
+            <rect x="32" y="196" width="76" height="24" rx="12" fill="#46d2b0"/>
+            <text x="70" y="212" font-size="10" fill="#06281f" text-anchor="middle" font-weight="700">次へ</text>
+          </svg>
+        </div>
+        <p class="d">プライバシー・<b>録画への同意</b>と、カメラ／マイク／回線のセルフチェックを1画面で。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 3 -->
+      <div class="step">
+        <div class="head"><span class="no">3</span><span class="t">顔写真で本人確認</span></div>
+        <div class="pic">
+          <svg width="120" height="220" viewBox="0 0 140 250" aria-hidden="true">
+            <rect x="6" y="4" width="128" height="242" rx="18" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="54" y="13" width="32" height="6" rx="3" fill="#2c3450"/>
+            <rect x="30" y="40" width="80" height="100" rx="10" fill="#0b0f1a" stroke="#46d2b0" stroke-dasharray="5 4"/>
+            <text x="70" y="104" font-size="44" text-anchor="middle">🙂</text>
+            <text x="70" y="166" font-size="10" fill="#9aa6c4" text-anchor="middle">枠に顔を合わせてください</text>
+            <circle cx="70" cy="206" r="15" fill="none" stroke="#46d2b0" stroke-width="3"/>
+            <circle cx="70" cy="206" r="9" fill="#46d2b0"/>
+          </svg>
+        </div>
+        <p class="d">顔写真を撮影して<b>本人記録</b>（替え玉の抑止）。MVPでは高度な不正検知は省略。</p>
+        <span class="tag">簡易版</span>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 4 -->
+      <div class="step">
+        <div class="head"><span class="no">4</span><span class="t">AI面接（フェーズ制）</span></div>
+        <div class="pic">
+          <svg width="120" height="220" viewBox="0 0 140 250" aria-hidden="true">
+            <rect x="6" y="4" width="128" height="242" rx="18" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="54" y="13" width="32" height="6" rx="3" fill="#2c3450"/>
+            <circle cx="40" cy="56" r="14" fill="rgba(91,140,255,.18)" stroke="#5b8cff"/>
+            <text x="40" y="61" font-size="14" text-anchor="middle">🤖</text>
+            <rect x="62" y="44" width="60" height="26" rx="8" fill="#1e2438" stroke="#2c3450"/>
+            <rect x="68" y="52" width="40" height="4" rx="2" fill="#5b8cff"/>
+            <rect x="68" y="60" width="30" height="4" rx="2" fill="#39425e"/>
+            <rect x="18" y="92" width="104" height="78" rx="10" fill="#0b0f1a" stroke="#2c3450"/>
+            <text x="70" y="138" font-size="34" text-anchor="middle">🙂</text>
+            <circle cx="30" cy="104" r="5" fill="#ff6b8a"/><text x="40" y="108" font-size="9" fill="#ff6b8a">REC</text>
+            <rect x="26" y="196" width="88" height="22" rx="11" fill="#5b8cff"/>
+            <text x="70" y="211" font-size="10" fill="#fff" text-anchor="middle" font-weight="700">話して回答</text>
+          </svg>
+        </div>
+        <p class="d"><b>フェーズごとにAIが質問→受験者が話して回答</b>。交互ターン制で録画。中核体験。</p>
+        <span class="tag">中核 / ターン制</span>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 5 -->
+      <div class="step">
+        <div class="head"><span class="no">5</span><span class="t">受験完了</span></div>
+        <div class="pic">
+          <svg width="120" height="220" viewBox="0 0 140 250" aria-hidden="true">
+            <rect x="6" y="4" width="128" height="242" rx="18" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="54" y="13" width="32" height="6" rx="3" fill="#2c3450"/>
+            <text x="70" y="120" font-size="46" text-anchor="middle">🎉</text>
+            <rect x="28" y="150" width="84" height="9" rx="4" fill="#243049"/>
+            <rect x="40" y="168" width="60" height="7" rx="3" fill="#1b2236"/>
+            <text x="70" y="208" font-size="11" fill="#46d2b0" text-anchor="middle">お疲れさまでした</text>
+          </svg>
+        </div>
+        <p class="d">完了画面を表示。結果は<b>企業の選考後に通知</b>される運用（MVPはマイページ省略）。</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ 企業フロー ============ -->
+  <div class="band corp">
+    <div class="who">
+      <div class="av">🏢</div>
+      <div><h3>企業（採用担当）の体験</h3><p>PCの管理コンソールで、設定・招待・結果確認まで完結。</p></div>
+    </div>
+    <div class="track">
+
+      <!-- 1 -->
+      <div class="step">
+        <div class="head"><span class="no">1</span><span class="t">管理画面にログイン</span></div>
+        <div class="pic">
+          <svg width="220" height="150" viewBox="0 0 240 165" aria-hidden="true">
+            <rect x="4" y="4" width="232" height="140" rx="10" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="4" y="4" width="232" height="22" rx="10" fill="#171c2e"/>
+            <circle cx="18" cy="15" r="3" fill="#ff6b8a"/><circle cx="28" cy="15" r="3" fill="#ffb454"/><circle cx="38" cy="15" r="3" fill="#46d2b0"/>
+            <text x="120" y="58" font-size="26" text-anchor="middle">🔐</text>
+            <rect x="78" y="74" width="84" height="16" rx="5" fill="#0b0f1a" stroke="#2c3450"/>
+            <rect x="78" y="96" width="84" height="16" rx="5" fill="#0b0f1a" stroke="#2c3450"/>
+            <rect x="78" y="118" width="84" height="16" rx="5" fill="#5b8cff"/>
+            <text x="120" y="129" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">ログイン</text>
+            <rect x="100" y="148" width="40" height="7" fill="#2c3450"/><rect x="78" y="155" width="84" height="6" rx="3" fill="#2c3450"/>
+          </svg>
+        </div>
+        <p class="d">採用担当が管理コンソールへ。<b>シングルテナント認証</b>（MVPは細かな権限管理は省略）。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 2 -->
+      <div class="step">
+        <div class="head"><span class="no">2</span><span class="t">求人・質問セット設定</span></div>
+        <div class="pic">
+          <svg width="220" height="150" viewBox="0 0 240 165" aria-hidden="true">
+            <rect x="4" y="4" width="232" height="140" rx="10" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="4" y="4" width="232" height="22" rx="10" fill="#171c2e"/>
+            <circle cx="18" cy="15" r="3" fill="#ff6b8a"/><circle cx="28" cy="15" r="3" fill="#ffb454"/><circle cx="38" cy="15" r="3" fill="#46d2b0"/>
+            <text x="26" y="52" font-size="18">📝</text>
+            <text x="46" y="50" font-size="11" fill="#e8ecf6">質問セット</text>
+            <g>
+              <rect x="20" y="64" width="200" height="16" rx="5" fill="#1e2438" stroke="#2c3450"/><text x="28" y="76" font-size="9" fill="#9aa6c4">Q1. 強みを教えてください</text>
+              <rect x="20" y="86" width="200" height="16" rx="5" fill="#1e2438" stroke="#2c3450"/><text x="28" y="98" font-size="9" fill="#9aa6c4">Q2. 失敗から学んだこと</text>
+              <rect x="20" y="108" width="200" height="16" rx="5" fill="#1e2438" stroke="#2c3450"/><text x="28" y="120" font-size="9" fill="#9aa6c4">+ 質問を追加</text>
+            </g>
+            <rect x="100" y="148" width="40" height="7" fill="#2c3450"/><rect x="78" y="155" width="84" height="6" rx="3" fill="#2c3450"/>
+          </svg>
+        </div>
+        <p class="d">求人と<b>質問セット</b>を用意（簡易設定）。氷山モデル等の高度な評価軸は将来対応。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 3 -->
+      <div class="step">
+        <div class="head"><span class="no">3</span><span class="t">候補者を招待</span></div>
+        <div class="pic">
+          <svg width="220" height="150" viewBox="0 0 240 165" aria-hidden="true">
+            <rect x="4" y="4" width="232" height="140" rx="10" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="4" y="4" width="232" height="22" rx="10" fill="#171c2e"/>
+            <circle cx="18" cy="15" r="3" fill="#ff6b8a"/><circle cx="28" cy="15" r="3" fill="#ffb454"/><circle cx="38" cy="15" r="3" fill="#46d2b0"/>
+            <text x="120" y="60" font-size="26" text-anchor="middle">✉️</text>
+            <rect x="40" y="74" width="160" height="14" rx="5" fill="#0b0f1a" stroke="#2c3450"/><text x="48" y="84" font-size="9" fill="#9aa6c4">candidate@example.com</text>
+            <rect x="74" y="98" width="92" height="20" rx="10" fill="#5b8cff"/>
+            <text x="120" y="112" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">招待メールを送信</text>
+            <path d="M150 30 l40 -16 l-12 40 l-10 -14 z" fill="rgba(70,210,176,.5)"/>
+            <rect x="100" y="148" width="40" height="7" fill="#2c3450"/><rect x="78" y="155" width="84" height="6" rx="3" fill="#2c3450"/>
+          </svg>
+        </div>
+        <p class="d">候補者のメールアドレス宛に<b>招待リンクを自動送信</b>。ここで受験者フロー①へつながる。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 4 -->
+      <div class="step">
+        <div class="head"><span class="no">4</span><span class="t">受験状況を一覧で確認</span></div>
+        <div class="pic">
+          <svg width="220" height="150" viewBox="0 0 240 165" aria-hidden="true">
+            <rect x="4" y="4" width="232" height="140" rx="10" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="4" y="4" width="232" height="22" rx="10" fill="#171c2e"/>
+            <circle cx="18" cy="15" r="3" fill="#ff6b8a"/><circle cx="28" cy="15" r="3" fill="#ffb454"/><circle cx="38" cy="15" r="3" fill="#46d2b0"/>
+            <text x="22" y="46" font-size="15">📋</text><text x="42" y="45" font-size="11" fill="#e8ecf6">候補者一覧</text>
+            <g font-size="9">
+              <rect x="20" y="56" width="200" height="20" rx="5" fill="#1e2438"/><text x="28" y="69" fill="#9aa6c4">佐藤 花子</text><rect x="168" y="61" width="44" height="11" rx="6" fill="rgba(70,210,176,.2)"/><text x="190" y="70" fill="#46d2b0" text-anchor="middle">受験済</text>
+              <rect x="20" y="80" width="200" height="20" rx="5" fill="#171c2e"/><text x="28" y="93" fill="#9aa6c4">鈴木 一郎</text><rect x="168" y="85" width="44" height="11" rx="6" fill="rgba(255,180,84,.2)"/><text x="190" y="94" fill="#ffb454" text-anchor="middle">受験中</text>
+              <rect x="20" y="104" width="200" height="20" rx="5" fill="#1e2438"/><text x="28" y="117" fill="#9aa6c4">高橋 みなと</text><rect x="168" y="109" width="44" height="11" rx="6" fill="rgba(154,166,196,.18)"/><text x="190" y="118" fill="#9aa6c4" text-anchor="middle">未受験</text>
+            </g>
+            <rect x="100" y="148" width="40" height="7" fill="#2c3450"/><rect x="78" y="155" width="84" height="6" rx="3" fill="#2c3450"/>
+          </svg>
+        </div>
+        <p class="d">誰が<b>受験済／受験中／未受験</b>かを一覧で把握。母集団の進捗が見える。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 5 -->
+      <div class="step">
+        <div class="head"><span class="no">5</span><span class="t">結果レポートを確認</span></div>
+        <div class="pic">
+          <svg width="220" height="150" viewBox="0 0 240 165" aria-hidden="true">
+            <rect x="4" y="4" width="232" height="140" rx="10" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="4" y="4" width="232" height="22" rx="10" fill="#171c2e"/>
+            <circle cx="18" cy="15" r="3" fill="#ff6b8a"/><circle cx="28" cy="15" r="3" fill="#ffb454"/><circle cx="38" cy="15" r="3" fill="#46d2b0"/>
+            <rect x="18" y="34" width="96" height="58" rx="8" fill="#0b0f1a" stroke="#2c3450"/>
+            <text x="66" y="68" font-size="24" text-anchor="middle">▶</text><circle cx="30" cy="46" r="4" fill="#ff6b8a"/>
+            <text x="124" y="44" font-size="9" fill="#9aa6c4">AI要約</text>
+            <rect x="124" y="50" width="98" height="6" rx="3" fill="#243049"/>
+            <rect x="124" y="60" width="84" height="6" rx="3" fill="#1b2236"/>
+            <rect x="124" y="70" width="92" height="6" rx="3" fill="#1b2236"/>
+            <g>
+              <text x="22" y="110" font-size="9" fill="#9aa6c4">スコア</text>
+              <rect x="60" y="103" width="120" height="8" rx="4" fill="#1e2438"/><rect x="60" y="103" width="86" height="8" rx="4" fill="#46d2b0"/>
+              <text x="190" y="111" font-size="10" fill="#46d2b0" font-weight="700">72</text>
+              <text x="22" y="128" font-size="9" fill="#9aa6c4">文字起こし ✓</text>
+            </g>
+            <rect x="100" y="148" width="40" height="7" fill="#2c3450"/><rect x="78" y="155" width="84" height="6" rx="3" fill="#2c3450"/>
+          </svg>
+        </div>
+        <p class="d"><b>録画再生・文字起こし・LLM要約・簡易スコア</b>を1画面で確認。該当箇所にジャンプ可。</p>
+      </div>
+      <div class="arrow">→</div>
+
+      <!-- 6 -->
+      <div class="step">
+        <div class="head"><span class="no">6</span><span class="t">合否を判断</span></div>
+        <div class="pic">
+          <svg width="220" height="150" viewBox="0 0 240 165" aria-hidden="true">
+            <rect x="4" y="4" width="232" height="140" rx="10" fill="#0e1322" stroke="#2c3450" stroke-width="2"/>
+            <rect x="4" y="4" width="232" height="22" rx="10" fill="#171c2e"/>
+            <circle cx="18" cy="15" r="3" fill="#ff6b8a"/><circle cx="28" cy="15" r="3" fill="#ffb454"/><circle cx="38" cy="15" r="3" fill="#46d2b0"/>
+            <text x="120" y="58" font-size="26" text-anchor="middle">⚖️</text>
+            <rect x="36" y="76" width="76" height="30" rx="8" fill="rgba(70,210,176,.18)" stroke="#46d2b0"/>
+            <text x="74" y="95" font-size="12" fill="#46d2b0" text-anchor="middle" font-weight="700">合格 ◯</text>
+            <rect x="128" y="76" width="76" height="30" rx="8" fill="rgba(255,107,138,.14)" stroke="#ff6b8a"/>
+            <text x="166" y="95" font-size="12" fill="#ff6b8a" text-anchor="middle" font-weight="700">見送り ×</text>
+            <text x="120" y="128" font-size="9" fill="#9aa6c4" text-anchor="middle">最終判断は人が行う</text>
+            <rect x="100" y="148" width="40" height="7" fill="#2c3450"/><rect x="78" y="155" width="84" height="6" rx="3" fill="#2c3450"/>
+          </svg>
+        </div>
+        <p class="d">レポートを根拠に<b>担当者が合否を判断</b>。AIは“判断材料の提示”まで、決定は人が担う。</p>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="cut">
+    <b>MVPで省いている体験（フェーズ2以降）：</b>
+    氷山モデルによるコンピテンシー可視化、視線・打鍵音などの高度な不正検知、5W2Hの動的深掘り、候補者の比較・ランキング・合議ワークフロー、
+    多言語UI、受験者マイページ、ATS／カレンダー連携、マルチテナント＆細粒度の権限管理。
+    まずは上記のコア体験をリリースして検証し、ここに段階的に上乗せしていきます。
+  </div>
+
+  <footer>
+    本資料は <a href="ai-interview-service.html">機能一覧・モジュール構成・見積もりページ</a> のMVP定義に基づく画面遷移フローの参考イメージです（非公式）。
+    画面はワイヤーフレーム相当の概念図で、実画面のデザインを示すものではありません。
+  </footer>
+
+</div>
+</body>
+</html>

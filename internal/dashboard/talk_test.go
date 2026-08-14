@@ -30,9 +30,9 @@ func TestTalkPage(t *testing.T) {
 	}
 
 	// A thread owned by alice with one exchange renders in sidebar+pane;
-	// non-ask-sebastian threads stay out of the sidebar.
+	// non-talk-intent threads stay out of the sidebar.
 	tid, err := st.OpenThread(ctx, &store.ChatThread{
-		Title: "音声モデルの件", Intent: "ask-sebastian", CreatedBy: "alice"})
+		Title: "音声モデルの件", Intent: "talk", CreatedBy: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestTalkPage(t *testing.T) {
 		t.Fatalf("thread view: code=%d", code)
 	}
 	if strings.Contains(bs, "librarian-only") {
-		t.Fatalf("non-ask-sebastian thread leaked into sidebar")
+		t.Fatalf("non-talk thread leaked into sidebar")
 	}
 	// The responder's message renders on the bot side.
 	if !strings.Contains(bs, "talk-msg-bot") {
@@ -81,7 +81,7 @@ func TestTalkPage(t *testing.T) {
 	// the newest 50; the older ones arrive via ?frag=before, live
 	// updates via ?frag=since.
 	vt, err := st.OpenThread(ctx, &store.ChatThread{
-		Title: "長い会話", Intent: "ask-sebastian", CreatedBy: "alice"})
+		Title: "長い会話", Intent: "talk", CreatedBy: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}

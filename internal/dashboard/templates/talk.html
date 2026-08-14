@@ -161,30 +161,48 @@ async function talkLoadEarlier(){
   }
 }
 
-let talkLoadingNew = false;
+let talkLoadingNew = false, talkNewDirty = false;
 async function talkLoadNew(){
-  // Serialized + deduped: the send path and the SSE listener both call
-  // this, and two in-flight fetches from the same cursor would append
-  // the same messages twice.
-  if(talkLoadingNew) return;
+  // Serialized with a dirty re-run (#57-3): an SSE event landing while
+  // a fetch is in flight — or while an unconfirmed echo blocks us —
+  // must not be dropped, or a rapid two-message reply leaves its second
+  // message invisible until the next unrelated event.
+  if(talkLoadingNew){ talkNewDirty = true; return; }
+  // Hold while an unconfirmed echo exists (#57-2): the server publishes
+  // the SSE event BEFORE the POST response returns, so a since-fetch
+  // here could append the canonical copy of the very message whose echo
+  // still carries a tmp id — a duplicate bubble. talkSend re-runs us
+  // once the POST settles either way.
+  if(talkList && talkList.querySelector('.talk-msg-sending')){ talkNewDirty = true; return; }
   talkLoadingNew = true;
   try {
-    const cur = talkLastId();
-    if(!cur) return;
-    const frag = await talkFetchFrag('since', cur);
-    if(!frag) return;
-    // Rows already in the list (optimistic echoes, or a racing append)
-    // are REPLACED by the server copy — the echo is plain text, the
-    // server row is the canonical markdown render. replaceWith moves
-    // the node out of the fragment, so what remains is genuinely new.
-    frag.querySelectorAll('.talk-msg[data-mid]').forEach(el => {
-      const ex = talkList.querySelector('.talk-msg[data-mid="' + el.dataset.mid + '"]');
-      if(ex) ex.replaceWith(el);
-    });
-    if(!frag.children.length) return;
-    const nearBottom = talkBox.scrollHeight - talkBox.scrollTop - talkBox.clientHeight < 120;
-    talkList.appendChild(frag);
-    if(nearBottom) talkScroll();
+    do {
+      talkNewDirty = false;
+      // Re-check per iteration, not only at entry: a send that starts
+      // while we're already looping would otherwise race its own echo
+      // (the residual window the verifier found). Breaking is safe —
+      // talkSend re-runs us when the POST settles.
+      if(talkList && talkList.querySelector('.talk-msg-sending')) break;
+      const cur = talkLastId();
+      // Empty list (#57-4): no cursor exists, so recover via the
+      // cursorless tail window instead of going deaf.
+      const frag = cur ? await talkFetchFrag('since', cur)
+                       : await talkFetchFrag('tail', '');
+      if(!frag) break;
+      // Rows already in the list (optimistic echoes, or a racing append)
+      // are REPLACED by the server copy — the echo is plain text, the
+      // server row is the canonical markdown render. replaceWith moves
+      // the node out of the fragment, so what remains is genuinely new.
+      frag.querySelectorAll('.talk-msg[data-mid]').forEach(el => {
+        const ex = talkList.querySelector('.talk-msg[data-mid="' + el.dataset.mid + '"]');
+        if(ex) ex.replaceWith(el);
+      });
+      if(frag.children.length){
+        const nearBottom = talkBox.scrollHeight - talkBox.scrollTop - talkBox.clientHeight < 120;
+        talkList.appendChild(frag);
+        if(nearBottom) talkScroll();
+      }
+    } while(talkNewDirty);
   } finally {
     talkLoadingNew = false;
   }
@@ -253,15 +271,24 @@ async function talkSend(e){
       {thread_id: tid, author_role: 'human', content: v});
     if(!TALK_THREAD){ location.href = '/talk/' + tid; return false; }
     if(row && posted.id){
-      // Server has it: adopt the real id and drop the dimmed state.
-      row.dataset.mid = posted.id;
-      row.classList.remove('talk-msg-sending');
+      // If a racing fetch already appended the canonical render of this
+      // very message, the echo is the duplicate — drop it. Otherwise
+      // adopt the real id and turn solid.
+      if(talkList && talkList.querySelector('.talk-msg[data-mid="' + posted.id + '"]')){
+        row.remove();
+      } else {
+        row.dataset.mid = posted.id;
+        row.classList.remove('talk-msg-sending');
+      }
     }
   } catch(err){
     // Delivery failed: remove the dimmed bubble and give the draft
     // back so nothing the user typed is lost. talkAPI already alerted.
     if(row) row.remove();
     t.value = v;
+    // The sending row was holding talkLoadNew back (#57-2); flush any
+    // events that queued up behind it.
+    talkLoadNew();
     return false;
   }
   talkPending(true, '考えております…');

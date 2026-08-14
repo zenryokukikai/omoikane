@@ -132,6 +132,14 @@ func TestTalkPage(t *testing.T) {
 		strings.Contains(bs, "メッセージ番号052") {
 		t.Fatalf("frag=since window wrong: code=%d", code)
 	}
+	// tail: the cursorless newest window — live-update recovery for an
+	// empty-rendered thread (#57-4). No cursor required.
+	code, body = get(t, srv, "/talk/"+vt+"?frag=tail&cursor=", tok)
+	bs = string(body)
+	if code != 200 || !strings.Contains(bs, "メッセージ番号055") || !strings.Contains(bs, "メッセージ番号006") ||
+		strings.Contains(bs, "メッセージ番号005") {
+		t.Fatalf("frag=tail window wrong: code=%d", code)
+	}
 	// A cursor from another thread must not leak messages.
 	if code, _ = get(t, srv, "/talk/"+tid+"?frag=before&cursor="+ids[5], tok); code != 400 {
 		t.Fatalf("cross-thread cursor: code=%d, want 400", code)

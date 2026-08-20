@@ -27,7 +27,7 @@
 #     -e KB_AUTH_ALLOW_EMAILS=you@example.com \
 #     omoikane
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 RUN apk add --no-cache build-base sqlite-dev
 WORKDIR /src
 # Cache module downloads in a separate layer so source-only changes

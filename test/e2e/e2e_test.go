@@ -385,7 +385,7 @@ func TestE2E_LibrarianRunner(t *testing.T) {
 	}
 
 	// And the announcement chat message was posted
-	threads, _ := r.store.ListThreads(context.Background(), "", 10)
+	threads, _ := r.store.ListThreads(context.Background(), "", "", 10)
 	_ = threads
 	// We can't filter by author easily without a list-by-role accessor;
 	// just check that *some* chat message exists.

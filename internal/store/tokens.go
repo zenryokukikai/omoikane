@@ -42,7 +42,12 @@ func (s *Store) CreateUser(ctx context.Context, u *User) error {
 	// RedeemAgentInvitation) take their own paths and don't go through
 	// CreateUser, so this only matters for direct callers — but when it
 	// does matter, silently dropping the fields would be surprising.
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users(id, name, role, email, google_sub, avatar_url, parent_user_id, description)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		u.ID, u.Name, u.Role,
@@ -50,8 +55,13 @@ func (s *Store) CreateUser(ctx context.Context, u *User) error {
 		nullable(u.GoogleSub),
 		nullable(u.AvatarURL),
 		nullable(u.ParentUserID),
-		nullable(u.Description))
-	return translateErr(err)
+		nullable(u.Description)); err != nil {
+		return translateErr(err)
+	}
+	if err := ensureUserSpaces(ctx, tx, u.ID, u.Name, u.Role); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // userSelect lists every column we scan into a User (in fixed order).

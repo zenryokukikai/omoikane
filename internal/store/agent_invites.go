@@ -171,6 +171,9 @@ func (s *Store) RedeemAgentInvitation(ctx context.Context, code, name, descripti
 		uid, name, nullable(description), inviterUserID, nullable(librarianRole)); err != nil {
 		return nil, translateErr(err)
 	}
+	if err := ensureUserSpaces(ctx, tx, uid, name, "agent"); err != nil {
+		return nil, err
+	}
 
 	// Mint API token. Librarian-side agents get the `librarian` scope
 	// alongside read/write so they can call POST /v1/librarian/instances

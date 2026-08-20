@@ -58,6 +58,9 @@ func (s *Store) RegisterAgent(ctx context.Context, name, description string) (*A
 		uid, name, nullable(description)); err != nil {
 		return nil, translateErr(err)
 	}
+	if err := ensureUserSpaces(ctx, tx, uid, name, "agent"); err != nil {
+		return nil, err
+	}
 
 	// Mint a token immediately — the agent needs it now. read+write,
 	// no admin. parent_user_id is set later by Claim.

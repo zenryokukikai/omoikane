@@ -249,6 +249,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/talk/{id}", h.talkPage)
 		r.Get("/agents", h.agentsPage)
 		r.Get("/my/librarian", h.myLibrarianPage)
+		r.Get("/librarian-icon/{userID}", h.librarianIconImage)
 		r.Get("/u/{id}", h.profilePage)
 		r.Get("/members", h.membersPage)
 		r.Get("/admin/spaces", h.adminSpacesPage)
@@ -356,6 +357,7 @@ type pageCtx struct {
 	TalkAgent        *store.User         // /talk: the default answering agent (avatar + display name)
 	TalkLibrarian    *store.UserLibrarian // /talk: thread owner's personal librarian; nil → default responder (#73)
 	NavLibrarianName string              // header nav label: viewer's own librarian name; "" → default responder
+	NavLibrarian     *store.UserLibrarian // full row behind NavLibrarianName (icon rendering); nil → default responder
 	Bookmarked       bool                // entry page: current user starred this entry
 	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
 	JournalTeaser    string              // home: its first lines, markdown stripped
@@ -409,6 +411,7 @@ type pageCtx struct {
 	MyLibrarian      *store.UserLibrarian // current row, nil if not set up yet
 	LibrarianName    string               // form echo (current or submitted)
 	LibrarianPersona string               // form echo
+	LibrarianIcon    string               // form echo (text icon)
 	LibrarianSaved   bool                 // success banner after PRG
 	LibrarianError   string               // error banner
 
@@ -458,6 +461,7 @@ func (h *Handler) renderCtx(r *http.Request) pageCtx {
 	if pc.Me != nil && h.Librarian != nil {
 		if ul, err := h.Store.GetUserLibrarian(r.Context(), pc.Me.ID); err == nil && ul.Status == "active" && ul.Name != "" {
 			pc.NavLibrarianName = ul.Name
+			pc.NavLibrarian = ul
 		}
 	}
 	return pc

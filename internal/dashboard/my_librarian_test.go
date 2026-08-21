@@ -1,9 +1,11 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -242,5 +244,138 @@ func TestMyLibrarianRequiresAuth(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusFound {
 		t.Fatalf("want 401/302 without auth, got %d", resp.StatusCode)
+	}
+}
+
+// postMultipart posts a multipart form with optional file field.
+func postMultipart(t *testing.T, srv *httptest.Server, path, token string,
+	fields map[string]string, fileField, fileName string, fileData []byte) (int, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		_ = mw.WriteField(k, v)
+	}
+	if fileField != "" {
+		fw, err := mw.CreateFormFile(fileField, fileName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fw.Write(fileData)
+	}
+	mw.Close()
+	u := srv.URL + path
+	if token != "" {
+		u += "?token=" + url.QueryEscape(token)
+	}
+	req, err := http.NewRequest(http.MethodPost, u, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// tinyPNG is a valid 1x1 PNG — http.DetectContentType sniffs it as
+// image/png.
+var tinyPNG = []byte{
+	0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a,
+	0, 0, 0, 0x0d, 'I', 'H', 'D', 'R', 0, 0, 0, 1, 0, 0, 0, 1,
+	8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89,
+	0, 0, 0, 0x0a, 'I', 'D', 'A', 'T',
+	0x78, 0x9c, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0d, 0x0a, 0x2d, 0xb4,
+	0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xae, 0x42, 0x60, 0x82,
+}
+
+// Icon lifecycle (#85): emoji text persists, an uploaded image wins over
+// it, its serving route is owner/admin-only, and the clear checkbox
+// falls back to the text icon.
+func TestMyLibrarianIcon(t *testing.T) {
+	fake := &fakeProvisioner{}
+	srv, s, tok := mountLibrarian(t, fake)
+	ctx := context.Background()
+
+	// Emoji text saves and round-trips.
+	if code, _ := postFormBody(t, srv, "/my/librarian", tok,
+		map[string]string{"name": "きりん", "icon": "🦒"}); code != http.StatusSeeOther {
+		t.Fatalf("save with icon: want 303, got %d", code)
+	}
+	ul, err := s.GetUserLibrarian(ctx, "alice")
+	if err != nil || ul.Icon != "🦒" {
+		t.Fatalf("icon round-trip: %+v err=%v", ul, err)
+	}
+	if ul.IconImageURL() != "" || ul.IconText() != "🦒" {
+		t.Fatalf("no image yet: url=%q text=%q", ul.IconImageURL(), ul.IconText())
+	}
+
+	// Rejects: over-long text icon, non-image upload.
+	if code, _ := postFormBody(t, srv, "/my/librarian", tok,
+		map[string]string{"name": "きりん", "icon": strings.Repeat("あ", 9)}); code != http.StatusBadRequest {
+		t.Fatalf("long icon: want 400, got %d", code)
+	}
+	if code, _ := postMultipart(t, srv, "/my/librarian", tok,
+		map[string]string{"name": "きりん"}, "icon_file", "x.txt", []byte("not an image")); code != http.StatusBadRequest {
+		t.Fatalf("non-image upload: want 400, got %d", code)
+	}
+
+	// A real PNG uploads, wins over the emoji, and serves to the owner.
+	if code, _ := postMultipart(t, srv, "/my/librarian", tok,
+		map[string]string{"name": "きりん", "icon": "🦒"}, "icon_file", "icon.png", tinyPNG); code != http.StatusSeeOther {
+		t.Fatalf("png upload: want 303, got %d", code)
+	}
+	ul, _ = s.GetUserLibrarian(ctx, "alice")
+	if ul.IconMime != "image/png" || ul.IconImageURL() == "" {
+		t.Fatalf("image not stored: %+v", ul)
+	}
+	get := func(token string) int {
+		u := srv.URL + "/librarian-icon/alice"
+		if token != "" {
+			u += "?token=" + url.QueryEscape(token)
+		}
+		resp, err := http.Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := get(tok); code != http.StatusOK {
+		t.Fatalf("owner fetch: want 200, got %d", code)
+	}
+
+	// Another (non-admin) user gets the uniform 404; anonymous too.
+	if err := s.CreateUser(ctx, &store.User{ID: "bob", Name: "Bob", Email: "bob@x.com"}); err != nil {
+		t.Fatal(err)
+	}
+	bobTok, err := s.CreateToken(ctx, "bob", "t", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := get(bobTok); code != http.StatusNotFound {
+		t.Fatalf("other user fetch: want 404, got %d", code)
+	}
+	// Anonymous: the auth middleware answers before the handler (401 or
+	// a login redirect) — anything but the image is fine.
+	if code := get(""); code != http.StatusNotFound && code != http.StatusFound && code != http.StatusUnauthorized {
+		t.Fatalf("anonymous fetch: want 401/404/redirect, got %d", code)
+	}
+
+	// Clear falls back to the emoji.
+	if code, _ := postMultipart(t, srv, "/my/librarian", tok,
+		map[string]string{"name": "きりん", "icon": "🦒", "icon_image_clear": "1"}, "", "", nil); code != http.StatusSeeOther {
+		t.Fatalf("clear: want 303, got %d", code)
+	}
+	ul, _ = s.GetUserLibrarian(ctx, "alice")
+	if ul.IconMime != "" || ul.IconText() != "🦒" {
+		t.Fatalf("clear failed: %+v", ul)
 	}
 }

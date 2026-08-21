@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -15,18 +17,40 @@ type UserLibrarian struct {
 	Name      string    `json:"name"`
 	Persona   string    `json:"persona"`
 	Status    string    `json:"status"`
+	Icon      string    `json:"icon"`      // short text icon (emoji); "" → built-in default
+	IconMime  string    `json:"icon_mime"` // non-empty ⇔ an uploaded image exists
+	IconVer   int64     `json:"icon_ver"`  // bumped per image change; cache-busts the serving URL
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// IconImageURL is the serving URL of the uploaded icon image, or ""
+// when none is uploaded. The ?v= version busts browser caches on
+// replacement. Used directly by the dashboard templates.
+func (ul *UserLibrarian) IconImageURL() string {
+	if ul.IconMime == "" {
+		return ""
+	}
+	return "/librarian-icon/" + url.PathEscape(ul.UserID) + "?v=" + strconv.FormatInt(ul.IconVer, 10)
+}
+
+// IconText is the text icon to render when no image is uploaded.
+func (ul *UserLibrarian) IconText() string {
+	if ul.Icon != "" {
+		return ul.Icon
+	}
+	return "🤖"
 }
 
 // GetUserLibrarian returns the personal librarian row for userID, or
 // ErrNotFound when the user has not set one up.
 func (s *Store) GetUserLibrarian(ctx context.Context, userID string) (*UserLibrarian, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT user_id, agent_id, name, persona, status, created_at
+		SELECT user_id, agent_id, name, persona, status,
+		       icon, icon_mime, icon_ver, created_at
 		  FROM user_librarians WHERE user_id = ?`, userID)
 	var ul UserLibrarian
 	if err := row.Scan(&ul.UserID, &ul.AgentID, &ul.Name, &ul.Persona,
-		&ul.Status, &ul.CreatedAt); err != nil {
+		&ul.Status, &ul.Icon, &ul.IconMime, &ul.IconVer, &ul.CreatedAt); err != nil {
 		return nil, translateErr(err)
 	}
 	return &ul, nil
@@ -42,15 +66,60 @@ func (s *Store) UpsertUserLibrarian(ctx context.Context, ul *UserLibrarian) erro
 		ul.Status = "active"
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO user_librarians(user_id, agent_id, name, persona, status)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO user_librarians(user_id, agent_id, name, persona, status, icon)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 			agent_id = excluded.agent_id,
 			name     = excluded.name,
 			persona  = excluded.persona,
-			status   = excluded.status`,
-		ul.UserID, ul.AgentID, ul.Name, ul.Persona, ul.Status)
+			status   = excluded.status,
+			icon     = excluded.icon`,
+		ul.UserID, ul.AgentID, ul.Name, ul.Persona, ul.Status, ul.Icon)
 	return translateErr(err)
+}
+
+// SetUserLibrarianIconImage stores (or replaces) the uploaded icon
+// image. mime must already be validated by the caller. Bumps icon_ver
+// so the serving URL changes and browser caches refresh.
+func (s *Store) SetUserLibrarianIconImage(ctx context.Context, userID string, img []byte, mime string) error {
+	if userID == "" || len(img) == 0 || mime == "" {
+		return ErrInvalidInput
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE user_librarians
+		   SET icon_image = ?, icon_mime = ?, icon_ver = icon_ver + 1
+		 WHERE user_id = ?`, img, mime, userID)
+	if err != nil {
+		return translateErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearUserLibrarianIconImage removes the uploaded icon image (the
+// display falls back to the text icon). No-op when none is set.
+func (s *Store) ClearUserLibrarianIconImage(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE user_librarians
+		   SET icon_image = NULL, icon_mime = '', icon_ver = icon_ver + 1
+		 WHERE user_id = ?`, userID)
+	return translateErr(err)
+}
+
+// GetUserLibrarianIconImage returns the uploaded icon image and its
+// mime type. ErrNotFound when the user has no librarian or no image.
+func (s *Store) GetUserLibrarianIconImage(ctx context.Context, userID string) ([]byte, string, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT icon_image, icon_mime FROM user_librarians
+		 WHERE user_id = ? AND icon_mime != ''`, userID)
+	var img []byte
+	var mime string
+	if err := row.Scan(&img, &mime); err != nil {
+		return nil, "", translateErr(err)
+	}
+	return img, mime, nil
 }
 
 // HasAPIToken reports whether userID holds a live (non-expired) API

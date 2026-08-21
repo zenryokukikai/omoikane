@@ -7,7 +7,7 @@
 {{$mine := and (eq .AuthorRole "human") (eq .AuthorUserID $.Me.ID)}}
 <div class="talk-msg {{if $mine}}talk-msg-me{{else}}talk-msg-bot{{end}}" data-mid="{{.ID}}">
   {{if not $mine}}
-    {{if $.TalkLibrarian}}<span class="talk-avatar-sm">🤖</span>
+    {{if $.TalkLibrarian}}{{if $.TalkLibrarian.IconImageURL}}<img class="talk-avatar-sm-img" src="{{$.TalkLibrarian.IconImageURL}}" alt="">{{else}}<span class="talk-avatar-sm">{{$.TalkLibrarian.IconText}}</span>{{end}}
     {{else if and $.TalkAgent $.TalkAgent.AvatarURL}}
     <img class="talk-avatar-sm-img" src="{{$.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
     {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
@@ -43,7 +43,7 @@
 
   <section class="talk-main">
     <div class="talk-head">
-      {{if .TalkLibrarian}}<span class="talk-avatar">🤖</span>
+      {{if .TalkLibrarian}}{{if .TalkLibrarian.IconImageURL}}<img class="talk-avatar-img" src="{{.TalkLibrarian.IconImageURL}}" alt="">{{else}}<span class="talk-avatar">{{.TalkLibrarian.IconText}}</span>{{end}}
       {{else if and .TalkAgent .TalkAgent.AvatarURL}}
       <img class="talk-avatar-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
       {{else}}<span class="talk-avatar">🎩</span>{{end}}
@@ -64,7 +64,7 @@
         </div>
       {{end}}
       <div class="talk-pending" id="talk-pending" hidden>
-        {{if .TalkLibrarian}}<span class="talk-avatar-sm">🤖</span>
+        {{if .TalkLibrarian}}{{if .TalkLibrarian.IconImageURL}}<img class="talk-avatar-sm-img" src="{{.TalkLibrarian.IconImageURL}}" alt="">{{else}}<span class="talk-avatar-sm">{{.TalkLibrarian.IconText}}</span>{{end}}
         {{else if and .TalkAgent .TalkAgent.AvatarURL}}
         <img class="talk-avatar-sm-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
         {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}

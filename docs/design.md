@@ -301,7 +301,7 @@ CREATE TABLE entries (
     id TEXT PRIMARY KEY,                  -- 'T-001', 'D-005', 'I-042' 等
     project_id TEXT NOT NULL REFERENCES projects(id),
     type TEXT NOT NULL,                   -- 'trap'|'decision'|'design'|'lesson'|'incident'
-                                          --   |'librarian_meta'|'external_finding'
+                                          --   |'note'|'librarian_meta'|'external_finding'
     title TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'DRAFT', -- 'DRAFT'|'INVESTIGATING'|'ACTIVE'
                                           --   |'SUPERSEDED'|'ARCHIVED'|'DUPLICATE'
@@ -940,6 +940,7 @@ kb stats
 /projects/{id}             プロジェクト概要
 /projects/{id}/browse      階層ツリー(Phase 4)
 /projects/{id}/entries     全エントリ一覧
+/entries/new               新規作成フォーム(人間用、issue #71 — §11.4)
 /entries/{id}              詳細(?as_of= 対応)
 /entries/{id}/history      変更履歴
 /entries/{id}/cases        使用事例(Phase 3+)
@@ -969,6 +970,44 @@ kb stats
 - `[[entry-id]]` 自動リンク
 - バックリンク自動表示
 - ハブページ(hierarchy_node を概念ページに)
+
+### 11.4 人間のエントリ作成(issue #71)
+
+個人スペース(#60)の導入で「自分のメモを自分で書く」ニーズが顕在化した。
+ダッシュボードは Phase 1 の「監査用読み取り専用」思想を離れ、人間向けの
+作成フォーム `/entries/new` を持つ。
+
+**エントリタイプ `note`**: 人間の手書きメモ用。既存タイプ(trap/decision/…)は
+障害・意思決定の型を要求するが、note は自由記述。契約:
+
+- ID 接頭辞は `N-`(typePrefix)
+- **cataloger backlog の対象外**(`excludedTypesForRole`)。人間のメモに
+  要約は不要 — librarian_meta と同じ除外機構に乗る。除外は cataloger
+  限定で、detective / curator / indexer 等の backlog には通常どおり載る
+- 一覧・検索・enrichment は他タイプと同一(特別扱いしない)
+
+**フォームの契約**(`/entries/new`、テンプレート entry_new.html):
+
+- 描画はログイン時のみ(未認証ブラウザは /login へ、通常の dashboard gate)
+- フィールド: タイトル(必須)/ 本文 markdown(必須)/ タイプ select
+  (**note 既定**、trap/decision/design/lesson/incident — librarian_meta 等の
+  司書出力タイプは人間に提示しない)/ プロジェクト(既定 `omoikane`)/
+  スペース select(視界内のみ、/entries と同じ spaceOptions を再利用。
+  視界が internal のみなら select 自体を出さない)/ タグ(カンマ区切り任意)
+- `?space=<id>` でスペース select をプリセット。視界外・不存在のスペースは
+  `/entries?space=` と同じ 404(存在オラクル封じ)
+- **投稿は JS fetch で既存 `POST /v1/entries` へ**(session cookie、
+  credentials: same-origin)。dashboard に第2の書き込み経路を作らない —
+  認可・スペース 404・シークレットスキャンの契約を API の1本に保つ
+- フォームは `status: ACTIVE` を送る。DRAFT 既定はエージェント提案の
+  レビュー待ちの意味であり、人間が自分の名前で書くメモは直接公開でよい
+- 成功時は作成されたエントリ `/entries/{id}` へリダイレクト。失敗時は
+  フォーム上部にインラインでエラーメッセージ表示(alert 不使用)
+- 導線: ヘッダーにログイン時のみ「✏️ 新規」、/entries 一覧に
+  「✏️ このスペースに書く」(現在のスペースフィルタを `?space=` で引き継ぐ)
+
+既存エントリの編集 UI はスコープ外(OCC/If-Match・履歴との整合を要設計 —
+別 issue)。
 
 ---
 
@@ -2162,8 +2201,9 @@ LangGraph 階層エージェント。我々の差は:
 
 | 用語 | 定義 |
 |---|---|
-| Entry | 知識単位。trap / decision / design / lesson / incident / librarian_meta / external_finding |
+| Entry | 知識単位。trap / decision / design / lesson / incident / note / librarian_meta / external_finding |
 | Trap | 経験的に判明した失敗パターン(root cause + 対処法あり) |
+| Note | 人間の手書きメモ(自由記述)。cataloger backlog の対象外(§11.4) |
 | Incident | 未解決の失敗観察。原因不明でも投稿可 |
 | Decision | 設計判断記録 |
 | Lookup | 逆引き検索 |

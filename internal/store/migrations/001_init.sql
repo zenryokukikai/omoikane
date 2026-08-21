@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS entries (
     id                    TEXT PRIMARY KEY,
     project_id            TEXT NOT NULL REFERENCES projects(id),
     type                  TEXT NOT NULL,    -- trap|decision|design|lesson|incident
-                                            --   |librarian_meta|external_finding
+                                            --   |note|librarian_meta|external_finding
     title                 TEXT NOT NULL,
     status                TEXT NOT NULL DEFAULT 'DRAFT',
                                             -- DRAFT|INVESTIGATING|ACTIVE|SUPERSEDED

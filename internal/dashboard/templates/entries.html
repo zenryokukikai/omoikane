@@ -8,6 +8,12 @@
 
 <h1>Entries</h1>
 
+{{if .Me}}
+<p>
+  <a class="btn" href="/entries/new{{if .EntriesFilter.SpaceID}}?space={{urlq .EntriesFilter.SpaceID}}{{end}}">✏️ {{if .EntriesFilter.SpaceID}}このスペースに書く{{else}}新規エントリを書く{{end}}</a>
+</p>
+{{end}}
+
 <p class="entries-quick-filter">
   <strong>Quick views:</strong>
   <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">all</a>
@@ -30,6 +36,7 @@
       <option value="decision"        {{if eq .EntriesFilter.Type "decision"}}selected{{end}}>decision</option>
       <option value="design"          {{if eq .EntriesFilter.Type "design"}}selected{{end}}>design</option>
       <option value="incident"        {{if eq .EntriesFilter.Type "incident"}}selected{{end}}>incident</option>
+      <option value="note"            {{if eq .EntriesFilter.Type "note"}}selected{{end}}>note</option>
       <option value="librarian_meta"  {{if eq .EntriesFilter.Type "librarian_meta"}}selected{{end}}>librarian_meta</option>
       <option value="external_finding" {{if eq .EntriesFilter.Type "external_finding"}}selected{{end}}>external_finding</option>
     </select>

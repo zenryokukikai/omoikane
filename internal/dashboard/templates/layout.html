@@ -11,6 +11,7 @@
   <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">omoikane</a>
   <a href="/journal{{if .Token}}?token={{urlq .Token}}{{end}}" class="nav-journal">Journal</a>
   <a href="/talk" class="nav-journal" title="ナレッジベースを検索して答える応対エージェント">🎩 {{talkAgentName}}</a>
+  {{if .Me}}<a href="/entries/new" class="nav-journal" title="新しいエントリを書く">✏️ 新規</a>{{end}}
   <a href="/bookmarks" class="nav-journal" title="自分のブックマーク">🔖</a>
   <a href="/search{{if .Token}}?token={{urlq .Token}}{{end}}" class="muted">search</a>
   <a href="{{navURL "" .Token (langSwitch .Lang)}}" class="muted lang-toggle" title="Switch display language">

@@ -9,7 +9,7 @@ import (
 func TestValidEntryTypeAll(t *testing.T) {
 	all := []EntryType{
 		TypeTrap, TypeDecision, TypeDesign, TypeLesson, TypeIncident,
-		TypeLibrarianMeta, TypeExternalFinding,
+		TypeNote, TypeLibrarianMeta, TypeExternalFinding,
 	}
 	for _, ty := range all {
 		if !ValidEntryType(string(ty)) {

@@ -22,6 +22,9 @@ var (
 // EntryType — v0.6 includes librarian_meta and external_finding for
 // forward compatibility with Phase 5+ (the schema accepts them from day 1
 // so future migrations don't need to retroactively widen a CHECK).
+// 'note' (issue #71) is the human free-form memo type: unlike
+// trap/decision/... it carries no incident semantics and is excluded
+// from the cataloger's backlog (a human's own memo needs no summary).
 type EntryType string
 
 const (
@@ -30,6 +33,7 @@ const (
 	TypeDesign          EntryType = "design"
 	TypeLesson          EntryType = "lesson"
 	TypeIncident        EntryType = "incident"
+	TypeNote            EntryType = "note"
 	TypeLibrarianMeta   EntryType = "librarian_meta"
 	TypeExternalFinding EntryType = "external_finding"
 )
@@ -37,7 +41,7 @@ const (
 func ValidEntryType(t string) bool {
 	switch EntryType(t) {
 	case TypeTrap, TypeDecision, TypeDesign, TypeLesson, TypeIncident,
-		TypeLibrarianMeta, TypeExternalFinding:
+		TypeNote, TypeLibrarianMeta, TypeExternalFinding:
 		return true
 	}
 	return false

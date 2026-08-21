@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,17 +34,21 @@ type Client struct {
 	// legitimately take minutes, so no transport-level Timeout — the
 	// caller's context is the only deadline.
 	talkHC *http.Client
+	// talkBackoff is DispatchTalk's first retry delay (doubled per
+	// attempt). A field so tests can shrink it.
+	talkBackoff time.Duration
 }
 
 // New builds a Client. kbURL is the omoikane base URL agents should call
 // back to (typically cfg.OAuthRedirectBase).
 func New(baseURL, ownerID, kbURL string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		ownerID: ownerID,
-		kbURL:   strings.TrimRight(kbURL, "/"),
-		hc:      &http.Client{Timeout: 30 * time.Second},
-		talkHC:  &http.Client{},
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		ownerID:     ownerID,
+		kbURL:       strings.TrimRight(kbURL, "/"),
+		hc:          &http.Client{Timeout: 30 * time.Second},
+		talkHC:      &http.Client{},
+		talkBackoff: time.Second,
 	}
 }
 
@@ -57,14 +62,46 @@ func New(baseURL, ownerID, kbURL string) *Client {
 // The reply itself reaches omoikane out-of-band — the agent posts to
 // /v1/librarian/chat per its instructions recipe — so the response body
 // here is only inspected for errors, never parsed for content.
+//
+// Transient failures — connection errors and 5xx, i.e. the runtime was
+// never reached or an infra layer failed in front of it (a restart
+// blip) — are retried up to 3 attempts with exponential backoff, the
+// same shape as omoikane's webhook delivery. 4xx and error-body
+// responses are FINAL: the runtime processed the request, the agent's
+// turn may already have run, and a re-send could run it twice.
 func (c *Client) DispatchTalk(ctx context.Context, agentID, content string) error {
 	if agentID == "" {
 		return fmt.Errorf("opencrab: agent id required")
 	}
-	return c.do(ctx, c.talkHC, http.MethodPost,
-		"/api/agents/"+agentID+"/messages",
-		map[string]any{"user_id": c.ownerID, "content": content}, nil)
+	backoff := c.talkBackoff
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		err = c.do(ctx, c.talkHC, http.MethodPost,
+			"/api/agents/"+agentID+"/messages",
+			map[string]any{"user_id": c.ownerID, "content": content}, nil)
+		var te *transientError
+		if err == nil || !errors.As(err, &te) {
+			return err
+		}
+		if attempt < 3 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+	}
+	return err
 }
+
+// transientError marks a failure worth retrying: the request never
+// reached the runtime, or died in front of it, so re-sending cannot
+// double-run an agent turn.
+type transientError struct{ err error }
+
+func (e *transientError) Error() string { return e.err.Error() }
+func (e *transientError) Unwrap() error { return e.err }
 
 // ProvisionParams is one provisioning request. All ids are generated
 // server-side by the caller (never taken from a form).
@@ -226,12 +263,21 @@ func (c *Client) do(ctx context.Context, hc *http.Client, method, path string, b
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return err
+		// Transport failure: the request never got a response —
+		// retry-safe (see transientError).
+		return &transientError{err}
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		if resp.StatusCode >= 500 {
+			// 5xx = an infra layer failed in front of the handler
+			// (opencrab itself reports failures as 200 + error body) —
+			// retry-safe.
+			return &transientError{err}
+		}
+		return err
 	}
 	var probe struct {
 		Error string `json:"error"`

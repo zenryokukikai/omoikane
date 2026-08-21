@@ -2265,9 +2265,12 @@ API はブラウザに一切露出しない。スライス A は設定ページ+
    従来どおり webhook で既定応答者へ(**fail-open to default responder**)
 
 配送は goroutine + timeout(5 分 — messages API はエージェントのターン全体に同期)の
-fire-and-forget。失敗は Warn ログのみで webhook へのフォールバック配送は**しない**
-(webhook 配送自体と同じ at-most-once 契約。取りこぼしはリスト API で照合)。
-1 メッセージが 2 経路に届くことはない(二重応答の防止が抑止の目的)。
+fire-and-forget。**接続エラー / 5xx に限り** 1s→2s の指数バックオフで最大 3 試行
+(webhook 配送と同等のリトライ形)— この 2 クラスは基盤がリクエストを処理していないことが
+確かで再送安全。**4xx とエラーボディ応答には再送しない**(基盤は処理済み — ターンが既に
+走った可能性があり、再送は二重実行になり得る)。リトライ枯渇後は Warn ログのみで webhook への
+フォールバック配送は**しない**(webhook 配送自体と同じ at-most-once 契約。取りこぼしは
+リスト API で照合)。1 メッセージが 2 経路に届くことはない(二重応答の防止が抑止の目的)。
 
 caller `user_id` に `OPENCRAB_OWNER_ID` を使うのは、敷設時に trust 行へ書いた owner id と
 同値だから — 基盤側 `caller_identity` が Owner と解決し、実行ツールが露出する。
@@ -2281,8 +2284,10 @@ caller `user_id` に `OPENCRAB_OWNER_ID` を使うのは、敷設時に trust �
   user_id だけでは判定できない(司書の返信は本人の user_id を持つ)
 - 相手側の表示名・アイコン: スレッド owner が active な司書を持てば `user_librarians.name`
   (アイコンは当面 🤖 固定)、無ければ従来の既定応答者(TalkAgent)。ヘッダー・pending 行・
-  placeholder も同じ解決(`TalkRespondentName`)。表示の解決も配送と同じ fail-open 方向 —
-  **画面が示す相手=実際に応答する相手**を一致させる
+  placeholder も同じ解決(`TalkRespondentName`)。表示の解決はルーティングと**同じゲート・
+  同じ fail-open 方向**: 機能無効(`OPENCRAB_URL` 未設定 → dashboard の `Librarian` nil)なら
+  司書行が残っていても既定応答者を表示する — **画面が示す相手=実際に応答する相手**を常に
+  一致させる
 
 ---
 

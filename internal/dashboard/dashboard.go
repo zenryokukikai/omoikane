@@ -1389,6 +1389,15 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 // on any miss — the same fail-open direction as the webhook-side
 // routing, so what the page shows matches who actually answers.
 func (h *Handler) resolveTalkLibrarian(r *http.Request, pc *pageCtx, owner string) {
+	// Feature gate first: with the runtime unconfigured (OPENCRAB_URL
+	// unset → h.Librarian nil) no librarian can answer, so none may
+	// front the page either — a leftover user_librarians row must not
+	// split identity ("shown: librarian, answering: default responder",
+	// design §25.7). Same gate the webhook router applies via
+	// TalkDispatch == nil.
+	if h.Librarian == nil {
+		return
+	}
 	if ul, err := h.Store.GetUserLibrarian(r.Context(), owner); err == nil && ul.Status == "active" {
 		pc.TalkLibrarian = ul
 	}

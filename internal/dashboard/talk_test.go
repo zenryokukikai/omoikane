@@ -169,7 +169,8 @@ func TestTalkPage(t *testing.T) {
 // avatar, per-bubble icon) is the librarian's, not the default
 // responder's.
 func TestTalkPersonalLibrarianIdentity(t *testing.T) {
-	srv, st, tok := mountAuthed(t) // alice (admin)
+	// Feature ON (h.Librarian set) — identity resolution is gated on it.
+	srv, st, tok := mountLibrarian(t, &fakeProvisioner{}) // alice (admin)
 	ctx := context.Background()
 
 	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
@@ -240,5 +241,42 @@ func TestTalkPersonalLibrarianIdentity(t *testing.T) {
 	bs = string(body)
 	if code != 200 || !strings.Contains(bs, "コンシェルジュ") || strings.Contains(bs, "アイ") {
 		t.Fatalf("default responder identity broken for librarian-less user: code=%d", code)
+	}
+}
+
+// With the feature gate OFF (no OPENCRAB_URL → h.Librarian nil) a
+// leftover user_librarians row must NOT front the page: nothing routes
+// to the runtime in that configuration, so showing the librarian would
+// split identity — "shown: librarian, answering: default responder"
+// (design §25.7). The display gate must match the routing gate.
+func TestTalkLibrarianIdentityGatedOff(t *testing.T) {
+	srv, st, tok := mountAuthed(t) // alice (admin), h.Librarian NOT set
+	ctx := context.Background()
+
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "alice", AgentID: "plib-alice", Name: "ゲート検証司書", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	tid, err := st.OpenThread(ctx, &store.ChatThread{
+		Title: "gate off", Intent: "talk", CreatedBy: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/talk", "/talk/" + tid} {
+		code, body := get(t, srv, path, tok)
+		bs := string(body)
+		if code != 200 {
+			t.Fatalf("%s: code=%d", path, code)
+		}
+		// Neither the librarian's name nor the 🤖 respondent avatar
+		// (the ⚙-menu "🤖 Agents" link is unrelated and always there).
+		if strings.Contains(bs, "ゲート検証司書") || strings.Contains(bs, `talk-avatar">🤖`) ||
+			strings.Contains(bs, `talk-avatar-sm">🤖`) {
+			t.Fatalf("%s: librarian identity shown while the feature gate is off", path)
+		}
+		if !strings.Contains(bs, "コンシェルジュ") {
+			t.Fatalf("%s: default responder identity missing", path)
+		}
 	}
 }

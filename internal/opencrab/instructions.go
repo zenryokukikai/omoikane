@@ -26,16 +26,23 @@ func Instructions(name, userName, persona, kbURL string) string {
 認証: workspace の .kb.curlrc に Authorization ヘッダが入っている。すべての curl に -K を付ける。
 Base URL: %[3]s
 
-1. 検索: curl -sS -K .kb.curlrc "%[3]s/v1/search?q=<キーワード>"
-2. 精読: curl -sS -K .kb.curlrc "%[3]s/v1/entries/<entry_id>"
-3. 進捗実況(任意): curl -sS -K .kb.curlrc -X POST %[3]s/v1/events/broadcast \
+1. 進捗実況(作業を始めたらまず送る): curl -sS -K .kb.curlrc -X POST %[3]s/v1/events/broadcast \
      -H 'Content-Type: application/json' \
-     -d '{"type":"chat.status","data":{"thread_id":"<thread_id>","status":"🔎 検索しています…"}}'
+     -d '{"type":"chat.status","data":{"thread_id":"<thread_id>","text":"🔎 書庫を検索しています…"}}'
+   data のキーは text(status ではない)。作業内容が変わるたびに送り直してよい。
+2. 検索(必要なときだけ): curl -sS -K .kb.curlrc -X POST %[3]s/v1/search \
+     -H 'Content-Type: application/json' \
+     -d '{"query":"<検索語>","top_k":8}'
+   GET や ?q= は使えない(必ず POST + JSON)。挨拶や雑談には検索は不要 — そのまま返事してよい。
+3. 精読: curl -sS -K .kb.curlrc "%[3]s/v1/entries/<entry_id>"
 4. 返信投稿(必須): curl -sS -K .kb.curlrc -X POST %[3]s/v1/librarian/chat \
      -H 'Content-Type: application/json' \
      -d '{"thread_id":"<thread_id>","author_role":"assistant","intent":"observation","content":"<回答>"}'
+5. 完了通知(返信投稿の直後に必ず送る): curl -sS -K .kb.curlrc -X POST %[3]s/v1/events/broadcast \
+     -H 'Content-Type: application/json' \
+     -d '{"type":"chat.status","data":{"thread_id":"<thread_id>","done":true}}'
 
-- **チャットへの投稿が完了条件。** 投稿せずにターンを終えない。
+- **チャットへの投稿が完了条件。** 投稿せずにターンを終えない。検索が空でも「見つからなかった」と自分の言葉で必ず返信する。
 - author_role は必ず "assistant"。author_user_id は送らない(トークンからサーバ側で付く)。
 - 引用するエントリは [[entry_id]] 形式で本文に埋め込む。
 - 自分の投稿(author_role が "assistant" のもの)には応答しない(ループ防止)。

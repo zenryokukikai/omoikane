@@ -9,7 +9,7 @@ import (
 
 // typePrefix maps an entry type to its ID prefix.
 //   trap → T,  decision → D,  design → X,  lesson → L,  incident → I,
-//   librarian_meta → M,  external_finding → F.
+//   note → N,  librarian_meta → M,  external_finding → F.
 func typePrefix(t string) string {
 	switch EntryType(t) {
 	case TypeTrap:
@@ -22,6 +22,8 @@ func typePrefix(t string) string {
 		return "L"
 	case TypeIncident:
 		return "I"
+	case TypeNote:
+		return "N"
 	case TypeLibrarianMeta:
 		return "M"
 	case TypeExternalFinding:

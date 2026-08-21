@@ -330,6 +330,13 @@ func dashLeakRows() []dashLeakRow {
 			memberSees: true, queryEcho: true, memberWant: "secret title"},
 		{name: "entries list space-filter (restricted space, non-member)", path: "/entries?space={space}",
 			outsiderStatus: 404, memberSees: true},
+		// /entries/new renders no entry content, but its space select
+		// could leak restricted spaces; entry_new_test.go asserts the
+		// select's contents, this row pins the marker/id sweep + the
+		// ?space= preset's 404.
+		{name: "entry new form", path: "/entries/new", outsiderStatus: 200},
+		{name: "entry new form space preset (restricted, non-member)", path: "/entries/new?space={space}",
+			outsiderStatus: 404},
 		{name: "entry page", path: "/entries/{secret}", outsiderStatus: 404, memberSees: true},
 		{name: "entry history", path: "/entries/{secret}/history", outsiderStatus: 404, memberSees: true},
 		{name: "internal entry page (relations + attachment unfurl)", path: "/entries/{internal}", outsiderStatus: 200, memberSees: true},

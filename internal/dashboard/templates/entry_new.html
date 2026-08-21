@@ -1,0 +1,105 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/entries{{if .Token}}?token={{urlq .Token}}{{end}}">Entries</a>
+</nav>
+
+<h1>✏️ 新規エントリ</h1>
+<p class="muted">思いついたこと・決めたこと・ハマったことを書き残すページです。本文は markdown で書けます。</p>
+
+<div class="banner" id="new-entry-error" hidden></div>
+
+<form class="entry-new-form" onsubmit="return entryNewSubmit(event)">
+  <p>
+    <label>タイトル(必須)<br>
+      <input type="text" id="ne-title" required maxlength="500" size="60" placeholder="何についてのメモ?">
+    </label>
+  </p>
+  <p>
+    <label>本文(markdown、必須)<br>
+      <textarea id="ne-body" rows="14" cols="80" required
+        placeholder="ここに本文。[[エントリID]] で他エントリへのリンクも書けます。"></textarea>
+    </label>
+  </p>
+  <p>
+    <label>タイプ
+      <select id="ne-type">
+        <option value="note" selected>note(メモ)</option>
+        <option value="trap">trap(罠・失敗パターン)</option>
+        <option value="decision">decision(意思決定)</option>
+        <option value="design">design(設計)</option>
+        <option value="lesson">lesson(教訓)</option>
+        <option value="incident">incident(未解決の失敗)</option>
+      </select>
+    </label>
+    <label>プロジェクト
+      <input type="text" id="ne-project" value="omoikane" size="14">
+    </label>
+    {{if .SpaceOptions}}
+    <label>スペース
+      <select id="ne-space">
+        {{range .SpaceOptions}}
+        <option value="{{.ID}}" {{if eq $.EntriesFilter.SpaceID .ID}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </label>
+    {{end}}
+    <label>タグ(カンマ区切り、任意)
+      <input type="text" id="ne-tags" size="24" placeholder="memo, idea">
+    </label>
+  </p>
+  <p>
+    <button type="submit" class="btn" id="ne-submit">保存</button>
+  </p>
+</form>
+
+<script>
+// Submission goes to the existing API write path (POST /v1/entries)
+// with the session cookie — same style as /talk. The dashboard has no
+// second write route for entries: authorization, space 404s and the
+// secrets scan all live in the one API handler.
+async function entryNewSubmit(ev){
+  ev.preventDefault();
+  const errBox = document.getElementById('new-entry-error');
+  errBox.hidden = true;
+  const btn = document.getElementById('ne-submit');
+  const tags = document.getElementById('ne-tags').value
+    .split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  const payload = {
+    project_id: document.getElementById('ne-project').value.trim(),
+    type: document.getElementById('ne-type').value,
+    title: document.getElementById('ne-title').value.trim(),
+    body: document.getElementById('ne-body').value,
+    // A human writing under their own name publishes directly — the
+    // DRAFT default is for agent proposals awaiting review.
+    status: 'ACTIVE'
+  };
+  if (tags.length) payload.tags = tags;
+  const spaceSel = document.getElementById('ne-space');
+  if (spaceSel && spaceSel.value) payload.space_id = spaceSel.value;
+  btn.disabled = true;
+  try {
+    const r = await fetch('/v1/entries', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try {
+        const e = await r.json();
+        if (e && e.error && e.error.message) msg = e.error.message;
+      } catch (_) {}
+      errBox.textContent = '⚠️ 保存に失敗しました: ' + msg;
+      errBox.hidden = false;
+      btn.disabled = false;
+      return false;
+    }
+    const created = await r.json();
+    location.href = '/entries/' + encodeURIComponent(created.id);
+  } catch (e) {
+    errBox.textContent = '⚠️ 送信エラー: ' + e;
+    errBox.hidden = false;
+    btn.disabled = false;
+  }
+  return false;
+}
+</script>
+{{end}}

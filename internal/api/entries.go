@@ -61,7 +61,7 @@ func (h *Handler) createEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	if !store.ValidEntryType(req.Type) {
 		writeError(w, http.StatusBadRequest, CodeInvalidType,
-			"type must be one of trap|decision|design|lesson|incident|librarian_meta|external_finding",
+			"type must be one of trap|decision|design|lesson|incident|note|librarian_meta|external_finding",
 			map[string]any{"got": req.Type})
 		return
 	}

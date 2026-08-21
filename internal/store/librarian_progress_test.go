@@ -190,6 +190,42 @@ func TestNextUnprocessedEntryExcludesLibrarianMetaForCataloger(t *testing.T) {
 	}
 }
 
+// A human's 'note' (issue #71) needs no summary: it must never enter
+// the cataloger's backlog — neither the pop nor the counter.
+func TestNextUnprocessedEntryExcludesNoteForCataloger(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_ = s.CreateProject(ctx, &Project{ID: "p", Name: "P"})
+	_, _ = s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "note",
+		Title: "human memo", Body: "x", Status: "ACTIVE",
+	})
+	trapID, _ := s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "trap",
+		Title: "real source", Body: "x", Status: "ACTIVE",
+	})
+	got, err := s.NextUnprocessedEntry(ctx, "cataloger", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != trapID {
+		t.Errorf("cataloger should pick trap (%s), got %s", trapID, got.ID)
+	}
+	n, _ := s.BacklogSize(ctx, "cataloger", "")
+	if n != 1 {
+		t.Errorf("cataloger backlog should be 1 (trap only, not note), got %d", n)
+	}
+	// The exclusion is cataloger-scoped: detective still sees notes
+	// (semantic dedup / relation discovery covers human memos too).
+	dgot, err := s.NextUnprocessedEntry(ctx, "detective", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dgot.Type != "note" {
+		t.Errorf("detective's oldest backlog entry should be the note, got type %s", dgot.Type)
+	}
+}
+
 // Curator IS allowed to see librarian_meta in its backlog —
 // promoting DRAFTs is its job. Verify the exclusion is role-scoped.
 func TestNextUnprocessedEntryCuratorSeesLibrarianMeta(t *testing.T) {

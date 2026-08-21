@@ -96,7 +96,7 @@ paths:
           name: type
           schema:
             type: string
-            enum: [trap, decision, design, lesson, incident, librarian_meta, external_finding]
+            enum: [trap, decision, design, lesson, incident, note, librarian_meta, external_finding]
         - in: query
           name: status
           schema:
@@ -380,7 +380,7 @@ components:
         project_id: { type: string }
         type:
           type: string
-          enum: [trap, decision, design, lesson, incident, librarian_meta, external_finding]
+          enum: [trap, decision, design, lesson, incident, note, librarian_meta, external_finding]
         title: { type: string }
         status:
           type: string
@@ -418,7 +418,7 @@ components:
         project_id: { type: string }
         type:
           type: string
-          enum: [trap, decision, design, lesson, incident, librarian_meta, external_finding]
+          enum: [trap, decision, design, lesson, incident, note, librarian_meta, external_finding]
         title: { type: string }
         status: { type: string }
         body: { type: string }

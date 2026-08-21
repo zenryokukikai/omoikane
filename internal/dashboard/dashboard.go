@@ -151,7 +151,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 	pages := map[string]*template.Template{}
 	for _, name := range []string{"home", "journal", "project", "entry", "entry_history", "search",
 		"review_queue", "clusters", "cluster", "situations", "situation",
-		"browse", "browse_node", "index", "lookup", "use_case", "entries",
+		"browse", "browse_node", "index", "lookup", "use_case", "entries", "entry_new",
 		"chat_threads", "chat_thread", "talk", "bookmarks", "directives", "login", "claim", "agents", "profile",
 		"members", "member_claim", "admin_spaces"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
@@ -217,6 +217,11 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/journal", h.journalList)
 		r.Get("/projects/{id}", h.project)
 		r.Get("/entries", h.entriesList)
+		// Static /entries/new wins over the {id} wildcard in chi's trie.
+		// The page only RENDERS the form — the submission goes to the
+		// existing POST /v1/entries API (session cookie), so the
+		// dashboard gains no second write path for entries (issue #71).
+		r.Get("/entries/new", h.entryNewPage)
 		r.Get("/entries/{id}", h.entry)
 		r.Get("/entries/{id}/history", h.history)
 		r.Get("/search", h.search)
@@ -513,7 +518,7 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 
 // entriesList renders a filterable list of entries. Filters accepted via
 // query params (each optional):
-//   ?type=<lesson|trap|decision|design|incident|librarian_meta|external_finding>
+//   ?type=<lesson|trap|decision|design|incident|note|librarian_meta|external_finding>
 //   ?project=<id>
 //   ?status=<DRAFT|ACTIVE|SUPERSEDED|ARCHIVED|...>
 //   ?tag=<tag>
@@ -573,6 +578,32 @@ func (h *Handler) entriesList(w http.ResponseWriter, r *http.Request) {
 	pc.SpaceOptions = h.spaceOptions(r.Context(), pc.Me)
 	pc.Pagination = buildPagination(r, total, page, limit)
 	h.render(w, "entries", pc)
+}
+
+// entryNewPage renders the human entry-creation form (issue #71).
+// GET-only: the submission is a JS fetch to POST /v1/entries with the
+// session cookie, keeping authorization, space-404 semantics and the
+// secrets scan on the single API write path. ?space=<id> presets the
+// space select — a space outside the viewer's visibility (or a missing
+// one) answers 404, same oracle-sealing as /entries?space=.
+func (h *Handler) entryNewPage(w http.ResponseWriter, r *http.Request) {
+	pc := h.renderCtx(r)
+	pc.Title = "omoikane — 新規エントリ"
+	if sp := r.URL.Query().Get("space"); sp != "" {
+		if err := h.Store.RequireVisibleSpace(r.Context(), sp); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Reuse the entries-list filter slot as "the preselected space" —
+		// entry_new.html reads the same field the /entries select does.
+		pc.EntriesFilter.SpaceID = sp
+	}
+	pc.SpaceOptions = h.spaceOptions(r.Context(), pc.Me)
+	h.render(w, "entry_new", pc)
 }
 
 // spaceOptions returns the viewer's visible spaces as select choices,

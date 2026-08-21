@@ -39,7 +39,9 @@ func excludedTypesForRole(role string) []string {
 		// librarians' outputs. Excluding librarian_meta also keeps
 		// scout's external_finding outputs in scope (cataloger
 		// SHOULD organise those — they're raw signal, not summaries).
-		return []string{"librarian_meta"}
+		// 'note' is a human's own free-form memo (issue #71): it
+		// needs no summary, so it never enters cataloger's backlog.
+		return []string{"librarian_meta", "note"}
 	}
 	return nil
 }

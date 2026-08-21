@@ -305,12 +305,20 @@ func (s *Store) ListSpaces(ctx context.Context) ([]*Space, error) {
 
 // SetSpaceACL grants (or updates) a group's role on a space. Upsert:
 // setting a new role for an existing (space, group) pair overwrites it.
+// Personal spaces are not grantable — their ACL is implicit (the owner
+// only) and a space_acl row would expose someone's personal space to a
+// group, so kind=personal is rejected with ErrInvalidInput.
 func (s *Store) SetSpaceACL(ctx context.Context, spaceID, groupID, role string) error {
 	if role != SpaceRoleAdmin && role != SpaceRoleMember {
 		return fmt.Errorf("%w: role must be admin|member", ErrInvalidInput)
 	}
-	if err := s.requireRow(ctx, "spaces", spaceID); err != nil {
-		return err
+	var kind string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT kind FROM spaces WHERE id = ?`, spaceID).Scan(&kind); err != nil {
+		return translateErr(err)
+	}
+	if kind == SpaceKindPersonal {
+		return fmt.Errorf("%w: personal spaces are not grantable", ErrInvalidInput)
 	}
 	if err := s.requireRow(ctx, "groups", groupID); err != nil {
 		return err

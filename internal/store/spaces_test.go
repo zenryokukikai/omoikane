@@ -114,6 +114,52 @@ func TestVisibleSpacesGroupGrant(t *testing.T) {
 	}
 }
 
+func TestVisibleSpacesUnknownUserFailsClosed(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.VisibleSpaces(context.Background(), "u-nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unknown userID must see nothing, got %v", got)
+	}
+}
+
+// TestSetSpaceACLRejectsPersonalSpace pins the leak the third-party
+// review caught: granting a group on someone's personal space would
+// expose it to every group member. The grant must be refused and the
+// would-be reader's visibility must not include the victim's space.
+func TestSetSpaceACLRejectsPersonalSpace(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateUser(ctx, &User{ID: "u-victim", Name: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateUser(ctx, &User{ID: "u-reader", Name: "B"}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := s.CreateGroup(ctx, "snoopers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMember(ctx, g.ID, "u-reader"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.SetSpaceACL(ctx, PersonalSpaceID("u-victim"), g.ID, SpaceRoleMember)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("grant on personal space must be ErrInvalidInput, got %v", err)
+	}
+
+	got, err := s.VisibleSpaces(ctx, "u-reader")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsStr(got, PersonalSpaceID("u-victim")) {
+		t.Fatalf("reader must not see victim's personal space: %v", got)
+	}
+}
+
 func containsStr(xs []string, want string) bool {
 	for _, x := range xs {
 		if x == want {

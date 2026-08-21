@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -263,8 +264,19 @@ func (c *Client) do(ctx context.Context, hc *http.Client, method, path string, b
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		// Transport failure: the request never got a response —
-		// retry-safe (see transientError).
+		// A timeout while awaiting the response is FINAL, not
+		// transient: the request may have reached the runtime and the
+		// agent turn may already be running (the messages endpoint is
+		// synchronous over the whole turn), so a re-send would run the
+		// turn twice — issue #79 was three identical replies from
+		// exactly this. The reply arrives out-of-band via the recipe,
+		// so nothing is lost by giving up on the response body.
+		var ne net.Error
+		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+			return err
+		}
+		// Other transport failures (connection refused, DNS): the
+		// request never got out — retry-safe (see transientError).
 		return &transientError{err}
 	}
 	defer resp.Body.Close()

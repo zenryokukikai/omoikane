@@ -13,6 +13,27 @@
 --
 -- Existing rows land in 'internal' via the column DEFAULT
 -- (behaviour-preserving migration; all pre-slice-3 data is internal).
+--
+-- Deployment verification (operator note — NOT executed here): links
+-- written between the slice-2 and slice-3 deploys could cross spaces
+-- (the same-space invariant only guards new writes). Each count below
+-- must be 0; a non-zero row is a cross-space link to re-home by hand:
+--
+--   SELECT 'situation_entries' t, COUNT(*) n FROM situation_entries l
+--     JOIN situations a ON a.id = l.situation_id
+--     JOIN entries e ON e.id = l.entry_id WHERE e.space_id != a.space_id
+--   UNION ALL
+--   SELECT 'incident_cluster_members', COUNT(*) FROM incident_cluster_members l
+--     JOIN incident_clusters a ON a.id = l.cluster_id
+--     JOIN entries e ON e.id = l.entry_id WHERE e.space_id != a.space_id
+--   UNION ALL
+--   SELECT 'hierarchy_entries', COUNT(*) FROM hierarchy_entries l
+--     JOIN hierarchy_nodes a ON a.id = l.node_id
+--     JOIN entries e ON e.id = l.entry_id WHERE e.space_id != a.space_id
+--   UNION ALL
+--   SELECT 'use_case_entries', COUNT(*) FROM use_case_entries l
+--     JOIN use_cases a ON a.id = l.use_case_id
+--     JOIN entries e ON e.id = l.entry_id WHERE e.space_id != a.space_id;
 
 ALTER TABLE situations        ADD COLUMN space_id TEXT NOT NULL DEFAULT 'internal';
 ALTER TABLE incident_clusters ADD COLUMN space_id TEXT NOT NULL DEFAULT 'internal';

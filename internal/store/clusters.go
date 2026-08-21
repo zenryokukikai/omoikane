@@ -258,10 +258,20 @@ func (s *Store) ListClusters(ctx context.Context, projectID, status string, limi
 }
 
 func (s *Store) ListClusterMembers(ctx context.Context, clusterID string) ([]*IncidentClusterMember, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	// Defence in depth: the single-space invariant only guards NEW
+	// links, so re-gate per entry (same as ListEntriesAtNode /
+	// ListUseCaseEntries) — a cross-space row from the slice-2→3
+	// deployment window must not surface.
+	sqlQ := `
 		SELECT cluster_id, entry_id, COALESCE(similarity, 1.0), added_at, COALESCE(added_by,'')
-		FROM incident_cluster_members WHERE cluster_id = ?
-		ORDER BY similarity DESC, entry_id`, clusterID)
+		FROM incident_cluster_members WHERE cluster_id = ?`
+	args := []any{clusterID}
+	if cond, condArgs := visibleEntryExists(ctx, "incident_cluster_members.entry_id"); cond != "" {
+		sqlQ += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
+	sqlQ += ` ORDER BY similarity DESC, entry_id`
+	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -172,10 +172,20 @@ func (s *Store) UnlinkEntryFromSituation(ctx context.Context, situationID, entry
 // ListSituationEntries returns the entries linked to a situation, with
 // their stored relevance/notes.
 func (s *Store) ListSituationEntries(ctx context.Context, situationID string) ([]*SituationEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	// Defence in depth: the single-space invariant only guards NEW
+	// links, so re-gate per entry (same as ListEntriesAtNode /
+	// ListUseCaseEntries) — a cross-space row from the slice-2→3
+	// deployment window must not surface.
+	sqlQ := `
 		SELECT situation_id, entry_id, COALESCE(relevance, 1.0), COALESCE(notes,'')
-		FROM situation_entries WHERE situation_id = ?
-		ORDER BY relevance DESC, entry_id`, situationID)
+		FROM situation_entries WHERE situation_id = ?`
+	args := []any{situationID}
+	if cond, condArgs := visibleEntryExists(ctx, "situation_entries.entry_id"); cond != "" {
+		sqlQ += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
+	sqlQ += ` ORDER BY relevance DESC, entry_id`
+	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
 	if err != nil {
 		return nil, err
 	}

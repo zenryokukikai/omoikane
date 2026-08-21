@@ -249,6 +249,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/talk/{id}", h.talkPage)
 		r.Get("/agents", h.agentsPage)
 		r.Get("/my/librarian", h.myLibrarianPage)
+		r.Get("/librarian-icon/{userID}", h.librarianIconImage)
 		r.Get("/u/{id}", h.profilePage)
 		r.Get("/members", h.membersPage)
 		r.Get("/admin/spaces", h.adminSpacesPage)
@@ -355,7 +356,7 @@ type pageCtx struct {
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's responder-chat threads
 	TalkAgent        *store.User         // /talk: the default answering agent (avatar + display name)
 	TalkLibrarian    *store.UserLibrarian // /talk: thread owner's personal librarian; nil → default responder (#73)
-	NavLibrarianName string              // header nav label: viewer's own librarian name; "" → default responder
+	NavLibrarian     *store.UserLibrarian // header nav: viewer's own librarian (name+icon); nil → default responder
 	Bookmarked       bool                // entry page: current user starred this entry
 	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
 	JournalTeaser    string              // home: its first lines, markdown stripped
@@ -409,6 +410,7 @@ type pageCtx struct {
 	MyLibrarian      *store.UserLibrarian // current row, nil if not set up yet
 	LibrarianName    string               // form echo (current or submitted)
 	LibrarianPersona string               // form echo
+	LibrarianIcon    string               // form echo (text icon)
 	LibrarianSaved   bool                 // success banner after PRG
 	LibrarianError   string               // error banner
 
@@ -457,7 +459,7 @@ func (h *Handler) renderCtx(r *http.Request) pageCtx {
 	// default responder name when the feature is off or unset.
 	if pc.Me != nil && h.Librarian != nil {
 		if ul, err := h.Store.GetUserLibrarian(r.Context(), pc.Me.ID); err == nil && ul.Status == "active" && ul.Name != "" {
-			pc.NavLibrarianName = ul.Name
+			pc.NavLibrarian = ul
 		}
 	}
 	return pc
@@ -1417,6 +1419,23 @@ func (h *Handler) resolveTalkLibrarian(r *http.Request, pc *pageCtx, owner strin
 // current /talk view: the resolved personal librarian, else the default
 // responder. Exported for the talk templates; value receiver because
 // templates receive pageCtx by value.
+// LibrarianIconURL builds the serving URL of a librarian's uploaded
+// icon image, or "" when none is uploaded. Built here (not in the
+// store) because query-token sessions have no cookie — the browser's
+// <img> request must carry ?token= like every other dashboard link,
+// and only the request context knows the token. ?v= busts browser
+// caches on image replacement.
+func (pc pageCtx) LibrarianIconURL(ul *store.UserLibrarian) string {
+	if ul == nil || ul.IconMime == "" {
+		return ""
+	}
+	u := "/librarian-icon/" + url.PathEscape(ul.UserID) + "?v=" + strconv.FormatInt(ul.IconVer, 10)
+	if pc.Token != "" {
+		u += "&token=" + url.QueryEscape(pc.Token)
+	}
+	return u
+}
+
 func (pc pageCtx) TalkRespondentName() string {
 	if pc.TalkLibrarian != nil {
 		return pc.TalkLibrarian.Name

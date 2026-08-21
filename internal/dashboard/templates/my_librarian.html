@@ -22,6 +22,7 @@
 <div class="profile-card">
   <div class="field"><div class="label">現在の設定</div></div>
   <p>
+    {{with .LibrarianIconURL .MyLibrarian}}<img class="libicon-preview" src="{{.}}" alt="">{{else}}<span class="libicon-preview-text">{{$.MyLibrarian.IconText}}</span>{{end}}
     <strong>{{.MyLibrarian.Name}}</strong>
     <span class="muted">· <code>{{.MyLibrarian.AgentID}}</code>
     · {{.MyLibrarian.Status}}
@@ -31,11 +32,21 @@
 </div>
 {{end}}
 
-<form method="post" action="/my/librarian{{if .Token}}?token={{urlq .Token}}{{end}}" class="profile-edit">
+<form method="post" action="/my/librarian{{if .Token}}?token={{urlq .Token}}{{end}}" class="profile-edit" enctype="multipart/form-data">
   <label>名前(必須・50文字まで)
     <input type="text" name="name" value="{{.LibrarianName}}" required maxlength="50"
            placeholder="例: しおり">
   </label>
+  <label>アイコン(絵文字・8文字まで)
+    <input type="text" name="icon" value="{{.LibrarianIcon}}" maxlength="8"
+           placeholder="例: 🦒(未設定は 🤖)">
+  </label>
+  <label>アイコン画像(PNG / JPEG / GIF / WebP・512KBまで。設定すると絵文字より優先)
+    <input type="file" name="icon_file" accept="image/png,image/jpeg,image/gif,image/webp">
+  </label>
+  {{if and .MyLibrarian .MyLibrarian.IconMime}}
+  <label class="inline-check"><input type="checkbox" name="icon_image_clear" value="1"> 現在のアイコン画像を削除する</label>
+  {{end}}
   <label>性格(2000文字まで)
     <textarea name="persona" rows="10" maxlength="2000"
               placeholder="話し方、得意分野、応答のトーンなどを自由に書いてください。この文章はあなたの司書だけに組み込まれます。">{{.LibrarianPersona}}</textarea>

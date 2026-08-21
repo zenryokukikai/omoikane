@@ -771,6 +771,12 @@ main:has(.talk-layout) { max-width: none; }
   border: 1px solid var(--border); flex-shrink: 0; align-self: flex-end;
 }
 .talk-name { font-weight: 600; }
+/* Personal librarian icon (#85): image variants in the header nav and
+   the settings preview. Talk-page images reuse .talk-avatar-*-img. */
+.nav-libicon { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: -4px; }
+.libicon-preview { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 0.3rem; border: 1px solid var(--border); }
+.libicon-preview-text { font-size: 1.3rem; margin-right: 0.3rem; vertical-align: middle; }
+.inline-check { display: flex; align-items: center; gap: 0.4rem; }
 .talk-sub { font-size: 0.75rem; }
 /* Row spacing is margin-based, not flex gap: rows arrive inside
    display:contents fragment wrappers (.talk-frag), and iOS Safari does

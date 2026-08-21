@@ -19,6 +19,7 @@
   · <span class="badge">{{.ID}}</span>
   · <span class="badge">{{.Type}}</span>
   · <span class="badge badge-status-{{.Status}}">{{.Status}}</span>
+  {{if $.EntrySpaceName}}· <span class="badge badge-space">🔒 {{$.EntrySpaceName}}</span>{{end}}
   · updated {{ltime .UpdatedAt "dt"}}
   · v{{.Version}}
   · <a href="/entries/{{.ID}}/history{{if $.Token}}?token={{urlq $.Token}}{{end}}">history</a>

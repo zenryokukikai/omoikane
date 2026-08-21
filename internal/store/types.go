@@ -155,6 +155,12 @@ type EntryFilter struct {
 	Tag               string
 	Query             string
 	IncludeSuperseded bool
+	// SpaceID narrows the list to ONE space. It composes (AND) with the
+	// ctx's visibility predicate, so the result is always 視界∩指定 —
+	// never a widening. Callers must pre-validate the id with
+	// RequireVisibleSpace so an invisible/nonexistent space 404s instead
+	// of silently returning an empty page (existence-oracle sealing).
+	SpaceID string
 	// Uncategorized restricts to entries with NO use_case link — the
 	// indexer's real work-feed. Without it a "newest-first" feed keeps
 	// surfacing already-categorised entries and never drains the backlog.

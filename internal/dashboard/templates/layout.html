@@ -19,6 +19,10 @@
   <details class="nav-ops">
     <summary title="運用・管理ページ">⚙</summary>
     <nav class="nav-ops-menu">
+      {{if .Me}}
+      <a href="/entries?space=p-{{.Me.ID}}{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🔒 個人スペース</a>
+      <hr>
+      {{end}}
       <a href="/directives">🧭 巡回指示</a>
       <a href="/chat{{if .Token}}?token={{urlq .Token}}{{end}}">💬 Chat(司書)</a>
       <a href="/agents{{if .Token}}?token={{urlq .Token}}{{end}}">🤖 Agents</a>

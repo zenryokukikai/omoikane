@@ -50,6 +50,16 @@
   <label>tag
     <input type="text" name="tag" value="{{.EntriesFilter.Tag}}" placeholder="(any)" size="12">
   </label>
+  {{if .SpaceOptions}}
+  <label>space
+    <select name="space">
+      <option value="" {{if eq .EntriesFilter.SpaceID ""}}selected{{end}}>(any)</option>
+      {{range .SpaceOptions}}
+      <option value="{{.ID}}" {{if eq $.EntriesFilter.SpaceID .ID}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </label>
+  {{end}}
   <label>q
     <input type="text" name="q" value="{{.EntriesFilter.Query}}" placeholder="full-text" size="20">
   </label>

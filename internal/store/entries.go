@@ -354,6 +354,14 @@ func (s *Store) ListEntries(ctx context.Context, f EntryFilter) ([]*Entry, int, 
 		conds = append(conds, cond)
 		args = append(args, condArgs...)
 	}
+	// Explicit space narrowing (f.SpaceID) — composed through
+	// SpaceFilter, the single composition point, never hand-written.
+	// ANDed with the visibility predicate above: 視界∩指定.
+	if f.SpaceID != "" {
+		cond, condArgs := SpaceFilter("e", []string{f.SpaceID})
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
+	}
 
 	// Count (no limit/offset).
 	countSQL := "SELECT COUNT(*) FROM entries e" + joinTag

@@ -641,6 +641,23 @@ a.attachment-file:hover { background: var(--hover); }
 .nav-ops-menu a { padding: 0.35rem 0.9rem; font-weight: 500; font-size: 0.9rem; }
 .nav-ops-menu a:hover { background: var(--bg-soft); }
 .nav-ops-menu hr { border: none; border-top: 1px solid var(--border); margin: 0.3rem 0; }
+/* Mobile (issue #69): with right:0 anchored to the ⚙ button, the
+   12rem panel ran off the LEFT edge of the screen once the header
+   wrapped and the button sat near the left. Re-anchor the panel to
+   the header itself: dropping position:relative from .nav-ops makes
+   the sticky header (a positioned ancestor) the containing block, so
+   left/right pin the panel inside the viewport at ANY wrap position
+   and top:100% lands it just under the full (wrapped) header. Wider
+   tap targets while we're there. Desktop keeps the button-anchored
+   dropdown untouched. */
+@media (max-width: 720px) {
+  .nav-ops { position: static; }
+  .nav-ops-menu {
+    left: 0.6rem; right: 0.6rem; top: calc(100% + 0.25rem);
+    min-width: 0; max-height: 70vh; overflow-y: auto;
+  }
+  .nav-ops-menu a { padding: 0.6rem 1rem; }
+}
 
 /* ---- entry row lists (/entries, /search — issue #19) ---- */
 .entry-rows { list-style: none; padding: 0; margin: 0.4rem 0; }

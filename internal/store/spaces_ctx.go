@@ -51,6 +51,23 @@ func visibleSpacesFrom(ctx context.Context) (spaces []string, restricted bool) {
 	return v.spaces, true
 }
 
+// VisibleSpacesFromContext exposes the restriction installed by
+// WithVisibleSpaces for non-SQL consumers (the dashboard's space
+// select UI). restricted == false means the viewer sees every space.
+// Read-only: the SQL predicate itself still composes exclusively
+// through spaceCond/SpaceFilter.
+func VisibleSpacesFromContext(ctx context.Context) (spaces []string, restricted bool) {
+	return visibleSpacesFrom(ctx)
+}
+
+// RequireVisibleSpace is the exported form of requireVisibleSpace for
+// handlers validating a caller-supplied space id BEFORE composing it
+// into a filter: ErrNotFound when the space does not exist OR lies
+// outside the ctx's visible spaces (indistinguishable by design).
+func (s *Store) RequireVisibleSpace(ctx context.Context, spaceID string) error {
+	return requireVisibleSpace(ctx, s.db, spaceID)
+}
+
 // WithViewerUser records WHO the restricted view belongs to (the token's
 // users.id). Installed by the same API middleware that installs
 // WithVisibleSpaces; owner-scoped predicates (talk threads, slice 4)

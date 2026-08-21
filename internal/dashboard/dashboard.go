@@ -394,6 +394,20 @@ type pageCtx struct {
 	EntriesTotal  int
 	EntriesFilter store.EntryFilter
 	Pagination    *pagination
+
+	// SpaceOptions feeds the /entries space select: the viewer's visible
+	// spaces with display labels, nil when a select would be noise
+	// (fewer than two visible spaces — nothing to switch between).
+	SpaceOptions []spaceOption
+	// EntrySpaceName labels the entry page's space badge ("" for
+	// internal-space entries: internal is the unmarked default).
+	EntrySpaceName string
+}
+
+// spaceOption is one choice in the /entries space select.
+type spaceOption struct {
+	ID    string
+	Label string
 }
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {
@@ -522,6 +536,21 @@ func (h *Handler) entriesList(w http.ResponseWriter, r *http.Request) {
 		Query:             q.Get("q"),
 		IncludeSuperseded: q.Get("include_superseded") == "true",
 	}
+	// ?space= narrows to one visible space (視界∩指定). A space outside
+	// the viewer's visibility — or one that does not exist — answers
+	// 404, indistinguishable by design (the same oracle-sealing
+	// semantics as /entries/{id}).
+	if sp := q.Get("space"); sp != "" {
+		if err := h.Store.RequireVisibleSpace(r.Context(), sp); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		filter.SpaceID = sp
+	}
 	limit := 50
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
@@ -541,8 +570,53 @@ func (h *Handler) entriesList(w http.ResponseWriter, r *http.Request) {
 	pc.Entries = entries
 	pc.EntriesTotal = total
 	pc.EntriesFilter = filter
+	pc.SpaceOptions = h.spaceOptions(r.Context(), pc.Me)
 	pc.Pagination = buildPagination(r, total, page, limit)
 	h.render(w, "entries", pc)
+}
+
+// spaceOptions returns the viewer's visible spaces as select choices,
+// or nil when fewer than two are visible (an internal-only view has
+// nothing to switch between, so the select stays hidden). One
+// ListSpaces query filtered in memory against the context's visibility
+// — no per-space lookups. Best-effort: an error just hides the select.
+func (h *Handler) spaceOptions(ctx context.Context, me *store.User) []spaceOption {
+	all, err := h.Store.ListSpaces(ctx)
+	if err != nil {
+		return nil
+	}
+	visible, restricted := store.VisibleSpacesFromContext(ctx)
+	var vis map[string]bool
+	if restricted {
+		vis = make(map[string]bool, len(visible))
+		for _, id := range visible {
+			vis[id] = true
+		}
+	}
+	opts := make([]spaceOption, 0, len(all))
+	for _, sp := range all {
+		if vis != nil && !vis[sp.ID] {
+			continue
+		}
+		opts = append(opts, spaceOption{ID: sp.ID, Label: spaceLabel(sp, me)})
+	}
+	if len(opts) < 2 {
+		return nil
+	}
+	return opts
+}
+
+// spaceLabel is the human display name for a space: the viewer's own
+// personal space reads 「個人スペース」, internal reads as the org-wide
+// default, everything else keeps its stored name.
+func spaceLabel(sp *store.Space, me *store.User) string {
+	if sp.ID == store.SpaceInternal {
+		return "internal(全体)"
+	}
+	if me != nil && sp.ID == store.PersonalSpaceID(me.ID) {
+		return "個人スペース"
+	}
+	return sp.Name
 }
 
 // pagination is the data a list page needs to render prev/next controls.
@@ -707,6 +781,15 @@ func (h *Handler) entry(w http.ResponseWriter, r *http.Request) {
 	}
 	pc.Title = "omoikane — " + e.Title
 	pc.Entry = e
+	// Space badge — internal entries carry no badge (internal is the
+	// unmarked default); anything else shows the space's display name.
+	// One GetSpace for the single entry on this page — never a per-row
+	// lookup on list pages. Best-effort: on error the badge is omitted.
+	if e.SpaceID != "" && e.SpaceID != store.SpaceInternal {
+		if sp, spErr := h.Store.GetSpace(r.Context(), e.SpaceID); spErr == nil {
+			pc.EntrySpaceName = spaceLabel(sp, pc.Me)
+		}
+	}
 	// Project overview — the domain primer that lets a reader without this
 	// project's domain knowledge decode its entries. Best-effort.
 	if e.ProjectID != "" {

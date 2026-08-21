@@ -7,13 +7,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/zenryokukikai/omoikane/internal/auth"
+	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
 // Webhook subscriptions (issue #33): push events to external agent
@@ -104,8 +107,18 @@ func (h *Handler) startWebhookDispatcher() {
 			// suppression is this pipe's guarantee, not the consumer's
 			// self-restraint. The /talk UI still sees every message via
 			// SSE — this filter is webhook-only.
-			if e.Type == "chat.message" && !chatEventFromHuman(e.Data) {
-				continue
+			if e.Type == "chat.message" {
+				if !chatEventFromHuman(e.Data) {
+					continue
+				}
+				// Personal-librarian routing (issue #73 slice B): a human
+				// /talk message whose thread owner has an active personal
+				// librarian goes to that agent on the runtime INSTEAD of
+				// the webhook-subscribed default responder — two answering
+				// agents on one thread is never wanted.
+				if h.routeTalkToPersonalLibrarian(e.Data) {
+					continue
+				}
 			}
 			targets, err := h.Store.ListActiveWebhooksForEvent(context.Background(), e.Type)
 			if err != nil {
@@ -134,6 +147,86 @@ func (h *Handler) startWebhookDispatcher() {
 			}
 		}
 	}()
+}
+
+// TalkDispatcher delivers one /talk message to a personal-librarian
+// agent on an external runtime. Implemented by *opencrab.Client; an
+// interface so tests can stand in a fake runtime.
+type TalkDispatcher interface {
+	DispatchTalk(ctx context.Context, agentID, content string) error
+}
+
+// talkDispatchTimeout bounds one runtime dispatch. The messages API is
+// synchronous over the agent's whole LLM turn, so this is a turn
+// ceiling, not a request latency: generous on purpose (the /talk UI's
+// own pending-stale cutoff is 5 minutes).
+const talkDispatchTimeout = 5 * time.Minute
+
+// routeTalkToPersonalLibrarian diverts a human /talk chat.message to the
+// thread owner's personal librarian. Reports true when the message was
+// claimed by this route — the caller must then NOT deliver it to webhook
+// subscriptions, or the user would get two competing replies.
+//
+// The claim decision is data-driven and fails open toward the default
+// responder: dispatcher unconfigured, non-talk thread, owner without an
+// ACTIVE librarian row, or a lookup error all fall through to the
+// webhook path (previous behaviour, and the safe direction — the user
+// still gets an answer). Once claimed, delivery is fire-and-forget with
+// a timeout; a runtime failure is logged and the message is NOT
+// re-delivered to webhooks — the same at-most-once contract as webhook
+// delivery itself (consumers reconcile via the list APIs).
+func (h *Handler) routeTalkToPersonalLibrarian(data any) bool {
+	if h.TalkDispatch == nil {
+		return false
+	}
+	m, ok := data.(map[string]any)
+	if !ok {
+		return false
+	}
+	intent, _ := m["thread_intent"].(string)
+	threadID, _ := m["thread_id"].(string)
+	owner, _ := m["thread_created_by"].(string)
+	if intent != "talk" || threadID == "" || owner == "" {
+		return false
+	}
+	ul, err := h.Store.GetUserLibrarian(context.Background(), owner)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			h.Logger.Warn("talk: librarian lookup failed; using webhook route",
+				"owner", owner, "thread", threadID, "err", err)
+		}
+		return false
+	}
+	if ul.Status != "active" || ul.AgentID == "" {
+		return false
+	}
+	content, _ := m["content"].(string)
+	title, _ := m["thread_title"].(string)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), talkDispatchTimeout)
+		defer cancel()
+		if err := h.TalkDispatch.DispatchTalk(ctx, ul.AgentID,
+			talkDispatchContent(threadID, title, content)); err != nil {
+			h.Logger.Warn("talk: personal librarian dispatch failed",
+				"agent_id", ul.AgentID, "thread", threadID, "err", err)
+		}
+	}()
+	return true
+}
+
+// talkDispatchContent frames a human /talk message for the runtime's
+// messages API. thread_id must be in the text: the librarian's reply
+// recipe (opencrab.Instructions) posts back to this thread by id.
+func talkDispatchContent(threadID, title, body string) string {
+	var b strings.Builder
+	b.WriteString("[omoikane /talk] 新しいメッセージが届きました。応答レシピに従い、下記の thread_id へ返信してください。\n")
+	b.WriteString("thread_id: " + threadID + "\n")
+	if title != "" {
+		b.WriteString("スレッド題: " + title + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(body)
+	return b.String()
 }
 
 // chatEventFromHuman reports whether a chat.message event's payload says

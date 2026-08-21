@@ -161,3 +161,84 @@ func TestTalkPage(t *testing.T) {
 		t.Fatalf("bob reading alice's thread: code=%d, want 404", code)
 	}
 }
+
+// Personal-librarian identity on /talk (issue #73 slice B): the
+// librarian posts with its OWNER's token, so author_user_id alone can
+// no longer decide the bubble side — author_role must. And when the
+// thread owner has a librarian, the respondent identity (header name,
+// avatar, per-bubble icon) is the librarian's, not the default
+// responder's.
+func TestTalkPersonalLibrarianIdentity(t *testing.T) {
+	srv, st, tok := mountAuthed(t) // alice (admin)
+	ctx := context.Background()
+
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "alice", AgentID: "plib-alice", Name: "アイ", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	tid, err := st.OpenThread(ctx, &store.ChatThread{
+		Title: "司書との会話", Intent: "talk", CreatedBy: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hid, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: tid, AuthorRole: "human", AuthorUserID: "alice",
+		Content: "質問です"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The impersonation case: assistant reply carrying alice's own user
+	// id (the librarian holds alice's token).
+	aid, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: tid, AuthorRole: "assistant", AuthorUserID: "alice",
+		Content: "回答です"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := get(t, srv, "/talk/"+tid, tok)
+	bs := string(body)
+	if code != 200 {
+		t.Fatalf("thread view: code=%d", code)
+	}
+	// Bubble sides are decided by role+user, not user alone.
+	if !strings.Contains(bs, `talk-msg-me" data-mid="`+hid) {
+		t.Fatalf("human message not on my side")
+	}
+	if !strings.Contains(bs, `talk-msg-bot" data-mid="`+aid) {
+		t.Fatalf("assistant reply posted with the owner's token rendered on the owner's side")
+	}
+	// Respondent identity is the librarian's.
+	if !strings.Contains(bs, "アイ") || !strings.Contains(bs, "🤖") {
+		t.Fatalf("librarian name/icon missing from thread view")
+	}
+	if strings.Contains(bs, "template error:") {
+		t.Fatalf("page contains a template execution error")
+	}
+	// Live-append fragments carry the same identity (the 🤖 bubble icon).
+	code, body = get(t, srv, "/talk/"+tid+"?frag=since&cursor="+hid, tok)
+	bs = string(body)
+	if code != 200 || !strings.Contains(bs, `talk-msg-bot" data-mid="`+aid) || !strings.Contains(bs, "🤖") {
+		t.Fatalf("frag identity wrong: code=%d", code)
+	}
+	// New-conversation view: the viewer's own librarian fronts the page.
+	code, body = get(t, srv, "/talk", tok)
+	bs = string(body)
+	if code != 200 || !strings.Contains(bs, "アイ") {
+		t.Fatalf("librarian name missing from /talk shell: code=%d", code)
+	}
+
+	// A user WITHOUT a librarian keeps the default responder identity.
+	if err := st.CreateUser(ctx, &store.User{ID: "carol", Name: "Carol", Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	carolTok, err := st.CreateToken(ctx, "carol", "c", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, body = get(t, srv, "/talk", carolTok)
+	bs = string(body)
+	if code != 200 || !strings.Contains(bs, "コンシェルジュ") || strings.Contains(bs, "アイ") {
+		t.Fatalf("default responder identity broken for librarian-less user: code=%d", code)
+	}
+}

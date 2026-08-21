@@ -3,7 +3,8 @@
 // internal network only — omoikane is the authenticated wrapper in
 // front of it, so the runtime URL and its API shapes never reach the
 // browser. This package owns the "settings saved → agent exists on the
-// runtime" translation; routing chat traffic to the agent is slice B.
+// runtime" translation (slice A) and the per-message dispatch of /talk
+// traffic to a provisioned agent (DispatchTalk, slice B).
 //
 // API shapes mirror opencrab crates/server/src/api/{agents,workspace}.rs:
 // handlers answer HTTP 200 with an {"error": "..."} JSON body on
@@ -27,6 +28,11 @@ type Client struct {
 	ownerID string // trusted caller id for the runtime's REST messages API
 	kbURL   string // omoikane's own base URL, embedded into agent instructions
 	hc      *http.Client
+	// talkHC serves the synchronous messages API (DispatchTalk): the
+	// runtime runs the agent's full turn before answering, which can
+	// legitimately take minutes, so no transport-level Timeout — the
+	// caller's context is the only deadline.
+	talkHC *http.Client
 }
 
 // New builds a Client. kbURL is the omoikane base URL agents should call
@@ -37,7 +43,27 @@ func New(baseURL, ownerID, kbURL string) *Client {
 		ownerID: ownerID,
 		kbURL:   strings.TrimRight(kbURL, "/"),
 		hc:      &http.Client{Timeout: 30 * time.Second},
+		talkHC:  &http.Client{},
 	}
+}
+
+// DispatchTalk hands one /talk message to the agent's REST messages
+// endpoint (POST /api/agents/{id}/messages). user_id is the client's
+// trusted owner id — the same value Provision wrote into the agent's
+// trust row, so the runtime resolves the caller as Owner and exposes
+// the execution tools (opencrab caller_identity.rs).
+//
+// The endpoint is synchronous: it answers after the agent's whole turn.
+// The reply itself reaches omoikane out-of-band — the agent posts to
+// /v1/librarian/chat per its instructions recipe — so the response body
+// here is only inspected for errors, never parsed for content.
+func (c *Client) DispatchTalk(ctx context.Context, agentID, content string) error {
+	if agentID == "" {
+		return fmt.Errorf("opencrab: agent id required")
+	}
+	return c.do(ctx, c.talkHC, http.MethodPost,
+		"/api/agents/"+agentID+"/messages",
+		map[string]any{"user_id": c.ownerID, "content": content}, nil)
 }
 
 // ProvisionParams is one provisioning request. All ids are generated
@@ -172,10 +198,17 @@ func (c *Client) ensureTrustRow(ctx context.Context, agentID string) error {
 	return nil
 }
 
-// call issues one JSON request and decodes the response. opencrab
+// call issues one JSON request on the default (30s) client. Most of the
+// provisioning API is quick request/response; only DispatchTalk needs
+// the unbounded client.
+func (c *Client) call(ctx context.Context, method, path string, body, into any) error {
+	return c.do(ctx, c.hc, method, path, body, into)
+}
+
+// do issues one JSON request and decodes the response. opencrab
 // handlers signal failure as HTTP 200 + {"error": "..."}, so the body
 // is always inspected for an error key before decoding into `into`.
-func (c *Client) call(ctx context.Context, method, path string, body, into any) error {
+func (c *Client) do(ctx context.Context, hc *http.Client, method, path string, body, into any) error {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -191,7 +224,7 @@ func (c *Client) call(ctx context.Context, method, path string, body, into any) 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.hc.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return err
 	}

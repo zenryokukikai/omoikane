@@ -17,6 +17,7 @@ type Situation struct {
 	ProjectID   string    `json:"project_id,omitempty"`
 	Description string    `json:"description"`
 	Domain      string    `json:"domain,omitempty"`
+	SpaceID     string    `json:"space_id"`
 	CreatedAt   time.Time `json:"created_at"`
 	Metadata    string    `json:"metadata,omitempty"`
 }
@@ -45,11 +46,19 @@ func (s *Store) CreateSituation(ctx context.Context, sit *Situation) (string, er
 	if sit.ID == "" {
 		sit.ID = newSituationID()
 	}
+	// Space: default 'internal'; must exist AND be visible (hidden and
+	// missing spaces are indistinguishable — same contract as CreateEntry).
+	if sit.SpaceID == "" {
+		sit.SpaceID = SpaceInternal
+	}
+	if err := requireVisibleSpace(ctx, s.db, sit.SpaceID); err != nil {
+		return "", err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO situations(id, project_id, description, domain, metadata)
-		VALUES (?, ?, ?, ?, ?)`,
+		INSERT INTO situations(id, project_id, description, domain, metadata, space_id)
+		VALUES (?, ?, ?, ?, ?, ?)`,
 		sit.ID, nullable(sit.ProjectID), sit.Description,
-		nullable(sit.Domain), nullable(sit.Metadata))
+		nullable(sit.Domain), nullable(sit.Metadata), sit.SpaceID)
 	if err != nil {
 		return "", translateErr(err)
 	}
@@ -57,13 +66,19 @@ func (s *Store) CreateSituation(ctx context.Context, sit *Situation) (string, er
 }
 
 func (s *Store) GetSituation(ctx context.Context, id string) (*Situation, error) {
-	var sit Situation
-	err := s.db.QueryRowContext(ctx, `
+	sqlQ := `
 		SELECT id, COALESCE(project_id,''), description, COALESCE(domain,''),
-		       created_at, COALESCE(metadata,'')
-		FROM situations WHERE id = ?`, id).Scan(
+		       space_id, created_at, COALESCE(metadata,'')
+		FROM situations WHERE id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	var sit Situation
+	err := s.db.QueryRowContext(ctx, sqlQ, args...).Scan(
 		&sit.ID, &sit.ProjectID, &sit.Description, &sit.Domain,
-		&sit.CreatedAt, &sit.Metadata)
+		&sit.SpaceID, &sit.CreatedAt, &sit.Metadata)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -84,11 +99,15 @@ func (s *Store) ListSituations(ctx context.Context, projectID string, limit int)
 		args = []any{}
 	)
 	sb.WriteString(`SELECT id, COALESCE(project_id,''), description, COALESCE(domain,''),
-		created_at, COALESCE(metadata,'')
-		FROM situations`)
+		space_id, created_at, COALESCE(metadata,'')
+		FROM situations WHERE 1=1`)
 	if projectID != "" {
-		sb.WriteString(` WHERE project_id = ?`)
+		sb.WriteString(` AND project_id = ?`)
 		args = append(args, projectID)
+	}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
 	}
 	sb.WriteString(` ORDER BY created_at DESC LIMIT ?`)
 	args = append(args, limit)
@@ -98,7 +117,7 @@ func (s *Store) ListSituations(ctx context.Context, projectID string, limit int)
 	}
 	values, err := mapRows[Situation](r, func(c rowScanner, sit *Situation) error {
 		return c.Scan(&sit.ID, &sit.ProjectID, &sit.Description, &sit.Domain,
-			&sit.CreatedAt, &sit.Metadata)
+			&sit.SpaceID, &sit.CreatedAt, &sit.Metadata)
 	})
 	if err != nil {
 		return nil, err
@@ -116,6 +135,12 @@ func (s *Store) LinkEntryToSituation(ctx context.Context, situationID, entryID s
 	if relevance == 0 {
 		relevance = 1.0
 	}
+	// Single-space invariant (slice 3): the situation must be visible
+	// and the entry must live in the situation's space (violation =
+	// not-found, never a 403 oracle).
+	if err := requireSameSpaceLink(ctx, s.db, "situations", situationID, entryID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO situation_entries(situation_id, entry_id, relevance, notes)
 		VALUES (?, ?, ?, ?)
@@ -128,6 +153,9 @@ func (s *Store) LinkEntryToSituation(ctx context.Context, situationID, entryID s
 
 // UnlinkEntryFromSituation drops a single situation_entries row.
 func (s *Store) UnlinkEntryFromSituation(ctx context.Context, situationID, entryID string) error {
+	if err := requireVisibleAggregate(ctx, s.db, "situations", situationID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM situation_entries WHERE situation_id = ? AND entry_id = ?`,
 		situationID, entryID)
@@ -227,6 +255,9 @@ func (s *Store) LookupBySituation(ctx context.Context, query string, limit int) 
 
 // DeleteSituation removes a situation and (via FK cascade) its entry links.
 func (s *Store) DeleteSituation(ctx context.Context, id string) error {
+	if err := requireVisibleAggregate(ctx, s.db, "situations", id); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM situations WHERE id = ?`, id)
 	if err != nil {
 		return translateErr(err)

@@ -19,6 +19,7 @@ type IncidentCluster struct {
 	MemberCount        int
 	PromotedToEntryID  string
 	Status             string
+	SpaceID            string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	Metadata           string
@@ -50,11 +51,19 @@ func (s *Store) CreateCluster(ctx context.Context, c *IncidentCluster) (string, 
 	if c.Status == "" {
 		c.Status = "OPEN"
 	}
+	// Space: default 'internal'; must exist AND be visible (hidden and
+	// missing spaces are indistinguishable — same contract as CreateEntry).
+	if c.SpaceID == "" {
+		c.SpaceID = SpaceInternal
+	}
+	if err := requireVisibleSpace(ctx, s.db, c.SpaceID); err != nil {
+		return "", err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO incident_clusters(id, project_id, title, summary, member_count, status, metadata)
-		VALUES (?, ?, ?, ?, 0, ?, ?)`,
+		INSERT INTO incident_clusters(id, project_id, title, summary, member_count, status, metadata, space_id)
+		VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
 		c.ID, nullable(c.ProjectID), c.Title, nullable(c.Summary),
-		c.Status, nullable(c.Metadata))
+		c.Status, nullable(c.Metadata), c.SpaceID)
 	if err != nil {
 		return "", translateErr(err)
 	}
@@ -69,6 +78,11 @@ func (s *Store) AddClusterMember(ctx context.Context, clusterID, entryID string,
 		return err
 	}
 	defer tx.Rollback()
+	// Single-space invariant (slice 3): the cluster must be visible and
+	// the entry must live in the cluster's space (violation = not-found).
+	if err := requireSameSpaceLink(ctx, tx, "incident_clusters", clusterID, entryID); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO incident_cluster_members(cluster_id, entry_id, similarity, added_by)
 		VALUES (?, ?, ?, ?)
@@ -102,6 +116,9 @@ func (s *Store) RemoveClusterMember(ctx context.Context, clusterID, entryID stri
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireVisibleAggregate(ctx, tx, "incident_clusters", clusterID); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx,
 		`DELETE FROM incident_cluster_members WHERE cluster_id = ? AND entry_id = ?`,
 		clusterID, entryID)
@@ -126,6 +143,11 @@ func (s *Store) RemoveClusterMember(ctx context.Context, clusterID, entryID stri
 // canonicalises the pattern. Idempotent — already-PROMOTED clusters can be
 // pointed at a different entry.
 func (s *Store) PromoteCluster(ctx context.Context, clusterID, entryID string) error {
+	// The canonicalising entry is an entry-linkage like a member add:
+	// same-space + visibility, one shared gate.
+	if err := requireSameSpaceLink(ctx, s.db, "incident_clusters", clusterID, entryID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE incident_clusters
 		SET status = 'PROMOTED',
@@ -145,6 +167,9 @@ func (s *Store) PromoteCluster(ctx context.Context, clusterID, entryID string) e
 // DismissCluster marks a cluster DISMISSED. Used when reviewers decide the
 // grouping is noise.
 func (s *Store) DismissCluster(ctx context.Context, clusterID string) error {
+	if err := requireVisibleAggregate(ctx, s.db, "incident_clusters", clusterID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE incident_clusters
 		SET status = 'DISMISSED', updated_at = ?
@@ -160,15 +185,21 @@ func (s *Store) DismissCluster(ctx context.Context, clusterID string) error {
 }
 
 func (s *Store) GetCluster(ctx context.Context, id string) (*IncidentCluster, error) {
-	var c IncidentCluster
-	err := s.db.QueryRowContext(ctx, `
+	sqlQ := `
 		SELECT id, COALESCE(project_id,''), title, COALESCE(summary,''),
 		       member_count, COALESCE(promoted_to_entry_id,''), status,
-		       created_at, updated_at, COALESCE(metadata,'')
-		FROM incident_clusters WHERE id = ?`, id).Scan(
+		       space_id, created_at, updated_at, COALESCE(metadata,'')
+		FROM incident_clusters WHERE id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	var c IncidentCluster
+	err := s.db.QueryRowContext(ctx, sqlQ, args...).Scan(
 		&c.ID, &c.ProjectID, &c.Title, &c.Summary,
 		&c.MemberCount, &c.PromotedToEntryID, &c.Status,
-		&c.CreatedAt, &c.UpdatedAt, &c.Metadata)
+		&c.SpaceID, &c.CreatedAt, &c.UpdatedAt, &c.Metadata)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -191,7 +222,7 @@ func (s *Store) ListClusters(ctx context.Context, projectID, status string, limi
 	)
 	sb.WriteString(`SELECT id, COALESCE(project_id,''), title, COALESCE(summary,''),
 		member_count, COALESCE(promoted_to_entry_id,''), status,
-		created_at, updated_at, COALESCE(metadata,'')
+		space_id, created_at, updated_at, COALESCE(metadata,'')
 		FROM incident_clusters WHERE 1=1`)
 	if projectID != "" {
 		sb.WriteString(` AND project_id = ?`)
@@ -200,6 +231,10 @@ func (s *Store) ListClusters(ctx context.Context, projectID, status string, limi
 	if status != "" {
 		sb.WriteString(` AND status = ?`)
 		args = append(args, status)
+	}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
 	}
 	sb.WriteString(` ORDER BY updated_at DESC LIMIT ?`)
 	args = append(args, limit)
@@ -210,7 +245,7 @@ func (s *Store) ListClusters(ctx context.Context, projectID, status string, limi
 	values, err := mapRows[IncidentCluster](rows, func(r rowScanner, c *IncidentCluster) error {
 		return r.Scan(&c.ID, &c.ProjectID, &c.Title, &c.Summary,
 			&c.MemberCount, &c.PromotedToEntryID, &c.Status,
-			&c.CreatedAt, &c.UpdatedAt, &c.Metadata)
+			&c.SpaceID, &c.CreatedAt, &c.UpdatedAt, &c.Metadata)
 	})
 	if err != nil {
 		return nil, err
@@ -274,6 +309,15 @@ func (s *Store) BuildIncidentClusters(ctx context.Context, projectID string, thr
 		WHERE type = 'incident'
 		  AND status IN ('ACTIVE','INVESTIGATING','DRAFT')
 		  AND COALESCE(symptom,'') <> ''`)
+	// Auto-clustering only ever aggregates the internal space (slice 3):
+	// restricted spaces are exempt from clustering so no job can create a
+	// cross-space aggregate. Composed via SpaceFilter — the single space-
+	// condition composition point — not hand-written SQL.
+	{
+		cond, condArgs := SpaceFilter("", []string{SpaceInternal})
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
+	}
 	if projectID != "" {
 		sb.WriteString(` AND project_id = ?`)
 		args = append(args, projectID)

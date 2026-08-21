@@ -36,6 +36,7 @@ type Attachment struct {
 	Caption      string    `json:"caption"`
 	UploadedBy   string    `json:"uploaded_by"`
 	UploadedAt   time.Time `json:"uploaded_at"`
+	SpaceID      string    `json:"space_id"`
 	StoragePath  string    `json:"-"` // internal — never marshalled
 }
 
@@ -88,7 +89,12 @@ type CreateAttachmentParams struct {
 	Role       string
 	Caption    string
 	UploadedBy string
-	Content    io.Reader
+	// SpaceID pins the attachment to one space at upload time (slice 3;
+	// v1's parent-entry rule was unimplementable — no parent-entry FK).
+	// Empty = 'internal'. Hidden or missing spaces are indistinguishable
+	// (ErrNotFound).
+	SpaceID string
+	Content io.Reader
 	// MaxBytes caps the upload size. The caller (API layer) is
 	// responsible for setting an appropriate limit; passing 0 means
 	// no cap (which is dangerous in practice).
@@ -126,6 +132,14 @@ func (s *Store) CreateAttachment(ctx context.Context, p CreateAttachmentParams) 
 	}
 	if p.MaxBytes <= 0 {
 		return nil, fmt.Errorf("%w: MaxBytes must be > 0", ErrInvalidInput)
+	}
+	if p.SpaceID == "" {
+		p.SpaceID = SpaceInternal
+	}
+	// Checked BEFORE the upload is spooled to disk — a caller must not
+	// learn anything (nor waste server disk) probing hidden spaces.
+	if err := requireVisibleSpace(ctx, s.db, p.SpaceID); err != nil {
+		return nil, err
 	}
 
 	// 1. Stream into a temp file under dataDir/attachments/tmp, hashing
@@ -213,10 +227,10 @@ func (s *Store) CreateAttachment(ctx context.Context, p CreateAttachmentParams) 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO attachments
 		    (id, project_id, mime, filename, size_bytes, hash, role,
-		     caption, uploaded_by, uploaded_at, storage_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		     caption, uploaded_by, uploaded_at, storage_path, space_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, p.ProjectID, p.Mime, nullable(p.Filename), n, hash, p.Role,
-		strings.TrimSpace(p.Caption), p.UploadedBy, now, relPath)
+		strings.TrimSpace(p.Caption), p.UploadedBy, now, relPath, p.SpaceID)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -226,14 +240,20 @@ func (s *Store) CreateAttachment(ctx context.Context, p CreateAttachmentParams) 
 
 // GetAttachment returns the metadata row by id. No content.
 func (s *Store) GetAttachment(ctx context.Context, id string) (*Attachment, error) {
+	sqlQ := `
+		SELECT id, project_id, mime, filename, size_bytes, hash, role,
+		       caption, uploaded_by, uploaded_at, storage_path, space_id
+		FROM attachments WHERE id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
 	var a Attachment
 	var filename *string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, project_id, mime, filename, size_bytes, hash, role,
-		       caption, uploaded_by, uploaded_at, storage_path
-		FROM attachments WHERE id = ?`, id).Scan(
+	err := s.db.QueryRowContext(ctx, sqlQ, args...).Scan(
 		&a.ID, &a.ProjectID, &a.Mime, &filename, &a.SizeBytes, &a.Hash,
-		&a.Role, &a.Caption, &a.UploadedBy, &a.UploadedAt, &a.StoragePath)
+		&a.Role, &a.Caption, &a.UploadedBy, &a.UploadedAt, &a.StoragePath, &a.SpaceID)
 	if err != nil {
 		return nil, translateErr(err)
 	}

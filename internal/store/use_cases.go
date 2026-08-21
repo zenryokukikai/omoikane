@@ -30,6 +30,7 @@ type UseCase struct {
 	Domain        string
 	Source        string
 	ParentID      string // empty = top-level (root)
+	SpaceID       string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -154,6 +155,9 @@ func (s *Store) UpsertUseCase(ctx context.Context, uc *UseCase) (*UseCase, error
 		// place (so an indexer re-running an old leaf doesn't yank it out
 		// of the tree the tidy mode placed it in).
 		if uc.ParentID != "" {
+			if err := s.requireSameSpaceUseCaseParent(ctx, uc.ParentID, existing.SpaceID); err != nil {
+				return nil, err
+			}
 			_, err := s.db.ExecContext(ctx, `
 				UPDATE use_cases
 				   SET name_ja = ?, name_en = ?,
@@ -183,7 +187,19 @@ func (s *Store) UpsertUseCase(ctx context.Context, uc *UseCase) (*UseCase, error
 		return s.GetUseCase(ctx, existing.ID)
 	}
 
-	// New row.
+	// New row. Space: default 'internal'; must exist AND be visible
+	// (hidden and missing spaces are indistinguishable — same contract
+	// as CreateEntry). On the update path above the stored space is
+	// immutable: a use_case's space is fixed at creation.
+	if uc.SpaceID == "" {
+		uc.SpaceID = SpaceInternal
+	}
+	if err := requireVisibleSpace(ctx, s.db, uc.SpaceID); err != nil {
+		return nil, err
+	}
+	if err := s.requireSameSpaceUseCaseParent(ctx, uc.ParentID, uc.SpaceID); err != nil {
+		return nil, err
+	}
 	if uc.ID == "" {
 		id, err := newUseCaseID()
 		if err != nil {
@@ -193,15 +209,33 @@ func (s *Store) UpsertUseCase(ctx context.Context, uc *UseCase) (*UseCase, error
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO use_cases
-		    (id, slug, name_ja, name_en, description_ja, description_en, domain, source, parent_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		    (id, slug, name_ja, name_en, description_ja, description_en, domain, source, parent_id, space_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		uc.ID, uc.Slug, uc.NameJA, uc.NameEN,
 		uc.DescriptionJA, uc.DescriptionEN, nullable(uc.Domain), uc.Source,
-		nullable(uc.ParentID))
+		nullable(uc.ParentID), uc.SpaceID)
 	if err != nil {
 		return nil, translateErr(err)
 	}
 	return s.GetUseCase(ctx, uc.ID)
+}
+
+// requireSameSpaceUseCaseParent asserts the tree invariant: a parent
+// use_case must be visible AND live in the same space as the child.
+// parentID == "" (top-level) always passes. Violation = ErrNotFound —
+// a cross-space or hidden parent is indistinguishable from a missing one.
+func (s *Store) requireSameSpaceUseCaseParent(ctx context.Context, parentID, spaceID string) error {
+	if parentID == "" {
+		return nil
+	}
+	parent, err := s.GetUseCase(ctx, parentID)
+	if err != nil {
+		return err
+	}
+	if parent.SpaceID != spaceID {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteUseCase removes a UseCase row. It refuses if the UseCase still has
@@ -213,6 +247,9 @@ func (s *Store) UpsertUseCase(ctx context.Context, uc *UseCase) (*UseCase, error
 func (s *Store) DeleteUseCase(ctx context.Context, useCaseID string) error {
 	if useCaseID == "" {
 		return fmt.Errorf("%w: use_case_id required", ErrInvalidInput)
+	}
+	if err := requireVisibleAggregate(ctx, s.db, "use_cases", useCaseID); err != nil {
+		return err
 	}
 	var n int
 	if err := s.db.QueryRowContext(ctx,
@@ -238,15 +275,22 @@ func (s *Store) DeleteUseCase(ctx context.Context, useCaseID string) error {
 // EntrySummary; ErrNotFound when none exists yet. DRAFT is accepted (Phase
 // 5 observation), only terminal statuses are excluded.
 func (s *Store) UseCaseSynthesis(ctx context.Context, useCaseID string) (*Entry, error) {
-	var id string
-	err := s.db.QueryRowContext(ctx, `
+	sqlQ := `
 		SELECT id FROM entries
 		 WHERE type = 'librarian_meta'
 		   AND status NOT IN ('SUPERSEDED','ARCHIVED','DUPLICATE')
 		   AND json_extract(metadata, '$.kind') = 'use_case_synthesis'
-		   AND json_extract(metadata, '$.use_case_id') = ?
+		   AND json_extract(metadata, '$.use_case_id') = ?`
+	args := []any{useCaseID}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	sqlQ += `
 		 ORDER BY created_at DESC
-		 LIMIT 1`, useCaseID).Scan(&id)
+		 LIMIT 1`
+	var id string
+	err := s.db.QueryRowContext(ctx, sqlQ, args...).Scan(&id)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -263,7 +307,14 @@ func (s *Store) SetUseCaseParent(ctx context.Context, useCaseID, parentID string
 	if useCaseID == parentID {
 		return fmt.Errorf("%w: a use_case cannot be its own parent", ErrInvalidInput)
 	}
-	_, err := s.db.ExecContext(ctx, `
+	uc, err := s.GetUseCase(ctx, useCaseID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireSameSpaceUseCaseParent(ctx, parentID, uc.SpaceID); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		UPDATE use_cases
 		   SET parent_id = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, nullable(parentID), useCaseID)
@@ -286,12 +337,17 @@ func (s *Store) GetUseCaseBySlug(ctx context.Context, slug string) (*UseCase, er
 func (s *Store) queryUseCase(ctx context.Context, whereSQL string, arg any) (*UseCase, error) {
 	uc := &UseCase{}
 	var domain, parent *string
+	args := []any{arg}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		whereSQL += " AND " + cond
+		args = append(args, condArgs...)
+	}
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, slug, name_ja, name_en, description_ja, description_en,
-		       COALESCE(domain,''), source, parent_id, created_at, updated_at
-		  FROM use_cases `+whereSQL, arg).Scan(
+		       COALESCE(domain,''), source, parent_id, space_id, created_at, updated_at
+		  FROM use_cases `+whereSQL, args...).Scan(
 		&uc.ID, &uc.Slug, &uc.NameJA, &uc.NameEN, &uc.DescriptionJA, &uc.DescriptionEN,
-		&domain, &uc.Source, &parent, &uc.CreatedAt, &uc.UpdatedAt)
+		&domain, &uc.Source, &parent, &uc.SpaceID, &uc.CreatedAt, &uc.UpdatedAt)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -318,6 +374,11 @@ func (s *Store) LinkUseCaseEntry(ctx context.Context, useCaseID, entryID, source
 	if source == "" {
 		source = "indexer"
 	}
+	// Single-space invariant (slice 3): the use_case must be visible and
+	// the entry must live in the use_case's space (violation = not-found).
+	if err := requireSameSpaceLink(ctx, s.db, "use_cases", useCaseID, entryID); err != nil {
+		return err
+	}
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO use_case_entries (use_case_id, entry_id, source)
 		VALUES (?, ?, ?)`, useCaseID, entryID, source); err != nil {
@@ -334,6 +395,9 @@ func (s *Store) LinkUseCaseEntry(ctx context.Context, useCaseID, entryID, source
 // UnlinkUseCaseEntry detaches an entry from a UseCase. No-op if the link
 // didn't exist (no error).
 func (s *Store) UnlinkUseCaseEntry(ctx context.Context, useCaseID, entryID string) error {
+	if err := requireVisibleAggregate(ctx, s.db, "use_cases", useCaseID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM use_case_entries WHERE use_case_id = ? AND entry_id = ?`,
 		useCaseID, entryID)
@@ -386,6 +450,10 @@ func (s *Store) ListUseCases(ctx context.Context, f UseCaseFilter, limit, offset
 	case f.Level == "top":
 		conds = append(conds, "uc.parent_id IS NULL")
 	}
+	if cond, condArgs := spaceCond(ctx, "uc"); cond != "" {
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
+	}
 	where := ""
 	if len(conds) > 0 {
 		where = "WHERE " + strings.Join(conds, " AND ")
@@ -400,7 +468,7 @@ func (s *Store) ListUseCases(ctx context.Context, f UseCaseFilter, limit, offset
 	pageSQL := `
 		SELECT uc.id, uc.slug, uc.name_ja, uc.name_en,
 		       uc.description_ja, uc.description_en,
-		       COALESCE(uc.domain,''), uc.source, uc.parent_id,
+		       COALESCE(uc.domain,''), uc.source, uc.parent_id, uc.space_id,
 		       uc.created_at, uc.updated_at,
 		       COALESCE((SELECT COUNT(*) FROM use_case_entries WHERE use_case_id = uc.id),0) AS entry_count,
 		       COALESCE((SELECT COUNT(*) FROM use_cases ch WHERE ch.parent_id = uc.id),0) AS child_count
@@ -421,7 +489,7 @@ func (s *Store) ListUseCases(ctx context.Context, f UseCaseFilter, limit, offset
 		var parent *string
 		if err := rows.Scan(&sum.ID, &sum.Slug, &sum.NameJA, &sum.NameEN,
 			&sum.DescriptionJA, &sum.DescriptionEN, &domain, &sum.Source,
-			&parent, &sum.CreatedAt, &sum.UpdatedAt, &sum.EntryCount, &sum.ChildCount); err != nil {
+			&parent, &sum.SpaceID, &sum.CreatedAt, &sum.UpdatedAt, &sum.EntryCount, &sum.ChildCount); err != nil {
 			return nil, 0, err
 		}
 		sum.Domain = domain

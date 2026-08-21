@@ -105,6 +105,51 @@ func requireVisibleEntry(ctx context.Context, q queryRower, entryID string) erro
 	return err
 }
 
+// requireVisibleAggregate returns ErrNotFound unless the aggregate row
+// (situations / incident_clusters / hierarchy_nodes / use_cases /
+// attachments — table is always a compile-time constant, never user
+// input) exists AND lies inside the ctx's visible spaces. Unrestricted
+// contexts skip the space predicate entirely, so internal jobs and
+// store-level tests keep their pre-slice-3 behaviour byte-identically.
+func requireVisibleAggregate(ctx context.Context, q queryRower, table, id string) error {
+	sqlQ := `SELECT 1 FROM ` + table + ` a WHERE a.id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, "a"); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	var one int
+	err := q.QueryRowContext(ctx, sqlQ, args...).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+// requireSameSpaceLink is the single-space aggregate invariant (design
+// v2): adding an entry to an aggregate requires the aggregate to be
+// visible AND the entry to live in the aggregate's own space. The space
+// equality is enforced even for unrestricted contexts — it is an
+// integrity invariant, not just an ACL — while the visibility predicate
+// composes only when the ctx is restricted. Any failure (missing
+// aggregate, missing entry, hidden either, cross-space pair) collapses
+// into ErrNotFound: indistinguishable by design.
+func requireSameSpaceLink(ctx context.Context, q queryRower, table, aggID, entryID string) error {
+	sqlQ := `SELECT 1 FROM ` + table + ` a JOIN entries e ON e.id = ?
+		WHERE a.id = ? AND e.space_id = a.space_id`
+	args := []any{entryID, aggID}
+	if cond, condArgs := spaceCond(ctx, "a"); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	var one int
+	err := q.QueryRowContext(ctx, sqlQ, args...).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
 // requireVisibleSpace returns ErrNotFound unless the space exists AND
 // is inside the ctx's visible spaces. Used by CreateEntry: a space the
 // caller cannot see must be indistinguishable from one that does not

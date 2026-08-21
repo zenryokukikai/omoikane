@@ -333,6 +333,7 @@ type situationRequest struct {
 	ProjectID   string  `json:"project_id,omitempty"`
 	Description string  `json:"description"`
 	Domain      string  `json:"domain,omitempty"`
+	SpaceID     string  `json:"space_id,omitempty"` // empty = internal; hidden/missing = 404
 	Metadata    string  `json:"metadata,omitempty"`
 	EntryIDs    []entry `json:"entries,omitempty"`
 }
@@ -359,6 +360,7 @@ func (h *Handler) createSituation(w http.ResponseWriter, r *http.Request) {
 		ProjectID:   req.ProjectID,
 		Description: req.Description,
 		Domain:      req.Domain,
+		SpaceID:     req.SpaceID,
 		Metadata:    req.Metadata,
 	}
 	id, err := h.Store.CreateSituation(httpCtx(r), sit)
@@ -456,6 +458,7 @@ type clusterRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 	Title     string `json:"title"`
 	Summary   string `json:"summary,omitempty"`
+	SpaceID   string `json:"space_id,omitempty"` // empty = internal; hidden/missing = 404
 	Metadata  string `json:"metadata,omitempty"`
 }
 
@@ -474,6 +477,7 @@ func (h *Handler) createCluster(w http.ResponseWriter, r *http.Request) {
 		ProjectID: req.ProjectID,
 		Title:     req.Title,
 		Summary:   req.Summary,
+		SpaceID:   req.SpaceID,
 		Metadata:  req.Metadata,
 	}
 	id, err := h.Store.CreateCluster(httpCtx(r), c)

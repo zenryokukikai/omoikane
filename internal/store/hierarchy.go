@@ -17,6 +17,7 @@ type HierarchyNode struct {
 	Name        string
 	Description string
 	SortOrder   int
+	SpaceID     string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	Metadata    string
@@ -65,11 +66,30 @@ func (s *Store) CreateHierarchyNode(ctx context.Context, n *HierarchyNode) (stri
 	if n.ID == "" {
 		n.ID = newHierarchyID()
 	}
+	// Space: default 'internal'; must exist AND be visible (hidden and
+	// missing spaces are indistinguishable — same contract as CreateEntry).
+	if n.SpaceID == "" {
+		n.SpaceID = SpaceInternal
+	}
+	if err := requireVisibleSpace(ctx, s.db, n.SpaceID); err != nil {
+		return "", err
+	}
+	// The tree stays inside one space: a child under a parent in another
+	// space would be a cross-space aggregate (not-found on mismatch).
+	if n.ParentID != "" {
+		parent, err := s.GetHierarchyNode(ctx, n.ParentID)
+		if err != nil {
+			return "", err
+		}
+		if parent.SpaceID != n.SpaceID {
+			return "", ErrNotFound
+		}
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO hierarchy_nodes(id, project_id, parent_id, name, description, sort_order, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO hierarchy_nodes(id, project_id, parent_id, name, description, sort_order, metadata, space_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.ID, nullable(n.ProjectID), nullable(n.ParentID),
-		n.Name, nullable(n.Description), n.SortOrder, nullable(n.Metadata))
+		n.Name, nullable(n.Description), n.SortOrder, nullable(n.Metadata), n.SpaceID)
 	if err != nil {
 		return "", translateErr(err)
 	}
@@ -77,14 +97,20 @@ func (s *Store) CreateHierarchyNode(ctx context.Context, n *HierarchyNode) (stri
 }
 
 func (s *Store) GetHierarchyNode(ctx context.Context, id string) (*HierarchyNode, error) {
-	var n HierarchyNode
-	err := s.db.QueryRowContext(ctx, `
+	sqlQ := `
 		SELECT id, COALESCE(project_id,''), COALESCE(parent_id,''), name,
-		       COALESCE(description,''), sort_order, created_at, updated_at,
-		       COALESCE(metadata,'')
-		FROM hierarchy_nodes WHERE id = ?`, id).Scan(
+		       COALESCE(description,''), sort_order, space_id, created_at,
+		       updated_at, COALESCE(metadata,'')
+		FROM hierarchy_nodes WHERE id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	var n HierarchyNode
+	err := s.db.QueryRowContext(ctx, sqlQ, args...).Scan(
 		&n.ID, &n.ProjectID, &n.ParentID, &n.Name, &n.Description,
-		&n.SortOrder, &n.CreatedAt, &n.UpdatedAt, &n.Metadata)
+		&n.SortOrder, &n.SpaceID, &n.CreatedAt, &n.UpdatedAt, &n.Metadata)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -99,7 +125,7 @@ func (s *Store) ListHierarchyNodes(ctx context.Context, projectID, parentID stri
 		args = []any{}
 	)
 	sb.WriteString(`SELECT id, COALESCE(project_id,''), COALESCE(parent_id,''), name,
-		COALESCE(description,''), sort_order, created_at, updated_at, COALESCE(metadata,'')
+		COALESCE(description,''), sort_order, space_id, created_at, updated_at, COALESCE(metadata,'')
 		FROM hierarchy_nodes WHERE 1=1`)
 	if projectID != "" {
 		sb.WriteString(` AND project_id = ?`)
@@ -111,6 +137,10 @@ func (s *Store) ListHierarchyNodes(ctx context.Context, projectID, parentID stri
 		sb.WriteString(` AND parent_id = ?`)
 		args = append(args, parentID)
 	}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
+	}
 	sb.WriteString(` ORDER BY sort_order, name`)
 	rows, err := s.db.QueryContext(ctx, sb.String(), args...)
 	if err != nil {
@@ -118,7 +148,7 @@ func (s *Store) ListHierarchyNodes(ctx context.Context, projectID, parentID stri
 	}
 	values, err := mapRows[HierarchyNode](rows, func(c rowScanner, n *HierarchyNode) error {
 		return c.Scan(&n.ID, &n.ProjectID, &n.ParentID, &n.Name, &n.Description,
-			&n.SortOrder, &n.CreatedAt, &n.UpdatedAt, &n.Metadata)
+			&n.SortOrder, &n.SpaceID, &n.CreatedAt, &n.UpdatedAt, &n.Metadata)
 	})
 	if err != nil {
 		return nil, err
@@ -133,6 +163,9 @@ func (s *Store) ListHierarchyNodes(ctx context.Context, projectID, parentID stri
 // DeleteHierarchyNode removes a node. The ON DELETE CASCADE on parent_id
 // drops its descendants; hierarchy_entries cascades too.
 func (s *Store) DeleteHierarchyNode(ctx context.Context, id string) error {
+	if err := requireVisibleAggregate(ctx, s.db, "hierarchy_nodes", id); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM hierarchy_nodes WHERE id = ?`, id)
 	if err != nil {
 		return translateErr(err)
@@ -149,6 +182,11 @@ func (s *Store) AttachEntryToNode(ctx context.Context, nodeID, entryID string, w
 	if weight == 0 {
 		weight = 1.0
 	}
+	// Single-space invariant (slice 3): the node must be visible and the
+	// entry must live in the node's space (violation = not-found).
+	if err := requireSameSpaceLink(ctx, s.db, "hierarchy_nodes", nodeID, entryID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO hierarchy_entries(node_id, entry_id, weight, added_by)
 		VALUES (?, ?, ?, ?)
@@ -161,6 +199,9 @@ func (s *Store) AttachEntryToNode(ctx context.Context, nodeID, entryID string, w
 
 // DetachEntryFromNode drops one (node, entry) link.
 func (s *Store) DetachEntryFromNode(ctx context.Context, nodeID, entryID string) error {
+	if err := requireVisibleAggregate(ctx, s.db, "hierarchy_nodes", nodeID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM hierarchy_entries WHERE node_id = ? AND entry_id = ?`,
 		nodeID, entryID)
@@ -355,6 +396,10 @@ func (s *Store) IndexByTag(ctx context.Context, projectID string, limit int) ([]
 		FROM tags t
 		JOIN entries e ON e.id = t.entry_id
 		WHERE e.status NOT IN ('SUPERSEDED','ARCHIVED','DUPLICATE')`)
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
+	}
 	if projectID != "" {
 		sb.WriteString(` AND e.project_id = ?`)
 		args = append(args, projectID)
@@ -398,6 +443,10 @@ func (s *Store) IndexByRecent(ctx context.Context, projectID string, limit int) 
 	sb.WriteString(`SELECT strftime('%Y-%m', created_at) m, COUNT(*) c
 		FROM entries
 		WHERE status NOT IN ('SUPERSEDED','ARCHIVED','DUPLICATE')`)
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
+	}
 	if projectID != "" {
 		sb.WriteString(` AND project_id = ?`)
 		args = append(args, projectID)
@@ -435,6 +484,10 @@ func (s *Store) IndexByHierarchy(ctx context.Context, projectID string) ([]*Inde
 		FROM hierarchy_nodes h
 		LEFT JOIN hierarchy_entries he ON he.node_id = h.id
 		WHERE h.parent_id IS NULL`)
+	if cond, condArgs := spaceCond(ctx, "h"); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
+	}
 	if projectID != "" {
 		sb.WriteString(` AND h.project_id = ?`)
 		args = append(args, projectID)

@@ -300,8 +300,8 @@ func (h *Handler) Mount(r chi.Router) {
 			// excluded — uploads must use Bearer or session cookie.
 			r.Use(auth.AllowQueryTokenForGET)
 			r.Use(authMW.Authenticate)
-			// Attachment-level enforcement lands in slice 3; resolving
-			// visibility here already keeps the contract uniform.
+			// Attachments carry a space_id (slice 3); the store 404s
+			// on any attachment outside this resolved visibility.
 			r.Use(h.withVisibleSpaces)
 			max := h.AttachmentMaxBytes
 			if max <= 0 {

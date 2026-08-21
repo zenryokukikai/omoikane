@@ -156,13 +156,8 @@ func (h *Handler) broadcastEvent(w http.ResponseWriter, r *http.Request) {
 			"data.thread_id required (chat.status is scoped to its thread)", nil)
 		return
 	}
-	th, err := h.Store.GetThread(httpCtx(r), threadID)
-	if err != nil {
-		writeStoreError(w, err) // ErrNotFound → 404
-		return
-	}
-	if !h.mayUseThread(r, th) {
-		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+	th := h.requireUsableThread(w, r, threadID, true)
+	if th == nil {
 		return
 	}
 	h.Events.Publish(Event{Type: req.Type, Data: req.Data, SpaceID: threadEventSpace(th)})

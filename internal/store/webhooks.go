@@ -46,6 +46,14 @@ func (s *Store) CreateWebhook(ctx context.Context, url string, eventTypes []stri
 	if len(clean) == 0 {
 		return nil, fmt.Errorf("%w: event_types required", ErrInvalidInput)
 	}
+	// An explicit empty list is a footgun, not a contract: it would
+	// deliver NOTHING while looking like "no restriction". All-spaces
+	// delivery is spelled by omitting the field (NULL).
+	if spaceScope != nil && len(spaceScope) == 0 {
+		return nil, fmt.Errorf(
+			"%w: space_scope must not be an empty list (omit the field for all-spaces delivery, or list the spaces to deliver)",
+			ErrInvalidInput)
+	}
 	var sec [16]byte
 	if _, err := rand.Read(sec[:]); err != nil {
 		return nil, err

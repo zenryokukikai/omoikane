@@ -320,16 +320,19 @@ func (h *Handler) librarianList(w http.ResponseWriter, r *http.Request) {
 //
 //   - the owner (created_by),
 //   - the admin scope (the one admin-visibility contract), and
-//   - agent users (users.role == "agent"): the /talk responder runtime
-//     reads a thread's history and posts its answers with an agent
-//     token that is neither the owner nor admin — without this
-//     exception the deployed response path breaks. Phase 2's
+//   - when agentOK: agent users (users.role == "agent"). The /talk
+//     responder runtime reads a thread's history, posts its answers,
+//     and streams chat.status progress with an agent token that is
+//     neither the owner nor admin — without this exception the
+//     deployed response path breaks. The exception covers ONLY that
+//     response path (messages / chat / broadcast); closing a thread is
+//     not part of it, so close passes agentOK=false. Phase 2's
 //     space-scoped agent tokens will narrow this to designated
 //     responders; today every agent user is trusted infrastructure.
 //
 // Callers translate false into 404 — for outsiders a foreign talk
 // thread must be indistinguishable from a missing one.
-func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread) bool {
+func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bool) bool {
 	if th.Intent != "talk" {
 		return true
 	}
@@ -346,8 +349,33 @@ func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread) bool {
 	if tok.UserID == th.CreatedBy {
 		return true
 	}
+	if !agentOK {
+		return false
+	}
 	u, err := h.Store.GetUser(httpCtx(r), tok.UserID)
 	return err == nil && u.Role == "agent"
+}
+
+// requireUsableThread loads the thread and enforces mayUseThread,
+// writing the error response itself and returning nil on failure. The
+// point of the single helper: "no such thread" and "hidden talk
+// thread" produce ONE byte-identical 404 — the third-party review of
+// this slice caught that the two paths' differing message strings
+// ("store: not found" vs "thread not found") were themselves an
+// existence oracle. Every thread-addressed route (messages / close /
+// chat post / broadcast) must come through here, never through its own
+// GetThread+writeStoreError pair.
+func (h *Handler) requireUsableThread(w http.ResponseWriter, r *http.Request, threadID string, agentOK bool) *store.ChatThread {
+	th, err := h.Store.GetThread(httpCtx(r), threadID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeStoreError(w, err)
+		return nil
+	}
+	if err != nil || !h.mayUseThread(r, th, agentOK) {
+		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+		return nil
+	}
+	return th
 }
 
 type chatThreadRequest struct {
@@ -402,15 +430,11 @@ func (h *Handler) chatCloseThread(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Same gate as posting: closing someone else's talk thread is a
-	// write into their private conversation (404, no oracle).
-	th, err := h.Store.GetThread(httpCtx(r), id)
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-	if !h.mayUseThread(r, th) {
-		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+	// Same gate as posting, minus the agent exception: closing someone
+	// else's talk thread is a write into their private conversation and
+	// the responder never needs it (owner and admin only; 404, no
+	// oracle).
+	if h.requireUsableThread(w, r, id, false) == nil {
 		return
 	}
 	if err := h.Store.CloseThread(httpCtx(r), id, req.Summary); err != nil {
@@ -476,16 +500,9 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	// dangling ids, so requiring the row here changes no working flow.)
 	var thread *store.ChatThread
 	if req.ThreadID != "" {
-		th, err := h.Store.GetThread(httpCtx(r), req.ThreadID)
-		if err != nil {
-			writeStoreError(w, err)
+		if thread = h.requireUsableThread(w, r, req.ThreadID, true); thread == nil {
 			return
 		}
-		if !h.mayUseThread(r, th) {
-			writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
-			return
-		}
-		thread = th
 	}
 	id, err := h.Store.PostChatMessage(httpCtx(r), &store.ChatMessage{
 		ThreadID: req.ThreadID, AuthorRole: req.AuthorRole,
@@ -550,13 +567,7 @@ func (h *Handler) chatList(w http.ResponseWriter, r *http.Request) {
 	// indistinguishable 404. (Previously an unknown thread returned an
 	// empty 200 — that would have become an existence oracle next to
 	// the 404 for hidden threads.)
-	th, err := h.Store.GetThread(ctx, threadID)
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-	if !h.mayUseThread(r, th) {
-		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+	if h.requireUsableThread(w, r, threadID, true) == nil {
 		return
 	}
 

@@ -311,6 +311,14 @@ func TestWebhookSpaceScope(t *testing.T) {
 	}, nil); s != 201 {
 		t.Fatalf("create open webhook: %d %s", s, raw)
 	}
+	// An explicit empty space_scope is a footgun (delivers nothing while
+	// looking unrestricted) — rejected at creation with guidance.
+	if s, raw := doJSON(t, "POST", f.base+"/v1/admin/webhooks", f.adminTok, map[string]any{
+		"url": open.URL, "event_types": []string{"comment.created"},
+		"space_scope": []string{},
+	}, nil); s != 400 || !strings.Contains(string(raw), "omit the field") {
+		t.Fatalf("empty space_scope should be 400 with guidance: %d %s", s, raw)
+	}
 
 	// Restricted-space event, then internal event.
 	if s, raw := doJSON(t, "POST", f.base+"/v1/entries/"+f.secretID+"/comments", f.adminTok,
@@ -382,10 +390,68 @@ func TestTalkAgentException(t *testing.T) {
 		t.Fatalf("agent chat.status into talk thread: %d %s", s, raw)
 	}
 
+	// The exception covers ONLY the response path: closing someone
+	// else's talk thread is not part of it (owner/admin only).
+	if s, raw := doJSON(t, "POST", f.expand("/v1/librarian/threads/{talkthread}/close"), agentTok, nil, nil); s != 404 {
+		t.Fatalf("agent close of foreign talk thread: %d %s (want 404)", s, raw)
+	}
+
 	// The exception is for agent users only: an ordinary human outsider
 	// stays locked out (the matrix asserts this too — this is the pair).
 	if s, _ := doJSON(t, "GET", f.expand("/v1/librarian/threads/{talkthread}/messages"), f.outsiderTok, nil, nil); s != 404 {
 		t.Fatalf("outsider talk messages: %d want 404", s)
+	}
+}
+
+// TestTalkThread404Indistinguishable: for every thread-addressed route,
+// the 404 for a HIDDEN talk thread must be byte-identical to the 404
+// for a thread that does not exist — status alone is not enough (the
+// third-party review caught differing message strings acting as an
+// existence oracle; this pins the whole response body, not just the
+// code).
+func TestTalkThread404Indistinguishable(t *testing.T) {
+	f := newLeakFixture(t)
+	const ghost = "thread-00000000" // never minted
+
+	routes := []struct {
+		name   string
+		method string
+		path   func(id string) string // relative
+		body   func(id string) any
+	}{
+		{"messages", "GET",
+			func(id string) string { return "/v1/librarian/threads/" + id + "/messages" },
+			func(string) any { return nil }},
+		{"close", "POST",
+			func(id string) string { return "/v1/librarian/threads/" + id + "/close" },
+			func(string) any { return nil }},
+		{"chat post", "POST",
+			func(string) string { return "/v1/librarian/chat" },
+			func(id string) any {
+				return map[string]any{"thread_id": id, "author_role": "human", "content": "probe"}
+			}},
+		{"broadcast", "POST",
+			func(string) string { return "/v1/events/broadcast" },
+			func(id string) any {
+				return map[string]any{"type": "chat.status",
+					"data": map[string]any{"thread_id": id, "text": "probe"}}
+			}},
+	}
+	for _, rt := range routes {
+		t.Run(rt.name, func(t *testing.T) {
+			hs, hidden := doJSON(t, rt.method, f.base+rt.path(f.talkThreadID), f.outsiderTok,
+				rt.body(f.talkThreadID), nil)
+			ms, missing := doJSON(t, rt.method, f.base+rt.path(ghost), f.outsiderTok,
+				rt.body(ghost), nil)
+			if hs != 404 || ms != 404 {
+				t.Fatalf("hidden=%d missing=%d, want 404/404 (hidden body=%s missing body=%s)",
+					hs, ms, hidden, missing)
+			}
+			if !bytes.Equal(hidden, missing) {
+				t.Fatalf("404 bodies differ (existence oracle):\n hidden: %s\nmissing: %s",
+					hidden, missing)
+			}
+		})
 	}
 }
 

@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"net/url"
-	"strconv"
 	"time"
 )
 
@@ -23,17 +21,9 @@ type UserLibrarian struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// IconImageURL is the serving URL of the uploaded icon image, or ""
-// when none is uploaded. The ?v= version busts browser caches on
-// replacement. Used directly by the dashboard templates.
-func (ul *UserLibrarian) IconImageURL() string {
-	if ul.IconMime == "" {
-		return ""
-	}
-	return "/librarian-icon/" + url.PathEscape(ul.UserID) + "?v=" + strconv.FormatInt(ul.IconVer, 10)
-}
-
 // IconText is the text icon to render when no image is uploaded.
+// (The image serving URL is built dashboard-side — it needs the
+// request's auth token, which the store cannot know.)
 func (ul *UserLibrarian) IconText() string {
 	if ul.Icon != "" {
 		return ul.Icon

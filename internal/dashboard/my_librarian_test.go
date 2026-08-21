@@ -313,8 +313,13 @@ func TestMyLibrarianIcon(t *testing.T) {
 	if err != nil || ul.Icon != "🦒" {
 		t.Fatalf("icon round-trip: %+v err=%v", ul, err)
 	}
-	if ul.IconImageURL() != "" || ul.IconText() != "🦒" {
-		t.Fatalf("no image yet: url=%q text=%q", ul.IconImageURL(), ul.IconText())
+	if ul.IconMime != "" || ul.IconText() != "🦒" {
+		t.Fatalf("no image yet: mime=%q text=%q", ul.IconMime, ul.IconText())
+	}
+	// URL building (dashboard-side, C1: query-token sessions must get a
+	// tokened <img> URL or the browser's fetch arrives unauthenticated).
+	if got := (pageCtx{}).LibrarianIconURL(ul); got != "" {
+		t.Fatalf("no image → no URL, got %q", got)
 	}
 
 	// Rejects: over-long text icon, non-image upload.
@@ -333,8 +338,11 @@ func TestMyLibrarianIcon(t *testing.T) {
 		t.Fatalf("png upload: want 303, got %d", code)
 	}
 	ul, _ = s.GetUserLibrarian(ctx, "alice")
-	if ul.IconMime != "image/png" || ul.IconImageURL() == "" {
+	if ul.IconMime != "image/png" {
 		t.Fatalf("image not stored: %+v", ul)
+	}
+	if got := (pageCtx{Token: "sec ret"}).LibrarianIconURL(ul); !strings.Contains(got, "/librarian-icon/alice?v=") || !strings.Contains(got, "&token=sec+ret") {
+		t.Fatalf("icon URL must carry version and escaped token: %q", got)
 	}
 	get := func(token string) int {
 		u := srv.URL + "/librarian-icon/alice"

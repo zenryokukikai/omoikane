@@ -10,7 +10,7 @@
 <header>
   <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">omoikane</a>
   <a href="/journal{{if .Token}}?token={{urlq .Token}}{{end}}" class="nav-journal">Journal</a>
-  <a href="/talk" class="nav-journal" title="ナレッジベースを検索して答える応対エージェント">{{if .NavLibrarian}}{{if .NavLibrarian.IconImageURL}}<img class="nav-libicon" src="{{.NavLibrarian.IconImageURL}}" alt="">{{else}}{{.NavLibrarian.IconText}}{{end}} {{.NavLibrarian.Name}}{{else}}🎩 {{talkAgentName}}{{end}}</a>
+  <a href="/talk" class="nav-journal" title="ナレッジベースを検索して答える応対エージェント">{{if .NavLibrarian}}{{with .LibrarianIconURL .NavLibrarian}}<img class="nav-libicon" src="{{.}}" alt="">{{else}}{{$.NavLibrarian.IconText}}{{end}} {{.NavLibrarian.Name}}{{else}}🎩 {{talkAgentName}}{{end}}</a>
   {{if .Me}}<a href="/entries/new" class="nav-journal" title="新しいエントリを書く">✏️ 新規</a>{{end}}
   <a href="/bookmarks" class="nav-journal" title="自分のブックマーク">🔖</a>
   <a href="/search{{if .Token}}?token={{urlq .Token}}{{end}}" class="muted">search</a>

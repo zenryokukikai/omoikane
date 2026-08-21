@@ -43,8 +43,13 @@ const personalLibrarianTokenName = "personal-librarian"
 const (
 	librarianNameMaxRunes    = 50
 	librarianPersonaMaxRunes = 2000
-	librarianIconMaxRunes    = 8       // text icon: an emoji (ZWJ sequences included), not a sentence
-	librarianIconImageMax    = 1 << 20 // uploaded icon image cap: 1MB
+	librarianIconMaxRunes = 8 // text icon: an emoji (ZWJ sequences included), not a sentence
+	// Uploaded icon image cap. Must stay comfortably under the server's
+	// whole-body limit (KB_REQUEST_BODY_MAX, default 1MB) — the body
+	// also carries the persona text and multipart framing, and a file
+	// at the whole-body limit would die in LimitBody with a raw 400
+	// before this handler's friendly message could run.
+	librarianIconImageMax = 512 << 10
 )
 
 // librarianIconMimes is the allow-list for uploaded icon images,
@@ -102,6 +107,15 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 	// The form is multipart now (icon image upload); urlencoded posts
 	// (older cached pages, tests without a file) still parse fine.
 	if err := r.ParseMultipartForm(librarianIconImageMax + 64*1024); err != nil {
+		// The server-wide body cap (LimitBody) fires before our
+		// per-file check can — turn it into the friendly size message
+		// instead of a raw "request body too large".
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			h.renderLibrarianError(w, r, me, "", "", "",
+				"送信サイズが大きすぎます(アイコン画像は512KBまでにしてください)", http.StatusRequestEntityTooLarge)
+			return
+		}
 		if !errors.Is(err, http.ErrNotMultipart) {
 			http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
 			return
@@ -159,7 +173,7 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(data) > librarianIconImageMax {
 			h.renderLibrarianError(w, r, me, name, persona, icon,
-				"アイコン画像は1MBまでにしてください", http.StatusBadRequest)
+				"アイコン画像は512KBまでにしてください", http.StatusBadRequest)
 			return
 		}
 		if len(data) > 0 {
@@ -287,6 +301,9 @@ func (h *Handler) librarianIconImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", mime)
+	// The mime came from our own byte sniff at upload, but forbid the
+	// browser from re-sniffing anyway (image/HTML polyglots).
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Private (auth-gated) + long max-age: the URL carries ?v=<icon_ver>
 	// so replacements bust the cache by changing the URL, not by expiry.
 	w.Header().Set("Cache-Control", "private, max-age=86400")

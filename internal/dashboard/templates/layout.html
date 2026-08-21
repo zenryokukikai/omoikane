@@ -22,6 +22,7 @@
     <nav class="nav-ops-menu">
       {{if .Me}}
       <a href="/entries?space=p-{{.Me.ID}}{{if .Token}}&amp;token={{urlq .Token}}{{end}}">🔒 個人スペース</a>
+      {{if .LibrarianEnabled}}<a href="/my/librarian{{if .Token}}?token={{urlq .Token}}{{end}}">🤖 個人司書</a>{{end}}
       <hr>
       {{end}}
       <a href="/directives">🧭 巡回指示</a>

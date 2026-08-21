@@ -60,6 +60,32 @@ func TestBadFloatRejected(t *testing.T) {
 	}
 }
 
+func TestOpencrabConfig(t *testing.T) {
+	// Default: unset → feature disabled (empty URL).
+	t.Setenv("OPENCRAB_URL", "")
+	t.Setenv("OPENCRAB_OWNER_ID", "")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.OpencrabURL != "" || c.OpencrabOwnerID != "" {
+		t.Fatalf("defaults: %q %q", c.OpencrabURL, c.OpencrabOwnerID)
+	}
+	// Set: trailing slash trimmed, owner id whitespace trimmed.
+	t.Setenv("OPENCRAB_URL", "http://crab.internal:3000/")
+	t.Setenv("OPENCRAB_OWNER_ID", " owner-1 ")
+	c, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.OpencrabURL != "http://crab.internal:3000" {
+		t.Fatalf("OpencrabURL: %q", c.OpencrabURL)
+	}
+	if c.OpencrabOwnerID != "owner-1" {
+		t.Fatalf("OpencrabOwnerID: %q", c.OpencrabOwnerID)
+	}
+}
+
 func TestEnvBoolBranches(t *testing.T) {
 	t.Setenv("KB_DASHBOARD_OPEN", "1")
 	c, _ := Load()

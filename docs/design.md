@@ -2197,6 +2197,61 @@ LangGraph 階層エージェント。我々の差は:
 
 ---
 
+## 25. 個人司書(Personal Librarian, issue #73)
+
+各ユーザーが UI から自分専属の司書(名前・性格)を設定し、omoikane がエージェント実行基盤
+(opencrab、認証なし・内部ネットワークのみ)へ**認証ラッパー**として敷設する。基盤の URL /
+API はブラウザに一切露出しない。スライス A(本節)は設定ページ+敷設まで。/talk のルーティング
+と身元表示(author_role 'assistant' の語彙追加を含む)はスライス B。
+
+### 25.1 設定(env)
+
+| 変数 | 意味 |
+|---|---|
+| `OPENCRAB_URL` | opencrab 基盤の base URL。**未設定なら機能ごと無効**(/my/librarian は 404、ヘッダーリンク非表示) |
+| `OPENCRAB_OWNER_ID` | 基盤 REST の信頼 caller id。敷設時に各エージェントの trust 行(owner_discord_id)へ書く |
+
+エージェントの instructions に埋める omoikane 側 base URL は `KB_OAUTH_REDIRECT_BASE` を再利用する。
+
+### 25.2 データ
+
+- migration 034: `user_librarians(user_id PK → users.id, agent_id, name, persona, status DEFAULT 'active', created_at)`
+- agent_id はサーバー側で `plib-<user_id>` として導出。フォームからは受けない
+- 司書用 KB トークンは通常の `api_tokens` 行(name=`personal-librarian`, scopes read,write, 無期限)。
+  **トークン行の存在そのものが「発行済み」フラグ**(冪等キー)— 別カラムは持たない(契約は 1 つ)
+
+### 25.3 敷設フロー(internal/opencrab)
+
+保存時に omoikane が基盤 API を順に叩く。全呼び出しで HTTP status に加えて body の
+`{"error": ...}` を検査する(opencrab は失敗も 200 で返す):
+
+1. `GET /api/agents/{id}` — 存在確認(null なら次で作成)
+2. `POST /api/agents` `{id, name, persona_name}` — 新規時のみ
+3. `PUT /api/agents/{id}` — 共通テンプレ+応答レシピ+性格文を instructions に全量反映
+4. trust 行: `GET /api/agents/{id}/discord` → 既存なら `PATCH {owner_discord_id}`。
+   未作成なら `PUT {bot_token:"", owner_discord_id}` の後、**GET で行の存在と owner 一致を検証**
+   (PUT ハンドラは空トークンでの gateway 起動見送り = StartDeclined をエラーとして返すため、
+   応答ではなく再取得を成功判定に使う)。bot_token は常に空 — gateway は起動し得ない
+5. 初回のみ: `PUT /api/agents/{id}/workspace/.kb.curlrc` `{content}` — Authorization ヘッダ入り
+   curl config を workspace へ書く
+
+トークン⇔curlrc の対を守るため、敷設失敗時は同一リクエスト内で発行したトークンを revoke する
+(「トークンあり=curlrc 書き込み済み」の不変条件を維持)。
+
+### 25.4 UI(/my/librarian)
+
+- 要ログイン。操作対象は常に本人の司書のみ(user_id は auth コンテキストから)
+- 名前(必須・50 文字)+性格(2000 文字)。保存は PRG、成功/失敗バナー
+- ヘッダー ⚙ メニューに「🤖 個人司書」(機能有効時のみ)
+
+### 25.5 セキュリティ境界
+
+- 性格文は**本人のエージェントにしか**入らない — self-injection は本人リスクのみ
+- 司書のトークンは本人と同視界。権限分離の実体は omoikane 側(基盤は実行だけ)
+- 基盤へのパスは `OPENCRAB_URL` 固定+agent_id はサーバー側生成 — 生 API アクセス経路なし
+
+---
+
 ## 付録 A: 用語集
 
 | 用語 | 定義 |

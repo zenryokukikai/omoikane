@@ -24,6 +24,7 @@ import (
 	"github.com/zenryokukikai/omoikane/internal/config"
 	"github.com/zenryokukikai/omoikane/internal/dashboard"
 	"github.com/zenryokukikai/omoikane/internal/enrich"
+	"github.com/zenryokukikai/omoikane/internal/opencrab"
 	"github.com/zenryokukikai/omoikane/internal/store"
 	"github.com/zenryokukikai/omoikane/internal/version"
 )
@@ -207,6 +208,14 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 		return nil, fmt.Errorf("dashboard: %w", err)
 	}
 	dashH.GoogleEnabled = apiH.OAuthGoogle != nil
+	// Personal librarian provisioning (issue #73) — enabled only when
+	// the opencrab runtime URL is configured. The kb base URL embedded
+	// into agent instructions reuses OAuthRedirectBase (the deployment's
+	// canonical public URL).
+	if cfg.OpencrabURL != "" {
+		dashH.Librarian = opencrab.New(cfg.OpencrabURL, cfg.OpencrabOwnerID, cfg.OAuthRedirectBase)
+		logger.Info("personal librarian enabled", "opencrab_url", cfg.OpencrabURL)
+	}
 
 	root := chi.NewRouter()
 	root.Use(api.RequestID)

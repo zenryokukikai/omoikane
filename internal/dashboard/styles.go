@@ -772,8 +772,12 @@ main:has(.talk-layout) { max-width: none; }
 }
 .talk-name { font-weight: 600; }
 .talk-sub { font-size: 0.75rem; }
-.talk-messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
-.talk-msg { display: flex; gap: 0.45rem; align-items: flex-end; }
+/* Row spacing is margin-based, not flex gap: rows arrive inside
+   display:contents fragment wrappers (.talk-frag), and iOS Safari does
+   not apply container gap around items promoted out of display:contents
+   (#83 — bubbles rendered flush on mobile). */
+.talk-messages { flex: 1; overflow-y: auto; padding: 0.4rem 1rem 1rem; display: flex; flex-direction: column; }
+.talk-msg { display: flex; gap: 0.45rem; align-items: flex-end; margin-top: 0.6rem; }
 .talk-msg-me { justify-content: flex-end; }
 .talk-msg-bot { justify-content: flex-start; }
 .talk-bubble {
@@ -804,6 +808,7 @@ main:has(.talk-layout) { max-width: none; }
 .talk-top-sentinel { text-align: center; font-size: 0.8rem; padding: 0.4rem; }
 .talk-pending {
   display: flex; align-items: center; gap: 0.45rem;
+  margin-top: 0.6rem; /* row spacing is margin-based, see .talk-msg */
   padding: 0.3rem 0.4rem; font-size: 0.85rem; color: var(--muted);
 }
 /* display:flex above overrides the UA's [hidden]{display:none} (author

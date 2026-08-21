@@ -328,6 +328,8 @@ func dashLeakRows() []dashLeakRow {
 		{name: "entries list", path: "/entries?limit=500", outsiderStatus: 200, memberSees: true},
 		{name: "entries list q-filter", path: "/entries?q=" + dashLeakMarker, outsiderStatus: 200,
 			memberSees: true, queryEcho: true, memberWant: "secret title"},
+		{name: "entries list space-filter (restricted space, non-member)", path: "/entries?space={space}",
+			outsiderStatus: 404, memberSees: true},
 		{name: "entry page", path: "/entries/{secret}", outsiderStatus: 404, memberSees: true},
 		{name: "entry history", path: "/entries/{secret}/history", outsiderStatus: 404, memberSees: true},
 		{name: "internal entry page (relations + attachment unfurl)", path: "/entries/{internal}", outsiderStatus: 200, memberSees: true},
@@ -363,6 +365,7 @@ func dashLeakRows() []dashLeakRow {
 
 func (f *dashLeakFixture) expand(p string) string {
 	return strings.NewReplacer(
+		"{space}", f.spaceID,
 		"{secret}", f.secretID,
 		"{internal}", f.internalID,
 		"{situation}", f.situationID,

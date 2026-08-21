@@ -8,7 +8,7 @@
 <article class="journal-sheet reading">
   <h1 class="journal-date">{{journalDate .}} のできごと</h1>
   <div class="journal-written muted">📝 {{journalPosted .}} に作成</div>
-  <div class="body md">{{renderContent .Body $.Token}}</div>
+  <div class="body md">{{renderContent $.Ctx .Body $.Token}}</div>
 </article>
 {{end}}
 {{else}}
@@ -38,7 +38,7 @@
 {{with $.Project}}{{if .Overview}}
 <details class="project-primer">
   <summary>📌 プロジェクト「{{.Name}}」とは — ドメイン入門(クリックで展開)</summary>
-  <div class="project-primer-body md">{{renderContent .Overview $.Token}}</div>
+  <div class="project-primer-body md">{{renderContent $.Ctx .Overview $.Token}}</div>
 </details>
 {{else if .Description}}
 <p class="project-primer-desc muted">📌 {{.Name}}: {{.Description}}</p>
@@ -51,15 +51,15 @@
 </div>
 {{end}}
 
-{{if .Symptom}}<div class="field"><div class="label">Symptom</div><div class="body md">{{renderContent .Symptom $.Token}}</div></div>{{end}}
-{{if .RootCause}}<div class="field"><div class="label">Root cause</div><div class="body md">{{renderContent .RootCause $.Token}}</div></div>{{end}}
-{{if .Resolution}}<div class="field"><div class="label">Resolution</div><div class="body md">{{renderContent .Resolution $.Token}}</div></div>{{end}}
-{{if .Prohibited}}<div class="field"><div class="label">Prohibited</div><div class="body md">{{renderContent .Prohibited $.Token}}</div></div>{{end}}
-{{if .AttemptedApproaches}}<div class="field"><div class="label">Attempted approaches</div><div class="body md">{{renderContent .AttemptedApproaches $.Token}}</div></div>{{end}}
-{{if .ObservedBehavior}}<div class="field"><div class="label">Observed behavior</div><div class="body md">{{renderContent .ObservedBehavior $.Token}}</div></div>{{end}}
-{{if .Hypotheses}}<div class="field"><div class="label">Hypotheses</div><div class="body md">{{renderContent .Hypotheses $.Token}}</div></div>{{end}}
+{{if .Symptom}}<div class="field"><div class="label">Symptom</div><div class="body md">{{renderContent $.Ctx .Symptom $.Token}}</div></div>{{end}}
+{{if .RootCause}}<div class="field"><div class="label">Root cause</div><div class="body md">{{renderContent $.Ctx .RootCause $.Token}}</div></div>{{end}}
+{{if .Resolution}}<div class="field"><div class="label">Resolution</div><div class="body md">{{renderContent $.Ctx .Resolution $.Token}}</div></div>{{end}}
+{{if .Prohibited}}<div class="field"><div class="label">Prohibited</div><div class="body md">{{renderContent $.Ctx .Prohibited $.Token}}</div></div>{{end}}
+{{if .AttemptedApproaches}}<div class="field"><div class="label">Attempted approaches</div><div class="body md">{{renderContent $.Ctx .AttemptedApproaches $.Token}}</div></div>{{end}}
+{{if .ObservedBehavior}}<div class="field"><div class="label">Observed behavior</div><div class="body md">{{renderContent $.Ctx .ObservedBehavior $.Token}}</div></div>{{end}}
+{{if .Hypotheses}}<div class="field"><div class="label">Hypotheses</div><div class="body md">{{renderContent $.Ctx .Hypotheses $.Token}}</div></div>{{end}}
 
-<div class="field"><div class="label">Body ({{.BodyFormat}})</div><div class="body md">{{if eq .BodyFormat "markdown"}}{{renderContent .Body $.Token}}{{else}}{{wikiLinks .Body $.Token}}{{end}}</div></div>
+<div class="field"><div class="label">Body ({{.BodyFormat}})</div><div class="body md">{{if eq .BodyFormat "markdown"}}{{renderContent $.Ctx .Body $.Token}}{{else}}{{wikiLinks .Body $.Token}}{{end}}</div></div>
 
 <div class="field">
   <div class="label">Validity</div>
@@ -196,7 +196,7 @@
         {{if $c.Resolved}}<span class="cmt-badge">解決済</span>{{end}}
         {{range $c.Mentions}}<span class="cmt-mention">@{{.}}</span>{{end}}
       </div>
-      <div class="cmt-body md">{{renderContent $c.Body $.Token}}</div>
+      <div class="cmt-body md">{{renderContent $.Ctx $c.Body $.Token}}</div>
       {{if $.Me}}
       <div class="cmt-actions">
         <button class="cmt-btn" onclick="cmtReply('{{$c.ID}}')">返信</button>
@@ -210,7 +210,7 @@
           <span class="cmt-time muted">{{ltime $r.CreatedAt "dt"}}</span>
           {{if and $r.ReplyTo (ne $r.ReplyTo $c.ID)}}<span class="cmt-replyto muted">↪ {{replyAuthor $.Comments $r.ReplyTo}}</span>{{end}}
         </div>
-        <div class="cmt-body md">{{renderContent $r.Body $.Token}}</div>
+        <div class="cmt-body md">{{renderContent $.Ctx $r.Body $.Token}}</div>
         {{if $.Me}}
         <div class="cmt-actions">
           <button class="cmt-btn" onclick="cmtReply('{{$r.ID}}')">返信</button>

@@ -4,6 +4,7 @@
 package dashboard
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -95,9 +96,13 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		// preferred renderer for entry bodies and chat messages.
 		// Captures `s` so attachment refs can be resolved at render
 		// time without threading the store through every template
-		// invocation.
-		"renderContent": func(text, token string) template.HTML {
-			return renderContent(text, token, s)
+		// invocation. Takes the request context (templates pass $.Ctx)
+		// so the store lookups inside (EntriesExist / GetAttachment)
+		// run under the viewer's space visibility — a background
+		// context here would be an unrestricted bypass (issue #60
+		// slice 5).
+		"renderContent": func(ctx context.Context, text, token string) template.HTML {
+			return renderContent(ctx, text, token, s)
 		},
 		// ltime renders a timestamp as a <time> element that layout.html's
 		// localizer script rewrites into the viewer's timezone (#43). The
@@ -148,7 +153,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index", "lookup", "use_case", "entries",
 		"chat_threads", "chat_thread", "talk", "bookmarks", "directives", "login", "claim", "agents", "profile",
-		"members", "member_claim"} {
+		"members", "member_claim", "admin_spaces"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
 			"templates/"+name+".html")
@@ -204,6 +209,9 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Use(browserAuthRedirect)
 			r.Use(mw.Authenticate)
 			r.Use(auth.RequireScope("read"))
+			// Space visibility (issue #60 slice 5): every page's store
+			// calls run under the viewer's resolved view.
+			r.Use(h.withVisibleSpaces)
 		}
 		r.Get("/", h.home)
 		r.Get("/journal", h.journalList)
@@ -231,6 +239,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/agents", h.agentsPage)
 		r.Get("/u/{id}", h.profilePage)
 		r.Get("/members", h.membersPage)
+		r.Get("/admin/spaces", h.adminSpacesPage)
 		r.Get("/static/style.css", h.css)
 	})
 	// Write surfaces for the dashboard (chat + agents). Form submissions
@@ -243,6 +252,7 @@ func (h *Handler) Mount(r chi.Router) {
 			mw := &auth.Middleware{S: h.Store}
 			r.Use(mw.Authenticate)
 			r.Use(auth.RequireScope("write"))
+			r.Use(h.withVisibleSpaces)
 		}
 		r.Post("/chat/new", h.chatThreadCreate)
 		r.Post("/chat/{id}/post", h.chatThreadPostMessage)
@@ -251,6 +261,14 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Post("/u/{id}/edit", h.profileEdit)
 		r.Post("/members/invite", h.membersInvite)
 		r.Post("/members/{id}/role", h.membersRoleChange)
+		// Admin space/group management forms (admin scope enforced in
+		// the handlers so non-admins get a readable 403, not a 401).
+		r.Post("/admin/spaces/create", h.adminSpaceCreate)
+		r.Post("/admin/groups/create", h.adminGroupCreate)
+		r.Post("/admin/groups/{id}/members/add", h.adminGroupMemberAdd)
+		r.Post("/admin/groups/{id}/members/remove", h.adminGroupMemberRemove)
+		r.Post("/admin/spaces/{id}/acl", h.adminSpaceACLSet)
+		r.Post("/admin/spaces/{id}/acl/remove", h.adminSpaceACLRemove)
 	})
 }
 
@@ -261,6 +279,11 @@ type pageCtx struct {
 	Token    string
 	Open     bool
 	Lang     string // "ja" | "en" — display language for bilingual content
+
+	// Ctx is the request context, carrying the viewer's space
+	// visibility. Templates thread it into store-touching funcs
+	// (renderContent) so render-time lookups stay inside the view.
+	Ctx context.Context
 
 	Projects []*store.Project
 	Project  *store.Project
@@ -361,6 +384,9 @@ type pageCtx struct {
 	ClaimInvitation   *store.MemberInvitation // for /members/claim/{code}
 	ClaimInviter      *store.User
 
+	// Admin spaces page (/admin/spaces) — nil on every other page.
+	Admin *adminSpacesData
+
 	// Entries list page (/entries) — filterable index over all entries.
 	// EntriesTotal lets the template show "showing N of M total" without
 	// rendering the whole corpus. EntriesFilter echoes the active filter
@@ -375,6 +401,7 @@ func (h *Handler) renderCtx(r *http.Request) pageCtx {
 		Open:  h.Open,
 		Token: r.URL.Query().Get("token"),
 		Lang:  resolveLang(r),
+		Ctx:   r.Context(),
 	}
 	// Populate Me from the request auth context so every page can show
 	// the signed-in user in the header. Falls through silently when
@@ -1181,8 +1208,9 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		// Private history: only the owner (or an admin) may read it.
-		if th.CreatedBy != pc.Me.ID && pc.Me.Role != "admin" {
+		// Private history: only the owner (or the admin scope — the one
+		// admin contract, never users.role) may read it.
+		if th.CreatedBy != pc.Me.ID && !isAdmin(r) {
 			http.NotFound(w, r)
 			return
 		}
@@ -1361,6 +1389,20 @@ func (h *Handler) chatThreadCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
+// requireSharedThread 404s unless the thread exists and is a shared
+// (non-talk) one. The /chat write surface mirrors the /chat read pages:
+// intent=talk threads are personal conversations that live on /talk
+// only, so posting into or closing one through /chat is answered with
+// the same 404 a missing thread gets (no existence oracle).
+func (h *Handler) requireSharedThread(w http.ResponseWriter, r *http.Request, id string) bool {
+	th, err := h.Store.GetThread(r.Context(), id)
+	if err != nil || th.Intent == "talk" {
+		http.NotFound(w, r)
+		return false
+	}
+	return true
+}
+
 // chatThreadPostMessage accepts a form POST from the thread page.
 // Fields: author_role (defaults "human"), content, intent.
 func (h *Handler) chatThreadPostMessage(w http.ResponseWriter, r *http.Request) {
@@ -1369,6 +1411,9 @@ func (h *Handler) chatThreadPostMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	id := chi.URLParam(r, "id")
+	if !h.requireSharedThread(w, r, id) {
+		return
+	}
 	role := strings.TrimSpace(r.FormValue("author_role"))
 	if role == "" {
 		role = "human"
@@ -1409,6 +1454,9 @@ func (h *Handler) chatThreadClose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
+	if !h.requireSharedThread(w, r, id) {
+		return
+	}
 	if err := h.Store.CloseThread(r.Context(), id, strings.TrimSpace(r.FormValue("summary"))); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -7,7 +7,7 @@
     {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
   {{end}}
   <div class="talk-bubble">
-    <div class="md">{{renderContent .Content $.Token}}</div>
+    <div class="md">{{renderContent $.Ctx .Content $.Token}}</div>
     <div class="talk-time muted">{{ltime .Timestamp "t"}}</div>
   </div>
 </div>

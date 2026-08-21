@@ -304,11 +304,21 @@ func (s *Store) ReviewQueue(ctx context.Context, limit int) ([]*ReviewQueueRow, 
 	} else if limit > 500 {
 		limit = 500
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, type, status,
-		       misleading_count, total_uses, helpfulness_score
-		FROM review_queue
-		LIMIT ?`, limit)
+	q := `
+		SELECT rq.id, rq.title, rq.type, rq.status,
+		       rq.misleading_count, rq.total_uses, rq.helpfulness_score
+		FROM review_queue rq`
+	args := []any{}
+	// The view carries entry ids + titles (DRAFTs included) — narrow to
+	// visible spaces.
+	if ex, exArgs := visibleEntryExists(ctx, "rq.id"); ex != "" {
+		q += ` WHERE ` + ex
+		args = append(args, exArgs...)
+	}
+	q += `
+		LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

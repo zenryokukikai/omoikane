@@ -67,6 +67,12 @@ func (s *Store) NextUnprocessedEntry(ctx context.Context, role, projectID string
 		  ON lp.entry_id = e.id AND lp.role = ?
 		WHERE lp.id IS NULL
 		  AND e.status IN ('ACTIVE','DRAFT')`
+	// The backlog returns a FULL entry — restricted spaces stay out of
+	// a caller's queue entirely.
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		q += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
 	if projectID != "" {
 		q += ` AND e.project_id = ?`
 		args = append(args, projectID)
@@ -234,6 +240,12 @@ func (s *Store) BacklogSize(ctx context.Context, role, projectID string) (int, e
 		  ON lp.entry_id = e.id AND lp.role = ?
 		WHERE lp.id IS NULL
 		  AND e.status IN ('ACTIVE','DRAFT')`
+	// Same visibility narrowing as NextUnprocessedEntry — the displayed
+	// "X remaining" must match what the caller can actually pull.
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		q += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
 	if projectID != "" {
 		q += ` AND e.project_id = ?`
 		args = append(args, projectID)

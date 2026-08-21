@@ -13,10 +13,27 @@ package api
 // surface the entry for someone inside the space, so a fail-closed bug
 // that hides everything from everyone cannot pass either.
 //
-// Routes outside this slice (chat, SSE/webhooks, aggregates such as
-// situations/clusters/use_cases/browse/index, attachments, dashboard)
-// are covered by their own slices — add their rows here as those slices
-// land.
+// NOT YET COVERED — kept in sync with the /v1 route table in api.go
+// (the third-party review of this slice caught four routes that a vague
+// "aggregates etc." list had left dangling; keep this list EXPLICIT):
+//
+//   slice 3 (aggregates + attachments):
+//     GET/POST/DELETE /situations, /situations/{id}(+/entries)
+//     GET/POST/DELETE /clusters, /clusters/{id}(+/members,/promote,/dismiss,/rebuild)
+//     GET/POST/DELETE /use_cases, /use_cases/{ref}(+/entries,/synthesis,/parent)
+//     GET/POST/DELETE /browse, /browse/{id}(+/entries); GET /index
+//     GET/POST /librarian/findings(+/correlate), /librarian/quartet(+/decide)
+//     GET/POST /librarian/tasks(+/claim,/complete); POST /librarian/backlog/reprocess
+//     GET/POST /attachments, /attachments/{id}(+/content)
+//   slice 4 (chat + events):
+//     GET/POST /librarian/threads(+/{id}/close,/{id}/messages), POST /librarian/chat
+//     POST /search include_chat=true (chat_results field)
+//     GET /events (SSE), POST /events/broadcast, /admin/webhooks* delivery scope
+//   slice 5: every dashboard page
+//   all-visible metadata by design (v2 residual risk): /users, /projects,
+//     /librarian/instances, /librarian/directives, /admin/* ops
+//
+// Add each route's rows here in the slice that brings its enforcement.
 
 import (
 	"bytes"
@@ -154,6 +171,15 @@ func newLeakFixture(t *testing.T) *leakFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Three misleading cases push the entry into review_queue,
+	// coordinator triage's misleading-heavy list, and tier 4.
+	for i := 0; i < 3; i++ {
+		if _, err := st.CreateCase(ctx, &store.UsageCase{
+			EntryID: secretID, ProjectID: "p-leak", Result: "misleading",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	// Comment on the secret entry mentioning both users (author=admin so
 	// the "written by someone else" review-request predicate holds).
@@ -258,8 +284,22 @@ func leakMatrixRows() []leakRow {
 			body:           map[string]any{"entry_ids": []string{"{secretid}"}},
 			outsiderStatus: 200, memberSees: true},
 
-		// ---- tiers (entry bodies grouped by usage tier) ----
-		{name: "tiers", method: "GET", path: "/v1/tiers?tier=3&limit=500", outsiderStatus: 200, memberSees: true},
+		// ---- tiers (entry bodies grouped by usage tier; the 3 planted
+		// misleading cases put the secret entry in tier 4) ----
+		{name: "tiers", method: "GET", path: "/v1/tiers?tier=4&limit=500", outsiderStatus: 200, memberSees: true},
+
+		// ---- review queue + coordinator triage (misleading-heavy) ----
+		{name: "review queue", method: "GET", path: "/v1/review-queue", outsiderStatus: 200, memberSees: true},
+		{name: "coordinator triage", method: "GET", path: "/v1/librarian/coordinator/triage",
+			outsiderStatus: 200, memberSees: true, idOnly: true},
+
+		// ---- cross-entry comment feed ----
+		{name: "recent comments", method: "GET", path: "/v1/comments/recent", outsiderStatus: 200, memberSees: true},
+
+		// ---- librarian backlog (returns a FULL entry; detective has no
+		// progress rows, so the member's oldest unprocessed = secret) ----
+		{name: "backlog next", method: "GET", path: "/v1/librarian/backlog/next?role=detective",
+			outsiderStatus: 200, memberSees: true},
 
 		// ---- per-user projections ----
 		{name: "my bookmarks", method: "GET", path: "/v1/me/bookmarks", outsiderStatus: 200, memberSees: true},

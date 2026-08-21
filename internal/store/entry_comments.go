@@ -236,6 +236,12 @@ func (s *Store) ListRecentComments(ctx context.Context, entryCreatedBy, since st
 	  JOIN entries e ON e.id = c.entry_id`
 	where := []string{}
 	args := []any{}
+	// Comments on entries outside the visible spaces are excluded rows
+	// (the feed carries entry titles AND comment bodies).
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		where = append(where, cond)
+		args = append(args, condArgs...)
+	}
 	if entryCreatedBy != "" {
 		where = append(where, "e.created_by = ?")
 		args = append(args, entryCreatedBy)
@@ -265,10 +271,18 @@ func (s *Store) ListRecentComments(ctx context.Context, entryCreatedBy, since st
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Backfill entry context. Surviving rows reference visible entries by
+	// construction, but the query carries the same narrowing anyway so a
+	// future refactor of the main query cannot silently reopen it.
+	titleQ := `SELECT e.title, e.type, COALESCE(e.created_by,'') FROM entries e WHERE e.id = ?`
+	titleCond, titleCondArgs := spaceCond(ctx, "e")
+	if titleCond != "" {
+		titleQ += ` AND ` + titleCond
+	}
 	for _, rc := range out {
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT title, type, COALESCE(created_by,'') FROM entries WHERE id = ?`,
-			rc.Comment.EntryID).Scan(&rc.EntryTitle, &rc.EntryType, &rc.EntryCreatedBy)
+		args := append([]any{rc.Comment.EntryID}, titleCondArgs...)
+		_ = s.db.QueryRowContext(ctx, titleQ, args...).
+			Scan(&rc.EntryTitle, &rc.EntryType, &rc.EntryCreatedBy)
 	}
 	return out, nil
 }

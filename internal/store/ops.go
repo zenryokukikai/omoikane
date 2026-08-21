@@ -126,9 +126,15 @@ func (s *Store) CoordinatorAnomalyScan(ctx context.Context, missingHeartbeatMinu
 	}
 	rows.Close()
 
-	// Misleading-heavy entries
-	rows, err = s.db.QueryContext(ctx, `
-		SELECT id FROM entry_signals WHERE misleading_count >= 3`)
+	// Misleading-heavy entries — this lists entry IDS, so it must be
+	// narrowed to the caller's visible spaces.
+	mhQ := `SELECT id FROM entry_signals WHERE misleading_count >= 3`
+	mhArgs := []any{}
+	if ex, exArgs := visibleEntryExists(ctx, "entry_signals.id"); ex != "" {
+		mhQ += ` AND ` + ex
+		mhArgs = append(mhArgs, exArgs...)
+	}
+	rows, err = s.db.QueryContext(ctx, mhQ, mhArgs...)
 	if err != nil {
 		return nil, err
 	}

@@ -29,8 +29,13 @@ func (s *Store) AddBookmark(ctx context.Context, userID, entryID string) error {
 }
 
 // RemoveBookmark unstars. Removing a non-bookmark is a no-op, not an
-// error — the end state is what the user asked for.
+// error — the end state is what the user asked for. A hidden entry is a
+// 404 like every other entry write (fail-closed; ListBookmarks hides
+// stale rows regardless).
 func (s *Store) RemoveBookmark(ctx context.Context, userID, entryID string) error {
+	if err := requireVisibleEntry(ctx, s.db, entryID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM user_bookmarks WHERE user_id = ? AND entry_id = ?`,
 		userID, entryID)
@@ -52,13 +57,23 @@ func (s *Store) ListBookmarks(ctx context.Context, userID string, limit int) ([]
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	q := `
 		SELECT b.entry_id, b.created_at, e.title, e.type, e.project_id, e.status
 		  FROM user_bookmarks b
 		  JOIN entries e ON e.id = b.entry_id
-		 WHERE b.user_id = ?
+		 WHERE b.user_id = ?`
+	args := []any{userID}
+	// Bookmarks on entries outside the caller's visible spaces are
+	// hidden rows, not errors (membership can be revoked after starring).
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		q += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	q += `
 		 ORDER BY b.created_at DESC
-		 LIMIT ?`, userID, limit)
+		 LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

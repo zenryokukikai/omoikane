@@ -114,6 +114,10 @@ type Entry struct {
 	CreatedBy           string     `json:"created_by,omitempty"`
 	CreatedByRole       string     `json:"created_by_role,omitempty"`
 	Version             int        `json:"version"`
+	// SpaceID is the visibility boundary the entry lives in (issue #60).
+	// Defaults to 'internal'; project_id remains the category WITHIN a
+	// space.
+	SpaceID             string     `json:"space_id"`
 	Tags                []string   `json:"tags"`
 }
 

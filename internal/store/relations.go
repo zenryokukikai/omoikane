@@ -55,6 +55,17 @@ func (s *Store) CreateRelation(ctx context.Context, r *Relation) error {
 	}
 	defer tx.Rollback()
 
+	// Both endpoints must exist AND be visible (design v2: multi-entry
+	// operations demand full visibility; 404 — never 403 — so relation
+	// side-effects such as the conflicts_with auto-SUPERSEDE cannot be
+	// driven by id guessing).
+	if err := requireVisibleEntry(ctx, tx, r.FromID); err != nil {
+		return err
+	}
+	if err := requireVisibleEntry(ctx, tx, r.ToID); err != nil {
+		return err
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO relations(from_id, to_id, rel_type, confidence, source, notes)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -139,8 +150,15 @@ func markSuperseded(ctx context.Context, tx *sql.Tx, oldID, newID, reason string
 }
 
 // DeleteRelation removes a single edge. Returns ErrNotFound if no such
-// edge exists.
+// edge exists — or when either endpoint is outside the ctx's visible
+// spaces (same rule as CreateRelation).
 func (s *Store) DeleteRelation(ctx context.Context, fromID, toID, relType string) error {
+	if err := requireVisibleEntry(ctx, s.db, fromID); err != nil {
+		return err
+	}
+	if err := requireVisibleEntry(ctx, s.db, toID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM relations WHERE from_id = ? AND to_id = ? AND rel_type = ?`,
 		fromID, toID, relType)
@@ -154,22 +172,40 @@ func (s *Store) DeleteRelation(ctx context.Context, fromID, toID, relType string
 	return nil
 }
 
-// ListRelationsFrom returns outgoing edges for the given entry.
+// ListRelationsFrom returns outgoing edges for the given entry. The
+// entry itself must be visible (ErrNotFound otherwise), and edges whose
+// OTHER end is outside the caller's visible spaces are hidden entirely
+// (a cross-space link's existence is itself information).
 func (s *Store) ListRelationsFrom(ctx context.Context, entryID string) ([]*Relation, error) {
-	return s.listRelations(ctx,
-		`SELECT from_id, to_id, rel_type, confidence, source, COALESCE(notes,''), created_at
-		 FROM relations WHERE from_id = ? ORDER BY created_at`, entryID)
+	return s.listRelationsFor(ctx, entryID, "from_id", "to_id")
 }
 
 // ListRelationsTo returns the backlinks pointing at the given entry.
+// Same visibility contract as ListRelationsFrom.
 func (s *Store) ListRelationsTo(ctx context.Context, entryID string) ([]*Relation, error) {
-	return s.listRelations(ctx,
-		`SELECT from_id, to_id, rel_type, confidence, source, COALESCE(notes,''), created_at
-		 FROM relations WHERE to_id = ? ORDER BY created_at`, entryID)
+	return s.listRelationsFor(ctx, entryID, "to_id", "from_id")
 }
 
-func (s *Store) listRelations(ctx context.Context, q, id string) ([]*Relation, error) {
-	rows, err := s.db.QueryContext(ctx, q, id)
+// listRelationsFor lists edges where anchorCol = entryID, hiding rows
+// whose otherCol references an invisible entry. Both column names are
+// compile-time constants at the two call sites.
+func (s *Store) listRelationsFor(ctx context.Context, entryID, anchorCol, otherCol string) ([]*Relation, error) {
+	if err := requireVisibleEntry(ctx, s.db, entryID); err != nil {
+		return nil, err
+	}
+	q := `SELECT from_id, to_id, rel_type, confidence, source, COALESCE(notes,''), created_at
+		 FROM relations WHERE ` + anchorCol + ` = ?`
+	args := []any{entryID}
+	if ex, exArgs := visibleEntryExists(ctx, "relations."+otherCol); ex != "" {
+		q += " AND " + ex
+		args = append(args, exArgs...)
+	}
+	q += " ORDER BY created_at"
+	return s.listRelations(ctx, q, args...)
+}
+
+func (s *Store) listRelations(ctx context.Context, q string, args ...any) ([]*Relation, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

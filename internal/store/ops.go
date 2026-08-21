@@ -41,12 +41,21 @@ func (s *Store) ListEntriesByTier(ctx context.Context, tier, limit int) ([]*Entr
 	} else if limit > 500 {
 		limit = 500
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	q := `
 		SELECT id, COALESCE(project_id,''), title, type, status,
 		       total_uses, helpful_count, misleading_count, helpfulness_score, tier
-		FROM entry_tiers WHERE tier = ?
+		FROM entry_tiers WHERE tier = ?`
+	args := []any{tier}
+	// The view carries entry titles — narrow to visible spaces.
+	if ex, exArgs := visibleEntryExists(ctx, "entry_tiers.id"); ex != "" {
+		q += ` AND ` + ex
+		args = append(args, exArgs...)
+	}
+	q += `
 		ORDER BY total_uses DESC, id
-		LIMIT ?`, tier, limit)
+		LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +126,15 @@ func (s *Store) CoordinatorAnomalyScan(ctx context.Context, missingHeartbeatMinu
 	}
 	rows.Close()
 
-	// Misleading-heavy entries
-	rows, err = s.db.QueryContext(ctx, `
-		SELECT id FROM entry_signals WHERE misleading_count >= 3`)
+	// Misleading-heavy entries — this lists entry IDS, so it must be
+	// narrowed to the caller's visible spaces.
+	mhQ := `SELECT id FROM entry_signals WHERE misleading_count >= 3`
+	mhArgs := []any{}
+	if ex, exArgs := visibleEntryExists(ctx, "entry_signals.id"); ex != "" {
+		mhQ += ` AND ` + ex
+		mhArgs = append(mhArgs, exArgs...)
+	}
+	rows, err = s.db.QueryContext(ctx, mhQ, mhArgs...)
 	if err != nil {
 		return nil, err
 	}

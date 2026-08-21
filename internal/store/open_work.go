@@ -99,9 +99,19 @@ func (s *Store) ClaimOpenWork(ctx context.Context, entryID, role, instanceID, ef
 	}
 	defer tx.Rollback()
 
+	// Visibility narrows the open-tag check itself: a hidden entry takes
+	// exactly the missing-entry path (ErrAlreadyExists, "not tagged
+	// open") so claim probing cannot distinguish restricted ids from
+	// nonexistent ones.
+	hasOpenQ := `SELECT COUNT(*) FROM tags t JOIN entries e ON e.id = t.entry_id
+		WHERE t.entry_id = ? AND t.tag = 'open'`
+	hasOpenArgs := []any{entryID}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		hasOpenQ += ` AND ` + cond
+		hasOpenArgs = append(hasOpenArgs, condArgs...)
+	}
 	var hasOpen int
-	if err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM tags WHERE entry_id = ? AND tag = 'open'`, entryID).Scan(&hasOpen); err != nil {
+	if err := tx.QueryRowContext(ctx, hasOpenQ, hasOpenArgs...).Scan(&hasOpen); err != nil {
 		return "", translateErr(err)
 	}
 	if hasOpen == 0 {
@@ -158,6 +168,10 @@ func (s *Store) ReleaseOpenWork(ctx context.Context, entryID, instanceID string)
 	}
 	defer tx.Rollback()
 
+	if err := requireVisibleEntry(ctx, tx, entryID); err != nil {
+		return err
+	}
+
 	res, err := tx.ExecContext(ctx,
 		`DELETE FROM tags WHERE entry_id = ? AND tag = ?`, entryID, tag)
 	if err != nil {
@@ -200,6 +214,10 @@ func (s *Store) MarkOpenWorkMerged(ctx context.Context, entryID, instanceID, res
 		return err
 	}
 	defer tx.Rollback()
+
+	if err := requireVisibleEntry(ctx, tx, entryID); err != nil {
+		return err
+	}
 
 	res, err := tx.ExecContext(ctx,
 		`DELETE FROM tags WHERE entry_id = ? AND tag = ?`, entryID, tag)

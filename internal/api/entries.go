@@ -20,6 +20,9 @@ import (
 
 type entryRequest struct {
 	ProjectID           string   `json:"project_id"`
+	// SpaceID is the visibility boundary (issue #60). Empty = 'internal'.
+	// A space the caller cannot see 404s exactly like a missing one.
+	SpaceID             string   `json:"space_id,omitempty"`
 	Type                string   `json:"type"`
 	Title               string   `json:"title"`
 	Status              string   `json:"status,omitempty"`
@@ -92,6 +95,7 @@ func (h *Handler) createEntry(w http.ResponseWriter, r *http.Request) {
 
 	e := &store.Entry{
 		ProjectID:           strings.TrimSpace(req.ProjectID),
+		SpaceID:             strings.TrimSpace(req.SpaceID),
 		Type:                req.Type,
 		Title:               strings.TrimSpace(req.Title),
 		Status:              req.Status,

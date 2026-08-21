@@ -73,16 +73,11 @@ func (s *Store) RecordFeedback(ctx context.Context, fb *EntryFeedback) error {
 	if !validFeedbackSignals[fb.Signal] {
 		return fmt.Errorf("%w: signal must be one of %v", ErrInvalidInput, FeedbackSignals())
 	}
-	// Verify entry exists. We deliberately allow feedback on SUPERSEDED or
-	// DELETED entries — those signals are still useful ("this used to work
-	// but no longer applies" is exactly the outdated/wrong feedback we
-	// want).
-	var exists int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM entries WHERE id = ?`, fb.EntryID).Scan(&exists)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: entry %s", ErrNotFound, fb.EntryID)
-	}
-	if err != nil {
+	// Verify entry exists AND is visible under ctx. We deliberately allow
+	// feedback on SUPERSEDED or DELETED entries — those signals are still
+	// useful ("this used to work but no longer applies" is exactly the
+	// outdated/wrong feedback we want).
+	if err := requireVisibleEntry(ctx, s.db, fb.EntryID); err != nil {
 		return err
 	}
 	var u, c any
@@ -141,6 +136,9 @@ type EntryEngagement struct {
 // GetEngagement returns the engagement view row for one entry, or
 // ErrNotFound if the entry doesn't exist.
 func (s *Store) GetEngagement(ctx context.Context, entryID string) (*EntryEngagement, error) {
+	if err := requireVisibleEntry(ctx, s.db, entryID); err != nil {
+		return nil, err
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT entry_id, project_id, reference_count_30d, reference_count_total,
 		        feedback_helpful, feedback_confirmed, feedback_outdated,

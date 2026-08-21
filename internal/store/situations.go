@@ -182,15 +182,27 @@ func (s *Store) LookupBySituation(ctx context.Context, query string, limit int) 
 	if q == "" {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	// Visibility narrows at the candidate stage: a situation may span
+	// spaces (until slice 3 pins aggregates to one), but only entries the
+	// caller can see may come back.
+	sqlQ := `
 		SELECT se.entry_id, s.description, bm25(situations_fts) AS rank,
 		       COALESCE(se.relevance, 1.0)
 		FROM situations_fts
 		JOIN situations s ON s.rowid = situations_fts.rowid
 		JOIN situation_entries se ON se.situation_id = s.id
-		WHERE situations_fts MATCH ?
+		JOIN entries e ON e.id = se.entry_id
+		WHERE situations_fts MATCH ?`
+	args := []any{q}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	sqlQ += `
 		ORDER BY rank ASC
-		LIMIT ?`, q, limit*3)
+		LIMIT ?`
+	args = append(args, limit*3)
+	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
 	if err != nil {
 		return nil, err
 	}

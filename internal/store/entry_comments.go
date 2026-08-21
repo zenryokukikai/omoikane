@@ -136,7 +136,15 @@ func (s *Store) GetComment(ctx context.Context, id string) (*EntryComment, error
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return c, err
+	if err != nil {
+		return nil, err
+	}
+	// A comment on a hidden entry is as invisible as the entry — this is
+	// the chokepoint for PATCH/DELETE /comments/{cid}.
+	if err := requireVisibleEntry(ctx, s.db, c.EntryID); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // ListComments returns all comments on an entry, oldest first, so the UI
@@ -228,6 +236,12 @@ func (s *Store) ListRecentComments(ctx context.Context, entryCreatedBy, since st
 	  JOIN entries e ON e.id = c.entry_id`
 	where := []string{}
 	args := []any{}
+	// Comments on entries outside the visible spaces are excluded rows
+	// (the feed carries entry titles AND comment bodies).
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		where = append(where, cond)
+		args = append(args, condArgs...)
+	}
 	if entryCreatedBy != "" {
 		where = append(where, "e.created_by = ?")
 		args = append(args, entryCreatedBy)
@@ -257,10 +271,18 @@ func (s *Store) ListRecentComments(ctx context.Context, entryCreatedBy, since st
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Backfill entry context. Surviving rows reference visible entries by
+	// construction, but the query carries the same narrowing anyway so a
+	// future refactor of the main query cannot silently reopen it.
+	titleQ := `SELECT e.title, e.type, COALESCE(e.created_by,'') FROM entries e WHERE e.id = ?`
+	titleCond, titleCondArgs := spaceCond(ctx, "e")
+	if titleCond != "" {
+		titleQ += ` AND ` + titleCond
+	}
 	for _, rc := range out {
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT title, type, COALESCE(created_by,'') FROM entries WHERE id = ?`,
-			rc.Comment.EntryID).Scan(&rc.EntryTitle, &rc.EntryType, &rc.EntryCreatedBy)
+		args := append([]any{rc.Comment.EntryID}, titleCondArgs...)
+		_ = s.db.QueryRowContext(ctx, titleQ, args...).
+			Scan(&rc.EntryTitle, &rc.EntryType, &rc.EntryCreatedBy)
 	}
 	return out, nil
 }
@@ -284,10 +306,16 @@ func (s *Store) CountReviewRequests(ctx context.Context, userID string) (int, er
 	if userID == "" {
 		return 0, nil
 	}
+	q := `SELECT COUNT(*) FROM entry_comments c WHERE ` + reviewRequestWhere
+	args := []any{userID, userID, userID}
+	// Requests on entries outside the visible spaces are not counted —
+	// the X-Review-Requests header must not tally hidden work.
+	if ex, exArgs := visibleEntryExists(ctx, "c.entry_id"); ex != "" {
+		q += ` AND ` + ex
+		args = append(args, exArgs...)
+	}
 	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM entry_comments c WHERE `+reviewRequestWhere,
-		userID, userID, userID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&n)
 	return n, err
 }
 
@@ -308,10 +336,20 @@ func (s *Store) ListReviewRequests(ctx context.Context, userID string, limit int
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, commentSelect+`
-		WHERE `+reviewRequestWhere+`
+	q := commentSelect + `
+		WHERE ` + reviewRequestWhere
+	args := []any{userID, userID, userID}
+	// Same visibility rule as CountReviewRequests (the list and the
+	// header count must agree).
+	if ex, exArgs := visibleEntryExists(ctx, "c.entry_id"); ex != "" {
+		q += ` AND ` + ex
+		args = append(args, exArgs...)
+	}
+	q += `
 		ORDER BY c.created_at ASC
-		LIMIT ?`, userID, userID, userID, limit)
+		LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

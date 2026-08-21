@@ -313,6 +313,43 @@ func (h *Handler) librarianList(w http.ResponseWriter, r *http.Request) {
 // /v1/librarian/chat + threads
 // ============================================================
 
+// mayUseThread reports whether the request's principal may read or
+// write the given thread (issue #60 slice 4). Non-talk threads are the
+// shared librarian-coordination room: everyone. intent=talk threads
+// are personal conversations, allowed only to:
+//
+//   - the owner (created_by),
+//   - the admin scope (the one admin-visibility contract), and
+//   - agent users (users.role == "agent"): the /talk responder runtime
+//     reads a thread's history and posts its answers with an agent
+//     token that is neither the owner nor admin — without this
+//     exception the deployed response path breaks. Phase 2's
+//     space-scoped agent tokens will narrow this to designated
+//     responders; today every agent user is trusted infrastructure.
+//
+// Callers translate false into 404 — for outsiders a foreign talk
+// thread must be indistinguishable from a missing one.
+func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread) bool {
+	if th.Intent != "talk" {
+		return true
+	}
+	tok := auth.FromContext(r.Context())
+	if tok == nil {
+		return false
+	}
+	if store.HasScope(tok.Scopes, "admin") {
+		return true
+	}
+	if tok.UserID == "" {
+		return false
+	}
+	if tok.UserID == th.CreatedBy {
+		return true
+	}
+	u, err := h.Store.GetUser(httpCtx(r), tok.UserID)
+	return err == nil && u.Role == "agent"
+}
+
 type chatThreadRequest struct {
 	ThreadID       string `json:"thread_id,omitempty"`
 	Title          string `json:"title,omitempty"`
@@ -364,6 +401,17 @@ func (h *Handler) chatCloseThread(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
 			return
 		}
+	}
+	// Same gate as posting: closing someone else's talk thread is a
+	// write into their private conversation (404, no oracle).
+	th, err := h.Store.GetThread(httpCtx(r), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.mayUseThread(r, th) {
+		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+		return
 	}
 	if err := h.Store.CloseThread(httpCtx(r), id, req.Summary); err != nil {
 		writeStoreError(w, err)
@@ -421,6 +469,24 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	if tok := auth.FromContext(r.Context()); tok != nil {
 		authorUserID = tok.UserID
 	}
+	// Resolve the target thread up front (slice 4): posting into
+	// someone else's talk thread — or a thread that does not exist —
+	// is one indistinguishable 404. (Thread-less messages never could
+	// reference a thread; the librarian_chat FK already rejected
+	// dangling ids, so requiring the row here changes no working flow.)
+	var thread *store.ChatThread
+	if req.ThreadID != "" {
+		th, err := h.Store.GetThread(httpCtx(r), req.ThreadID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if !h.mayUseThread(r, th) {
+			writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+			return
+		}
+		thread = th
+	}
 	id, err := h.Store.PostChatMessage(httpCtx(r), &store.ChatMessage{
 		ThreadID: req.ThreadID, AuthorRole: req.AuthorRole,
 		AuthorInstanceID: req.AuthorInstanceID,
@@ -436,18 +502,19 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	}
 	// Push to SSE listeners (chat responders, live frontends). Thread
 	// context rides along so listeners can route without a round-trip.
-	if h.Events != nil && req.ThreadID != "" {
+	// The event is delivered under the thread's visibility space:
+	// internal for coordination threads, the owner's personal space for
+	// talk threads (see threadEventSpace / the Event doc comment).
+	if h.Events != nil && thread != nil {
 		ev := map[string]any{
 			"id": id, "thread_id": req.ThreadID,
 			"author_user_id": authorUserID, "author_role": req.AuthorRole,
 			"content": req.Content, "intent": req.Intent,
+			"thread_intent":     thread.Intent,
+			"thread_created_by": thread.CreatedBy,
+			"thread_title":      thread.Title,
 		}
-		if th, terr := h.Store.GetThread(httpCtx(r), req.ThreadID); terr == nil {
-			ev["thread_intent"] = th.Intent
-			ev["thread_created_by"] = th.CreatedBy
-			ev["thread_title"] = th.Title
-		}
-		h.Events.Publish(Event{Type: "chat.message", Data: ev})
+		h.Events.Publish(Event{Type: "chat.message", Data: ev, SpaceID: threadEventSpace(thread)})
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
@@ -478,6 +545,20 @@ func (h *Handler) chatList(w http.ResponseWriter, r *http.Request) {
 	waitStr := r.URL.Query().Get("wait")
 
 	ctx := httpCtx(r)
+
+	// Slice 4: a foreign talk thread and a nonexistent thread are one
+	// indistinguishable 404. (Previously an unknown thread returned an
+	// empty 200 — that would have become an existence oracle next to
+	// the 404 for hidden threads.)
+	th, err := h.Store.GetThread(ctx, threadID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.mayUseThread(r, th) {
+		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+		return
+	}
 
 	// Resolve `since` to a timestamp (if it points at a real msg).
 	// Unknown id → treat as no cursor (start from beginning).

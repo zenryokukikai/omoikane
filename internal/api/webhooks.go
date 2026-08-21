@@ -31,12 +31,16 @@ func (h *Handler) createWebhook(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL        string   `json:"url"`
 		EventTypes []string `json:"event_types"`
+		// SpaceScope omitted/null = deliver events from every space
+		// (the pre-slice-4 contract; existing subscriptions are trusted
+		// infrastructure). A list restricts delivery to those spaces.
+		SpaceScope []string `json:"space_scope,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
 		return
 	}
-	sub, err := h.Store.CreateWebhook(httpCtx(r), req.URL, req.EventTypes, tok.UserID)
+	sub, err := h.Store.CreateWebhook(httpCtx(r), req.URL, req.EventTypes, req.SpaceScope, tok.UserID)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -85,7 +89,11 @@ func (h *Handler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 // Slow consumers cannot block the bus (bounded subscriber buffer, the
 // bus drops on overflow), and delivery failures never propagate.
 func (h *Handler) startWebhookDispatcher() {
-	events, _ := h.Events.Subscribe()
+	// nil predicate = the trusted in-process subscription: the
+	// dispatcher must observe every event because per-subscription
+	// space scoping happens below (an unscoped subscription — the
+	// existing /talk responder — receives all spaces by contract).
+	events, _ := h.Events.Subscribe(nil)
 	client := &http.Client{Timeout: 5 * time.Second}
 	go func() {
 		for e := range events {
@@ -116,6 +124,12 @@ func (h *Handler) startWebhookDispatcher() {
 				continue
 			}
 			for _, t := range targets {
+				// Space scoping (slice 4): scoped subscriptions receive
+				// only events from their listed spaces; unstamped events
+				// never reach a scoped subscription (fail-closed).
+				if !t.AllowsSpace(e.SpaceID) {
+					continue
+				}
 				go deliverWebhook(client, h.Logger, t.URL, t.ID, e.Type, body, signBody(t.Secret, body))
 			}
 		}

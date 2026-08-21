@@ -20,20 +20,23 @@ package api
 // rows too. /clusters/rebuild is admin-only and clusters the internal
 // space exclusively (store-enforced), so it has no non-member row.
 //
+// Slice 4 (chat + events) is covered below and in
+// space_leak_slice4_test.go: an intent=talk thread owned by u-member
+// (title + message carry the marker) gates threads list / messages /
+// close / chat post / include_chat search; librarian_tasks carry the
+// space of the entry an open-work claim minted them from (migration
+// 033) and gate list / claim / complete; SSE (comment.created +
+// chat.message + chat.status) and webhook space_scope delivery are
+// asserted event-by-event in the slice-4 file. Agent users
+// (users.role=agent) may read/write foreign talk threads — the /talk
+// responder path — pinned by TestTalkAgentException.
+//
 // NOT YET COVERED — kept in sync with the /v1 route table in api.go
 // (the third-party review of slice 2 caught four routes that a vague
 // "aggregates etc." list had left dangling; keep this list EXPLICIT):
 //
-//   slice 4 (chat + events):
-//     GET/POST /librarian/threads(+/{id}/close,/{id}/messages), POST /librarian/chat
-//     POST /search include_chat=true (chat_results field)
-//     GET /events (SSE), POST /events/broadcast, /admin/webhooks* delivery scope
-//     GET/POST /librarian/tasks(+/{id}/claim,/complete) — KNOWN GAP handed
-//       to slice 4: tasks carry no space_id, and an open-work claim on a
-//       restricted entry mints a task titled "impl: <entry title>" that
-//       GET /librarian/tasks then shows to non-members. Fix alongside the
-//       chat/coordination surfaces (tasks reference threads).
-//   slice 5: every dashboard page
+//   slice 5: every dashboard page (this slice already excludes
+//     intent=talk from /chat + /chat/{id})
 //   all-visible metadata by design (v2 residual risk): /users, /projects,
 //     /librarian/instances, /librarian/directives, /admin/* ops;
 //     /librarian/quartet(+/decide) and /librarian/findings list/record —
@@ -69,9 +72,11 @@ type leakFixture struct {
 	base        string
 	memberTok   string
 	outsiderTok string
+	adminTok    string // testServer's admin token (unrestricted view)
 	st          *store.Store
 
 	spaceID    string
+	groupID    string // the group granting u-member access to spaceID
 	secretID   string // restricted-space entry (carries leakMarker)
 	internalID string // internal-space entry with a relation to secretID
 	caseID     string // usage case on secretID (trigger_query carries marker)
@@ -84,11 +89,16 @@ type leakFixture struct {
 	useCaseID    string // use_case in the space (name_ja carries marker; secret linked; has synthesis)
 	attachmentID string // attachment in the space (caption + content carry marker)
 	findingID    string // neutral external finding, correlated to the secret entry
+
+	// Slice 4: chat + tasks.
+	talkThreadID  string // u-member's intent=talk thread (title + message carry marker)
+	coordThreadID string // shared non-talk thread (neutral; everyone sees it)
+	taskID        string // PENDING librarian_task in the space (title carries marker)
 }
 
 func newLeakFixture(t *testing.T) *leakFixture {
 	t.Helper()
-	base, _, st := testServer(t)
+	base, adminTok, st := testServer(t)
 	ctx := context.Background() // no visibility on ctx = unrestricted (setup path)
 
 	// Two ordinary (non-admin) users. CreateUser provisions internal
@@ -318,12 +328,71 @@ func newLeakFixture(t *testing.T) *leakFixture {
 		t.Fatal(err)
 	}
 
+	// ---- slice 4 fixtures: chat threads + tasks ----
+
+	// u-member's personal talk thread; title and one message carry the
+	// marker. The coordination thread is the shared librarian room.
+	talkID, err := st.OpenThread(ctx, &store.ChatThread{
+		Title: leakMarker + " talk thread", Intent: "talk", CreatedBy: "u-member",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: talkID, AuthorRole: "human", AuthorUserID: "u-member",
+		Content: leakMarker + " talk message",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coordID, err := st.OpenThread(ctx, &store.ChatThread{
+		Title: "coordination thread", Intent: "observation", CreatedBy: "u-member",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: coordID, AuthorRole: "human", AuthorUserID: "u-member",
+		Content: "coordination shared message",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// librarian_tasks.assigned_to has an FK to librarian_instances —
+	// register the instances the claim paths below assign to.
+	for _, inst := range []string{"i-fixture", "i-member"} {
+		if _, err := st.RegisterLibrarianInstance(ctx, &store.LibrarianInstance{
+			InstanceID: inst, Role: "cataloger",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Claim + release the secret entry: the claim mints a task titled
+	// "impl: <marker title>" in the entry's space (migration 033); the
+	// release restores the `open` tag (the open_work rows above depend
+	// on it) while the CANCELLED task keeps carrying the title.
+	if _, err := st.ClaimOpenWork(ctx, secretID, "cataloger", "i-fixture", "S"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReleaseOpenWork(ctx, secretID, "i-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	// A PENDING task planted in the space — the claim/complete gate.
+	taskID, err := st.EnqueueTask(ctx, &store.LibrarianTask{
+		Role: "cataloger", Title: leakMarker + " pending task", SpaceID: sp.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	return &leakFixture{
-		base: base, memberTok: memberTok, outsiderTok: outsiderTok, st: st,
-		spaceID: sp.ID, secretID: secretID, internalID: internalID,
+		base: base, memberTok: memberTok, outsiderTok: outsiderTok,
+		adminTok: adminTok, st: st,
+		spaceID: sp.ID, groupID: g.ID, secretID: secretID, internalID: internalID,
 		caseID: caseID, commentID: comment.ID,
 		situationID: sitID, clusterID: clusterID, nodeID: nodeID,
 		useCaseID: uc.ID, attachmentID: att.ID, findingID: findingID,
+		talkThreadID: talkID, coordThreadID: coordID, taskID: taskID,
 	}
 }
 
@@ -364,6 +433,9 @@ func (f *leakFixture) expand(p string) string {
 		"{usecase}", f.useCaseID,
 		"{attachment}", f.attachmentID,
 		"{finding}", f.findingID,
+		"{talkthread}", f.talkThreadID,
+		"{coordthread}", f.coordThreadID,
+		"{task}", f.taskID,
 	)
 	return f.base + r.Replace(p)
 }
@@ -564,6 +636,35 @@ func leakMatrixRows() []leakRow {
 		{name: "backlog reprocess", method: "POST", path: "/v1/librarian/backlog/reprocess",
 			body:           map[string]any{"role": "cataloger", "entry_ids": []string{"{secretid}"}},
 			outsiderStatus: 200},
+
+		// ================================================================
+		// slice 4 — talk threads, chat search, librarian tasks
+		// ================================================================
+
+		// ---- threads (intent=talk is owner-only; coordination shared) ----
+		{name: "threads list", method: "GET", path: "/v1/librarian/threads?limit=500",
+			outsiderStatus: 200, memberSees: true},
+		{name: "talk thread messages", method: "GET",
+			path: "/v1/librarian/threads/{talkthread}/messages", outsiderStatus: 404, memberSees: true},
+		{name: "talk thread close", method: "POST",
+			path: "/v1/librarian/threads/{talkthread}/close", outsiderStatus: 404},
+		{name: "talk thread chat post", method: "POST", path: "/v1/librarian/chat",
+			body: map[string]any{"thread_id": "{talkthreadid}", "author_role": "human",
+				"content": "outsider message"},
+			outsiderStatus: 404},
+
+		// ---- search with include_chat (chat_results field) ----
+		{name: "search include_chat", method: "POST", path: "/v1/search",
+			body:           map[string]any{"query": leakMarker, "include_chat": true},
+			outsiderStatus: 200, memberSees: true},
+
+		// ---- librarian tasks (space stamped at open-work claim, 033) ----
+		{name: "librarian tasks list", method: "GET", path: "/v1/librarian/tasks?limit=500",
+			outsiderStatus: 200, memberSees: true},
+		{name: "task claim", method: "POST", path: "/v1/librarian/tasks/{task}/claim",
+			body: map[string]any{"instance_id": "i-leaktest"}, outsiderStatus: 404},
+		{name: "task complete", method: "POST", path: "/v1/librarian/tasks/{task}/complete",
+			body: map[string]any{"success": true}, outsiderStatus: 404},
 	}
 }
 
@@ -579,6 +680,7 @@ func (f *leakFixture) expandBody(body any) any {
 		"{internalid}", f.internalID,
 		"{spaceid}", f.spaceID,
 		"{usecaseid}", f.useCaseID,
+		"{talkthreadid}", f.talkThreadID,
 	)
 	for k, v := range m {
 		switch vv := v.(type) {
@@ -809,6 +911,25 @@ func TestSpaceMemberHarmlessWrites(t *testing.T) {
 	if s, raw := doJSON(t, "POST", f.expand("/v1/librarian/findings/{finding}/correlate"), f.memberTok,
 		map[string]any{"entry_id": f.secretID}, nil); s != 204 {
 		t.Errorf("member correlate: status=%d body=%s", s, raw)
+	}
+	// Slice 4: the owner keeps full use of their own talk thread, and a
+	// space member can claim / complete a task living in the space.
+	if s, raw := doJSON(t, "POST", f.base+"/v1/librarian/chat", f.memberTok,
+		map[string]any{"thread_id": f.talkThreadID, "author_role": "human",
+			"content": "owner message"}, nil); s != 201 {
+		t.Errorf("owner talk post: status=%d body=%s", s, raw)
+	}
+	if s, raw := doJSON(t, "POST", f.expand("/v1/librarian/tasks/{task}/claim"), f.memberTok,
+		map[string]any{"instance_id": "i-member"}, nil); s != 204 {
+		t.Errorf("member task claim: status=%d body=%s", s, raw)
+	}
+	if s, raw := doJSON(t, "POST", f.expand("/v1/librarian/tasks/{task}/complete"), f.memberTok,
+		map[string]any{"success": true}, nil); s != 204 {
+		t.Errorf("member task complete: status=%d body=%s", s, raw)
+	}
+	if s, raw := doJSON(t, "POST", f.expand("/v1/librarian/threads/{talkthread}/close"), f.memberTok,
+		nil, nil); s != 204 {
+		t.Errorf("owner talk close: status=%d body=%s", s, raw)
 	}
 }
 

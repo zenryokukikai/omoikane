@@ -108,6 +108,16 @@ func (s *Store) SearchChatFTS(ctx context.Context, q string, limit int) ([]*Chat
 		conds = append(conds, `m.content LIKE ? ESCAPE '\'`)
 		args = append(args, likePattern(tok))
 	}
+	// Restricted views (slice 4) search only their OWN talk threads plus
+	// the shared non-talk (librarian coordination) chat. The LEFT JOIN
+	// keeps thread-less messages: talkThreadCond stays true when the
+	// joined row is absent (NULL intent != 'talk').
+	if cond, condArgs := talkThreadCond(ctx, "th"); cond != "" {
+		fromSQL += `
+			LEFT JOIN chat_threads th ON th.thread_id = m.thread_id`
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
+	}
 	orderSQL := "score DESC"
 	if !useFTS {
 		orderSQL = "m.timestamp DESC"

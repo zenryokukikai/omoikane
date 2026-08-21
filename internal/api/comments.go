@@ -86,12 +86,14 @@ func (h *Handler) createEntryComment(w http.ResponseWriter, r *http.Request) {
 	// Push to SSE listeners (comment responders etc.) with the entry
 	// context they filter on — same shape as the recent-comments feed.
 	if h.Events != nil {
+		// Delivered under the entry's space (slice 4): a comment on a
+		// restricted entry reaches only that space's members.
 		h.Events.Publish(Event{Type: "comment.created", Data: store.RecentComment{
 			Comment:        c,
 			EntryTitle:     entry.Title,
 			EntryType:      entry.Type,
 			EntryCreatedBy: entry.CreatedBy,
-		}})
+		}, SpaceID: entry.SpaceID})
 	}
 	writeJSON(w, http.StatusCreated, c)
 }

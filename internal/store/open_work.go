@@ -118,9 +118,9 @@ func (s *Store) ClaimOpenWork(ctx context.Context, entryID, role, instanceID, ef
 		return "", fmt.Errorf("%w: entry not tagged open (already claimed or never was)", ErrAlreadyExists)
 	}
 
-	var title string
+	var title, spaceID string
 	if err := tx.QueryRowContext(ctx,
-		`SELECT title FROM entries WHERE id = ?`, entryID).Scan(&title); err != nil {
+		`SELECT title, space_id FROM entries WHERE id = ?`, entryID).Scan(&title, &spaceID); err != nil {
 		return "", translateErr(err)
 	}
 
@@ -130,11 +130,13 @@ func (s *Store) ClaimOpenWork(ctx context.Context, entryID, role, instanceID, ef
 		"effort":              effort,
 	})
 	now := time.Now().UTC()
+	// The task title reproduces the entry title, so the task inherits
+	// the entry's space (slice 4) — GET /librarian/tasks filters on it.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO librarian_tasks(task_id, role, title, description, priority, status, assigned_to, started_at, metadata)
-		VALUES (?, ?, ?, ?, 100, 'IN_PROGRESS', ?, ?, ?)`,
+		INSERT INTO librarian_tasks(task_id, role, title, description, priority, status, assigned_to, started_at, metadata, space_id)
+		VALUES (?, ?, ?, ?, 100, 'IN_PROGRESS', ?, ?, ?, ?)`,
 		taskID, role, "impl: "+title, "Implements entry "+entryID,
-		instanceID, now, string(metaJSON)); err != nil {
+		instanceID, now, string(metaJSON), spaceID); err != nil {
 		return "", translateErr(err)
 	}
 

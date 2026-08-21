@@ -48,8 +48,9 @@ func (h *Handler) createDirective(w http.ResponseWriter, r *http.Request) {
 	}
 	// Push to SSE/webhook listeners — an external agent runtime can
 	// react to a fresh watch-topic without waiting for its next patrol.
+	// Directives are operator watch-topics, shared org-wide → internal.
 	if h.Events != nil {
-		h.Events.Publish(Event{Type: "directive.created", Data: d})
+		h.Events.Publish(Event{Type: "directive.created", Data: d, SpaceID: store.SpaceInternal})
 	}
 	writeJSON(w, http.StatusCreated, d)
 }

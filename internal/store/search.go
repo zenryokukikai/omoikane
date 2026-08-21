@@ -200,6 +200,12 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 		conds = append(conds, entriesTextBlob+` LIKE ? ESCAPE '\'`)
 		args = append(args, likePattern(tok))
 	}
+	// Visibility narrows the FTS CANDIDATE set (design v1: never filter
+	// after ranking — the total/count must reflect the caller's view).
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
+	}
 	if f.ProjectID != "" {
 		conds = append(conds, "e.project_id = ?")
 		args = append(args, f.ProjectID)
@@ -356,6 +362,7 @@ func selectColumnsForEntry(prefix string) string {
 	add("created_by", true)
 	add("created_by_role", true)
 	addRaw("version")
+	addRaw("space_id")
 	return strings.Join(out, ", ")
 }
 
@@ -380,7 +387,7 @@ func scanEntryWithRank(r scanner) (*Entry, float64, error) {
 		&e.EnrichmentVersion, &enrichmentAt,
 		&e.CreatedAt, &e.UpdatedAt,
 		&e.CreatedBy, &e.CreatedByRole,
-		&e.Version, &rank)
+		&e.Version, &e.SpaceID, &rank)
 	if err != nil {
 		return nil, 0, translateErr(err)
 	}

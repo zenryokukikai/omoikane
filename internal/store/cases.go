@@ -94,6 +94,11 @@ func (s *Store) CreateCase(ctx context.Context, c *UsageCase) (string, error) {
 	if c.RetrievedAt.IsZero() {
 		c.RetrievedAt = time.Now().UTC()
 	}
+	// Entry must exist AND be visible (clean 404 instead of an FK error;
+	// hidden == missing, no existence oracle).
+	if err := requireVisibleEntry(ctx, s.db, c.EntryID); err != nil {
+		return "", err
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO usage_cases(
 			case_id, entry_id, project_id,
@@ -132,6 +137,10 @@ func (s *Store) PatchCase(ctx context.Context, caseID string, p CasePatch) (*Usa
 	row := tx.QueryRowContext(ctx, caseSelectSQL+` WHERE case_id = ?`, caseID)
 	if err := scanCase(row, &existing); err != nil {
 		return nil, translateErr(err)
+	}
+	// A case on a hidden entry is as invisible as the entry.
+	if err := requireVisibleEntry(ctx, tx, existing.EntryID); err != nil {
+		return nil, err
 	}
 
 	sets := []string{}
@@ -180,6 +189,11 @@ func (s *Store) GetCase(ctx context.Context, caseID string) (*UsageCase, error) 
 	if err := scanCase(row, &c); err != nil {
 		return nil, translateErr(err)
 	}
+	// A case carries entry-derived content (trigger_query etc.) — hidden
+	// entry means hidden case.
+	if err := requireVisibleEntry(ctx, s.db, c.EntryID); err != nil {
+		return nil, err
+	}
 	return &c, nil
 }
 
@@ -191,6 +205,9 @@ func (s *Store) ListCases(ctx context.Context, entryID string, limit int) ([]*Us
 		limit = 50
 	} else if limit > 500 {
 		limit = 500
+	}
+	if err := requireVisibleEntry(ctx, s.db, entryID); err != nil {
+		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
 		caseSelectSQL+` WHERE entry_id = ? ORDER BY retrieved_at DESC LIMIT ?`,
@@ -214,6 +231,9 @@ func (s *Store) ListCases(ctx context.Context, entryID string, limit int) ([]*Us
 // EntrySignal returns the aggregated signals row for one entry. Returns
 // zero-valued struct (no error) when the entry has no cases.
 func (s *Store) EntrySignal(ctx context.Context, entryID string) (*EntrySignals, error) {
+	if err := requireVisibleEntry(ctx, s.db, entryID); err != nil {
+		return nil, err
+	}
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, project_id, title, type, status,
 		       total_uses, helpful_count, partial_count, not_helpful_count,

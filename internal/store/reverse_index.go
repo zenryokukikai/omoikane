@@ -133,13 +133,26 @@ func (s *Store) LookupBySymptom(ctx context.Context, query string, limit int) ([
 	if q == "" {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	// The index rows never leave entries' FK, but the visibility filter
+	// needs the entries join (design v2: lookups must narrow at the
+	// candidate stage — a hidden entry's indexed phrase is itself
+	// content).
+	sqlQ := `
 		SELECT s.entry_id, s.phrase, bm25(symptoms_fts) AS rank
 		FROM symptoms_fts
 		JOIN symptoms_index s ON s.id = symptoms_fts.rowid
-		WHERE symptoms_fts MATCH ?
+		JOIN entries e ON e.id = s.entry_id
+		WHERE symptoms_fts MATCH ?`
+	args := []any{q}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	sqlQ += `
 		ORDER BY rank ASC
-		LIMIT ?`, q, limit*3)
+		LIMIT ?`
+	args = append(args, limit*3)
+	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +394,16 @@ func (s *Store) LookupByTrigger(ctx context.Context, query, domain string, limit
 			}
 		}
 	}
+	// Rule hits carry raw entry ids with no entries join — narrow them
+	// to the ctx's visible spaces before they can crowd out (or leak
+	// into) the result.
+	if len(hits) > 0 {
+		var err error
+		hits, err = s.filterVisibleHits(ctx, hits)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// --- Layer 2: FTS ---
 	q := ftsTokenise(query)
@@ -393,7 +416,12 @@ func (s *Store) LookupByTrigger(ctx context.Context, query, domain string, limit
 		sb.WriteString(`SELECT t.entry_id, t.phrase, bm25(triggers_fts) AS rank
 			FROM triggers_fts
 			JOIN triggers_index t ON t.id = triggers_fts.rowid
+			JOIN entries e ON e.id = t.entry_id
 			WHERE triggers_fts MATCH ?`)
+		if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+			sb.WriteString(` AND ` + cond)
+			args = append(args, condArgs...)
+		}
 		if domain != "" {
 			sb.WriteString(` AND t.domain = ?`)
 			args = append(args, domain)
@@ -630,19 +658,27 @@ func (s *Store) LookupByTags(ctx context.Context, tags []string, mode string, li
 		return nil, nil
 	}
 
-	// Build a query that counts matching tags per entry.
+	// Build a query that counts matching tags per entry, narrowed to the
+	// ctx's visible spaces (tags reference entries; a hidden entry's id
+	// must not surface).
 	placeholders := strings.Repeat("?,", len(canon))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, 0, len(canon)+1)
 	for _, c := range canon {
 		args = append(args, c)
 	}
+	where := `t.tag IN (` + placeholders + `)`
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		where += " AND " + cond
+		args = append(args, condArgs...)
+	}
 
 	var q string
 	if mode == "all" {
 		q = `SELECT t.entry_id, COUNT(*) AS hits
 			FROM tags t
-			WHERE t.tag IN (` + placeholders + `)
+			JOIN entries e ON e.id = t.entry_id
+			WHERE ` + where + `
 			GROUP BY t.entry_id
 			HAVING hits = ?
 			ORDER BY hits DESC, t.entry_id
@@ -651,7 +687,8 @@ func (s *Store) LookupByTags(ctx context.Context, tags []string, mode string, li
 	} else {
 		q = `SELECT t.entry_id, COUNT(*) AS hits
 			FROM tags t
-			WHERE t.tag IN (` + placeholders + `)
+			JOIN entries e ON e.id = t.entry_id
+			WHERE ` + where + `
 			GROUP BY t.entry_id
 			ORDER BY hits DESC, t.entry_id
 			LIMIT ?`
@@ -728,6 +765,44 @@ func ftsTokenise(q string) string {
 		toks = append(toks, `"`+strings.ReplaceAll(f, `"`, `""`)+`"*`)
 	}
 	return strings.Join(toks, " OR ")
+}
+
+// filterVisibleHits drops hits whose entry lies outside the ctx's
+// visible spaces. No-op (no query) for an unrestricted ctx — hits from
+// rule tables may then still reference nonexistent entries, which the
+// API projection stage already tolerates.
+func (s *Store) filterVisibleHits(ctx context.Context, hits []*LookupHit) ([]*LookupHit, error) {
+	cond, condArgs := spaceCond(ctx, "e")
+	if cond == "" {
+		return hits, nil
+	}
+	ids := make([]any, 0, len(hits))
+	ph := make([]string, 0, len(hits))
+	for _, h := range hits {
+		ids = append(ids, h.EntryID)
+		ph = append(ph, "?")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT e.id FROM entries e WHERE e.id IN (`+strings.Join(ph, ",")+`) AND `+cond,
+		append(ids, condArgs...)...)
+	if err != nil {
+		return nil, err
+	}
+	visible, err := collectStrings(rows)
+	if err != nil {
+		return nil, err
+	}
+	ok := make(map[string]bool, len(visible))
+	for _, id := range visible {
+		ok[id] = true
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if ok[h.EntryID] {
+			out = append(out, h)
+		}
+	}
+	return out, nil
 }
 
 // dedupeKeepBestHit keeps the highest-scored hit per (entry_id) and returns

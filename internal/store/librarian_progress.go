@@ -141,13 +141,9 @@ func (s *Store) RecordProgress(ctx context.Context, p *LibrarianProgress) error 
 	if strings.TrimSpace(p.Action) == "" {
 		return fmt.Errorf("%w: action required", ErrInvalidInput)
 	}
-	// Verify entry exists (don't accumulate progress rows for phantom IDs).
-	var exists int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM entries WHERE id = ?`, p.EntryID).Scan(&exists)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: entry %s", ErrNotFound, p.EntryID)
-	}
-	if err != nil {
+	// Verify entry exists AND is visible (don't accumulate progress rows
+	// for phantom ids, and never for entries the caller cannot see).
+	if err := requireVisibleEntry(ctx, s.db, p.EntryID); err != nil {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx,
@@ -189,6 +185,12 @@ func (s *Store) ListProgress(ctx context.Context, role, instanceID string, limit
 	if instanceID != "" {
 		q += ` AND instance_id = ?`
 		args = append(args, instanceID)
+	}
+	// Rows for entries outside the caller's visible spaces are excluded
+	// entirely (notes may summarise entry content).
+	if ex, exArgs := visibleEntryExists(ctx, "librarian_progress.entry_id"); ex != "" {
+		q += ` AND ` + ex
+		args = append(args, exArgs...)
 	}
 	// Tie-break by id DESC since SQLite's CURRENT_TIMESTAMP is
 	// second-resolution and multiple inserts within one tick share

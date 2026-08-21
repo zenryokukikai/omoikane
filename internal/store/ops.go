@@ -41,12 +41,21 @@ func (s *Store) ListEntriesByTier(ctx context.Context, tier, limit int) ([]*Entr
 	} else if limit > 500 {
 		limit = 500
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	q := `
 		SELECT id, COALESCE(project_id,''), title, type, status,
 		       total_uses, helpful_count, misleading_count, helpfulness_score, tier
-		FROM entry_tiers WHERE tier = ?
+		FROM entry_tiers WHERE tier = ?`
+	args := []any{tier}
+	// The view carries entry titles — narrow to visible spaces.
+	if ex, exArgs := visibleEntryExists(ctx, "entry_tiers.id"); ex != "" {
+		q += ` AND ` + ex
+		args = append(args, exArgs...)
+	}
+	q += `
 		ORDER BY total_uses DESC, id
-		LIMIT ?`, tier, limit)
+		LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

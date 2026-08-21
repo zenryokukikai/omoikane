@@ -79,6 +79,10 @@ func (h *Handler) Mount(r chi.Router) {
 			// existing token-based auth middleware sees them.
 			r.Use(auth.SessionCookieToBearer(sessionCookieName))
 			r.Use(authMW.Authenticate)
+			// Resolve space visibility once per request (issue #60) —
+			// must run before anything that reads entries, including the
+			// X-Review-Requests header below.
+			r.Use(h.withVisibleSpaces)
 			// Stamp X-Review-Requests on every authenticated response so a
 			// caller passively learns it has @mention review requests waiting
 			// (§23.21), the same pull pattern as X-Skill-Version.
@@ -296,6 +300,9 @@ func (h *Handler) Mount(r chi.Router) {
 			// excluded — uploads must use Bearer or session cookie.
 			r.Use(auth.AllowQueryTokenForGET)
 			r.Use(authMW.Authenticate)
+			// Attachment-level enforcement lands in slice 3; resolving
+			// visibility here already keeps the contract uniform.
+			r.Use(h.withVisibleSpaces)
 			max := h.AttachmentMaxBytes
 			if max <= 0 {
 				max = 50 << 20

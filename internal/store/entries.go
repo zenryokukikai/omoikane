@@ -78,6 +78,16 @@ func (s *Store) CreateEntry(ctx context.Context, e *Entry) (string, error) {
 		return "", err
 	}
 
+	// Space: default 'internal'; must exist AND be visible to the caller
+	// (ErrNotFound either way — a hidden space is indistinguishable from
+	// a missing one, per the no-existence-oracle rule).
+	if e.SpaceID == "" {
+		e.SpaceID = SpaceInternal
+	}
+	if err := requireVisibleSpace(ctx, tx, e.SpaceID); err != nil {
+		return "", err
+	}
+
 	id := e.ID
 	if id == "" {
 		for i := 0; i < 5; i++ {
@@ -110,8 +120,8 @@ func (s *Store) CreateEntry(ctx context.Context, e *Entry) (string, error) {
 			valid_from, valid_to, superseded_by, invalidation_reason,
 			enrichment_version, enrichment_at,
 			created_at, updated_at, created_by, created_by_role,
-			version
-		) VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?, 1)`,
+			space_id, version
+		) VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?, ?, 1)`,
 		id, e.ProjectID, e.Type, e.Title, e.Status,
 		nullable(e.Symptom), nullable(e.RootCause), nullable(e.Resolution), nullable(e.Prohibited),
 		nullable(e.AttemptedApproaches), nullable(e.ObservedBehavior), nullable(e.Hypotheses),
@@ -119,6 +129,7 @@ func (s *Store) CreateEntry(ctx context.Context, e *Entry) (string, error) {
 		now, nullableTime(e.ValidTo), nullable(e.SupersededBy), nullable(e.InvalidationReason),
 		e.EnrichmentVersion, nullableTime(e.EnrichmentAt),
 		now, now, nullable(e.CreatedBy), nullable(e.CreatedByRole),
+		e.SpaceID,
 	)
 	if err != nil {
 		return "", translateErr(err)
@@ -199,9 +210,16 @@ func (s *Store) EntriesExist(ctx context.Context, ids []string) (map[string]bool
 	return out, rows.Err()
 }
 
-// GetEntry returns the current state.
+// GetEntry returns the current state. An entry outside the ctx's
+// visible spaces is ErrNotFound — indistinguishable from a missing one.
 func (s *Store) GetEntry(ctx context.Context, id string) (*Entry, error) {
-	e, err := scanEntryRow(s.db.QueryRowContext(ctx, entrySelectSQL+` WHERE id = ?`, id))
+	q := entrySelectSQL + ` WHERE e.id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		q += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	e, err := scanEntryRow(s.db.QueryRowContext(ctx, q, args...))
 	if err != nil {
 		return nil, err
 	}
@@ -219,15 +237,23 @@ func (s *Store) GetEntry(ctx context.Context, id string) (*Entry, error) {
 // current entries row. If the entry didn't exist yet at asOf, returns
 // ErrNotFound.
 func (s *Store) GetEntryAsOf(ctx context.Context, id string, asOf time.Time) (*Entry, error) {
-	// Immutable fields from the current row.
+	// Immutable fields from the current row (space-narrowed: a hidden
+	// entry's history is as invisible as the entry itself).
 	var (
-		projectID, typ, createdBy, createdByRole string
-		createdAt                                time.Time
+		projectID, typ, createdBy, createdByRole, spaceID string
+		createdAt                                         time.Time
 	)
-	err := s.db.QueryRowContext(ctx, `
-		SELECT project_id, type, created_at, COALESCE(created_by,''), COALESCE(created_by_role,'')
-		FROM entries WHERE id = ?`, id,
-	).Scan(&projectID, &typ, &createdAt, &createdBy, &createdByRole)
+	q := `
+		SELECT e.project_id, e.type, e.created_at, COALESCE(e.created_by,''),
+		       COALESCE(e.created_by_role,''), e.space_id
+		FROM entries e WHERE e.id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		q += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	err := s.db.QueryRowContext(ctx, q, args...,
+	).Scan(&projectID, &typ, &createdAt, &createdBy, &createdByRole, &spaceID)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -284,6 +310,7 @@ func (s *Store) GetEntryAsOf(ctx context.Context, id string, asOf time.Time) (*E
 	e := &Entry{
 		ID:                  id,
 		ProjectID:           projectID,
+		SpaceID:             spaceID,
 		Type:                typ,
 		Title:               h.Title,
 		Status:              h.Status,
@@ -316,6 +343,10 @@ func (s *Store) GetEntryAsOf(ctx context.Context, id string, asOf time.Time) (*E
 // limit/offset and counts the full filter result.
 func (s *Store) ListEntries(ctx context.Context, f EntryFilter) ([]*Entry, int, error) {
 	conds, args, joinTag := buildListConditions(f)
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
+	}
 
 	// Count (no limit/offset).
 	countSQL := "SELECT COUNT(*) FROM entries e" + joinTag
@@ -551,10 +582,9 @@ func (s *Store) SoftDeleteEntry(ctx context.Context, id, changedBy, changedByRol
 
 // EntryHistory returns all snapshots for an entry, newest version first.
 func (s *Store) EntryHistory(ctx context.Context, id string) ([]*EntryHistory, error) {
-	// Check existence first to return a clean 404.
-	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM entries WHERE id = ?`, id).Scan(&n); err != nil {
-		return nil, translateErr(err)
+	// Existence + visibility gate: clean 404 for missing AND hidden.
+	if err := requireVisibleEntry(ctx, s.db, id); err != nil {
+		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT entry_id, version, title, status,
@@ -662,7 +692,7 @@ const entrySelectSQL = `SELECT
 	e.enrichment_version, e.enrichment_at,
 	e.created_at, e.updated_at,
 	COALESCE(e.created_by,''), COALESCE(e.created_by_role,''),
-	e.version
+	e.version, e.space_id
 FROM entries e`
 
 type scanner interface {
@@ -693,7 +723,7 @@ func scanEntry(r scanner) (*Entry, error) {
 		&e.EnrichmentVersion, &enrichmentAt,
 		&e.CreatedAt, &e.UpdatedAt,
 		&e.CreatedBy, &e.CreatedByRole,
-		&e.Version)
+		&e.Version, &e.SpaceID)
 	if err != nil {
 		return nil, translateErr(err)
 	}
@@ -717,7 +747,16 @@ func scanEntry(r scanner) (*Entry, error) {
 func scanEntryRow(r *sql.Row) (*Entry, error) { return scanEntry(r) }
 
 func loadEntryTx(ctx context.Context, tx *sql.Tx, id string) (*Entry, error) {
-	row := tx.QueryRowContext(ctx, entrySelectSQL+` WHERE id = ?`, id)
+	// Same visibility narrowing as GetEntry, so every write path that
+	// loads-then-mutates (UpdateEntry, SoftDeleteEntry) 404s on entries
+	// outside the ctx's visible spaces.
+	q := entrySelectSQL + ` WHERE e.id = ?`
+	args := []any{id}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		q += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	row := tx.QueryRowContext(ctx, q, args...)
 	return scanEntry(row)
 }
 
@@ -919,15 +958,23 @@ func decodeTagsSnapshot(s string) []string {
 // Returns ErrNotFound when no cataloger summary has been written for this
 // entry yet (the indexer / dashboard then falls back to the entry itself).
 func (s *Store) EntrySummary(ctx context.Context, entryID string) (*Entry, error) {
-	var id string
-	err := s.db.QueryRowContext(ctx, `
+	q := `
 		SELECT id FROM entries
 		 WHERE type = 'librarian_meta'
 		   AND status NOT IN ('SUPERSEDED','ARCHIVED','DUPLICATE')
 		   AND json_extract(metadata, '$.kind') = 'cataloger_summary'
-		   AND json_extract(metadata, '$.source_entry_id') = ?
+		   AND json_extract(metadata, '$.source_entry_id') = ?`
+	args := []any{entryID}
+	// The summary is itself an entry — pick the newest VISIBLE one.
+	if cond, condArgs := spaceCond(ctx, "entries"); cond != "" {
+		q += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	q += `
 		 ORDER BY created_at DESC
-		 LIMIT 1`, entryID).Scan(&id)
+		 LIMIT 1`
+	var id string
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&id)
 	if err != nil {
 		return nil, translateErr(err)
 	}

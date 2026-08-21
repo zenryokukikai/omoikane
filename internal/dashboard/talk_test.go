@@ -162,6 +162,27 @@ func TestTalkPage(t *testing.T) {
 	}
 }
 
+// The header nav names the viewer's own librarian (#73 UX): with an
+// active librarian every page's nav says 🤖 <name>; without one it says
+// the default responder.
+func TestNavShowsOwnLibrarianName(t *testing.T) {
+	srv, st, tok := mountLibrarian(t, &fakeProvisioner{})
+	ctx := context.Background()
+	// Before configuring: default label.
+	_, body := get(t, srv, "/entries", tok)
+	if strings.Contains(string(body), "🤖 きりんテスト") {
+		t.Fatalf("librarian name shown before configuration")
+	}
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "alice", AgentID: "plib-alice", Name: "きりんテスト", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	_, body = get(t, srv, "/entries", tok)
+	if !strings.Contains(string(body), "🤖 きりんテスト") {
+		t.Fatalf("nav must show the viewer's librarian name on every page")
+	}
+}
+
 // Personal-librarian identity on /talk (issue #73 slice B): the
 // librarian posts with its OWNER's token, so author_user_id alone can
 // no longer decide the bubble side — author_role must. And when the

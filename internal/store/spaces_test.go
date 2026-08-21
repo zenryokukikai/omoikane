@@ -419,7 +419,7 @@ func TestSpaceFilterExecutes(t *testing.T) {
 }
 
 // ============================================================
-// Migration 030 backfill on a pre-existing database
+// Migration 031 backfill on a pre-existing database
 // ============================================================
 
 // partialMigrationsFS returns the embedded migrations limited to
@@ -450,7 +450,7 @@ func partialMigrationsFS(t *testing.T, maxVersion int) fs.FS {
 	return out
 }
 
-func TestMigration030BackfillsExistingUsersAndEntries(t *testing.T) {
+func TestMigration031BackfillsExistingUsersAndEntries(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
@@ -479,7 +479,7 @@ func TestMigration030BackfillsExistingUsersAndEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Phase 2: reopen with the full migration set — 030 applies and
+	// Phase 2: reopen with the full migration set — 031 applies and
 	// backfills.
 	migrationFS = orig
 	s2, err := Open(ctx, path)

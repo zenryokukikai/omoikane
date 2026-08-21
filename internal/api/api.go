@@ -46,6 +46,13 @@ type Handler struct {
 	// /v1/attachments so this per-route cap is the only one in effect
 	// there.
 	AttachmentMaxBytes int64
+
+	// TalkDispatch routes /talk messages from users who have a personal
+	// librarian (issue #73 slice B) directly to the agent runtime,
+	// REPLACING webhook delivery for those threads. nil = feature
+	// disabled (OPENCRAB_URL unset): every talk message keeps flowing to
+	// the webhook-subscribed default responder as before.
+	TalkDispatch TalkDispatcher
 }
 
 // Mount registers the Phase 1 surface on r under /v1. Process-wide middleware

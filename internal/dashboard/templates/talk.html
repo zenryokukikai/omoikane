@@ -1,8 +1,14 @@
 {{define "talk_frag"}}<div class="talk-frag" data-has-more="{{if .ChatHasEarlier}}1{{end}}">
 {{range .ChatMessages}}
-<div class="talk-msg {{if eq .AuthorUserID $.Me.ID}}talk-msg-me{{else}}talk-msg-bot{{end}}" data-mid="{{.ID}}">
-  {{if ne .AuthorUserID $.Me.ID}}
-    {{if and $.TalkAgent $.TalkAgent.AvatarURL}}
+{{/* Mine = my own HUMAN speech. author_user_id alone is not enough:
+     a personal librarian posts with its owner's token (#73), so an
+     assistant reply carries the owner's user id — the role keeps it
+     on the respondent side. */}}
+{{$mine := and (eq .AuthorRole "human") (eq .AuthorUserID $.Me.ID)}}
+<div class="talk-msg {{if $mine}}talk-msg-me{{else}}talk-msg-bot{{end}}" data-mid="{{.ID}}">
+  {{if not $mine}}
+    {{if $.TalkLibrarian}}<span class="talk-avatar-sm">🤖</span>
+    {{else if and $.TalkAgent $.TalkAgent.AvatarURL}}
     <img class="talk-avatar-sm-img" src="{{$.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
     {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
   {{end}}
@@ -37,11 +43,12 @@
 
   <section class="talk-main">
     <div class="talk-head">
-      {{if and .TalkAgent .TalkAgent.AvatarURL}}
+      {{if .TalkLibrarian}}<span class="talk-avatar">🤖</span>
+      {{else if and .TalkAgent .TalkAgent.AvatarURL}}
       <img class="talk-avatar-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
       {{else}}<span class="talk-avatar">🎩</span>{{end}}
       <div>
-        <div class="talk-name">{{if .TalkAgent}}{{.TalkAgent.Name}}{{else}}{{talkAgentName}}{{end}}</div>
+        <div class="talk-name">{{.TalkRespondentName}}</div>
         <div class="muted talk-sub">書庫の記録を検索して、根拠つきでお答えします</div>
       </div>
     </div>
@@ -57,7 +64,8 @@
         </div>
       {{end}}
       <div class="talk-pending" id="talk-pending" hidden>
-        {{if and .TalkAgent .TalkAgent.AvatarURL}}
+        {{if .TalkLibrarian}}<span class="talk-avatar-sm">🤖</span>
+        {{else if and .TalkAgent .TalkAgent.AvatarURL}}
         <img class="talk-avatar-sm-img" src="{{.TalkAgent.AvatarURL}}" alt="" referrerpolicy="no-referrer">
         {{else}}<span class="talk-avatar-sm">🎩</span>{{end}}
         <span class="talk-dots" id="talk-status">考えております…</span>
@@ -65,7 +73,7 @@
     </div>
 
     <form class="talk-compose" onsubmit="return talkSend(event)">
-      <textarea id="talk-input" rows="2" placeholder="{{talkAgentName}}への質問…(Enter で送信 / Shift+Enter で改行)"></textarea>
+      <textarea id="talk-input" rows="2" placeholder="{{.TalkRespondentName}}への質問…(Enter で送信 / Shift+Enter で改行)"></textarea>
       <button type="submit" class="talk-send">送信</button>
     </form>
   </section>

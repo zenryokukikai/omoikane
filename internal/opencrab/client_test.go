@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // recordedCall is one request the fake runtime saw.
@@ -237,5 +238,76 @@ func TestProvisionValidatesParams(t *testing.T) {
 	c := New("http://unused", "o", "http://kb")
 	if err := c.Provision(context.Background(), ProvisionParams{}); err == nil {
 		t.Fatal("want error for empty params")
+	}
+}
+
+// DispatchTalk retry contract (issue #73 slice B): transient failures —
+// connection errors and 5xx, where the runtime never processed the
+// request — are retried (same shape as omoikane's webhook delivery), so
+// a runtime restart blip doesn't drop a claimed /talk message.
+func TestDispatchTalkRetriesTransient(t *testing.T) {
+	f := newFakeRuntime(t)
+	const path = "/api/agents/plib-u1/messages"
+	attempts := 0
+	f.handlers["POST "+path] = func(recordedCall) (int, string) {
+		attempts++
+		if attempts < 3 {
+			return 502, "bad gateway"
+		}
+		return 200, `{"session_id":"s","responses":[]}`
+	}
+	c := f.client()
+	c.talkBackoff = time.Millisecond
+	if err := c.DispatchTalk(context.Background(), "plib-u1", "hello"); err != nil {
+		t.Fatalf("dispatch after transient failures: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+	last := f.calls[len(f.calls)-1]
+	if last.Body["user_id"] != "owner-123" || last.Body["content"] != "hello" {
+		t.Fatalf("delivered body wrong: %v", last.Body)
+	}
+}
+
+// 4xx and error-body responses are FINAL — the runtime processed the
+// request and the agent's turn may already have run; a re-send could
+// run it twice. Exactly one attempt each.
+func TestDispatchTalkNoRetryOnFinal(t *testing.T) {
+	cases := map[string]func(recordedCall) (int, string){
+		"4xx":        func(recordedCall) (int, string) { return 404, `{"error":"agent not found"}` },
+		"error-body": func(recordedCall) (int, string) { return 200, `{"error":"llm failed"}` },
+	}
+	for name, h := range cases {
+		f := newFakeRuntime(t)
+		f.handlers["POST /api/agents/a/messages"] = h
+		c := f.client()
+		c.talkBackoff = time.Millisecond
+		if err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
+			t.Fatalf("%s: want error", name)
+		}
+		if len(f.calls) != 1 {
+			t.Fatalf("%s: attempts = %d, want 1 (no retry — the turn may have run)", name, len(f.calls))
+		}
+	}
+}
+
+// A dead runtime (connection refused) is transient: the retry budget is
+// spent before giving up — during a restart the later attempts are the
+// ones that land.
+func TestDispatchTalkConnectionErrorRetries(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close() // connections now refused
+	c := New(url, "o", "http://kb")
+	c.talkBackoff = 2 * time.Millisecond
+	start := time.Now()
+	if err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
+		t.Fatal("want error against a dead runtime")
+	}
+	// Both backoff sleeps (2ms + 4ms) must have run — proof the
+	// transport error was classified transient and retried.
+	if time.Since(start) < 6*time.Millisecond {
+		t.Fatal("retries skipped for a connection error")
 	}
 }

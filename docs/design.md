@@ -2201,8 +2201,8 @@ LangGraph 階層エージェント。我々の差は:
 
 各ユーザーが UI から自分専属の司書(名前・性格)を設定し、omoikane がエージェント実行基盤
 (opencrab、認証なし・内部ネットワークのみ)へ**認証ラッパー**として敷設する。基盤の URL /
-API はブラウザに一切露出しない。スライス A(本節)は設定ページ+敷設まで。/talk のルーティング
-と身元表示(author_role 'assistant' の語彙追加を含む)はスライス B。
+API はブラウザに一切露出しない。スライス A は設定ページ+敷設(§25.1〜25.5)、スライス B は
+/talk のルーティングと身元表示の一般化(§25.6〜25.7)。
 
 ### 25.1 設定(env)
 
@@ -2249,6 +2249,45 @@ API はブラウザに一切露出しない。スライス A(本節)は設定ペ
 - 性格文は**本人のエージェントにしか**入らない — self-injection は本人リスクのみ
 - 司書のトークンは本人と同視界。権限分離の実体は omoikane 側(基盤は実行だけ)
 - 基盤へのパスは `OPENCRAB_URL` 固定+agent_id はサーバー側生成 — 生 API アクセス経路なし
+
+### 25.6 /talk ルーティング(スライス B)
+
+ルーティング判断はデータ(スレッド owner)を持つ omoikane 側の webhook dispatcher が行う。
+`chat.message` イベントに対して:
+
+1. author が human でなければ配送しない(従来どおりのエコー抑止 #39)
+2. human かつ **thread_intent=talk・スレッド owner(`thread_created_by`)が status=active の
+   `user_librarians` 行を持つ・`OPENCRAB_URL` 設定済み** のとき、webhook 購読への配送を
+   **抑止**し、代わりに基盤 REST へ直接ディスパッチ:
+   `POST {OPENCRAB_URL}/api/agents/{agent_id}/messages` `{"user_id": OPENCRAB_OWNER_ID, "content": ...}`。
+   content 先頭に thread_id(+スレッド題)を明記 — 司書の応答レシピは thread_id で返信する
+3. 上記条件を 1 つでも欠く(機能無効・talk 以外・司書なし/無効・owner 解決失敗)場合は
+   従来どおり webhook で既定応答者へ(**fail-open to default responder**)
+
+配送は goroutine + timeout(5 分 — messages API はエージェントのターン全体に同期)の
+fire-and-forget。**接続エラー / 5xx に限り** 1s→2s の指数バックオフで最大 3 試行
+(webhook 配送と同等のリトライ形)— この 2 クラスは基盤がリクエストを処理していないことが
+確かで再送安全。**4xx とエラーボディ応答には再送しない**(基盤は処理済み — ターンが既に
+走った可能性があり、再送は二重実行になり得る)。リトライ枯渇後は Warn ログのみで webhook への
+フォールバック配送は**しない**(webhook 配送自体と同じ at-most-once 契約。取りこぼしは
+リスト API で照合)。1 メッセージが 2 経路に届くことはない(二重応答の防止が抑止の目的)。
+
+caller `user_id` に `OPENCRAB_OWNER_ID` を使うのは、敷設時に trust 行へ書いた owner id と
+同値だから — 基盤側 `caller_identity` が Owner と解決し、実行ツールが露出する。
+
+### 25.7 メッセージ身元の一般化(スライス B)
+
+- `author_role` 語彙に **'assistant'** を追加(chronicler と同じ off-roster 扱い:
+  chat には投稿できるが librarian roster には決して現れない)。個人司書は**本人のトークン**で
+  `author_role=assistant` として返信を投稿する
+- /talk の吹き出しの自分側判定は「`author_role=='human'` **かつ** `author_user_id==自分`」。
+  user_id だけでは判定できない(司書の返信は本人の user_id を持つ)
+- 相手側の表示名・アイコン: スレッド owner が active な司書を持てば `user_librarians.name`
+  (アイコンは当面 🤖 固定)、無ければ従来の既定応答者(TalkAgent)。ヘッダー・pending 行・
+  placeholder も同じ解決(`TalkRespondentName`)。表示の解決はルーティングと**同じゲート・
+  同じ fail-open 方向**: 機能無効(`OPENCRAB_URL` 未設定 → dashboard の `Librarian` nil)なら
+  司書行が残っていても既定応答者を表示する — **画面が示す相手=実際に応答する相手**を常に
+  一致させる
 
 ---
 

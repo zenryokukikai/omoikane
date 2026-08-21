@@ -353,7 +353,8 @@ type pageCtx struct {
 	ChatMessages     []*store.ChatMessage
 	ChatHasEarlier   bool                // /talk: older messages exist above the rendered window (#45)
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's responder-chat threads
-	TalkAgent        *store.User         // /talk: the answering agent (avatar + display name)
+	TalkAgent        *store.User         // /talk: the default answering agent (avatar + display name)
+	TalkLibrarian    *store.UserLibrarian // /talk: thread owner's personal librarian; nil → default responder (#73)
 	Bookmarked       bool                // entry page: current user starred this entry
 	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
 	JournalTeaser    string              // home: its first lines, markdown stripped
@@ -1335,6 +1336,12 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 			pc.TalkThreads = append(pc.TalkThreads, t)
 		}
 	}
+	if chi.URLParam(r, "id") == "" {
+		// New-conversation view: the answering side is the viewer's own
+		// personal librarian, if set (issue #73 slice B).
+		h.resolveTalkLibrarian(r, &pc, pc.Me.ID)
+		pc.Title = "omoikane — " + pc.TalkRespondentName() + "に聞く"
+	}
 	if id := chi.URLParam(r, "id"); id != "" {
 		th, err := h.Store.GetThread(r.Context(), id)
 		if err != nil {
@@ -1347,6 +1354,12 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		// The answering side of THIS thread is decided by its owner (an
+		// admin viewing another user's thread sees that owner's
+		// librarian — matching who actually answers there). Resolved
+		// before the fragment path so live-appended bubbles carry the
+		// same identity as the initial render.
+		h.resolveTalkLibrarian(r, &pc, th.CreatedBy)
 		// Fragment mode (#45): serve one rendered message window for the
 		// virtualized list instead of the whole page. Auth above applies.
 		if frag := r.URL.Query().Get("frag"); frag != "" {
@@ -1366,9 +1379,39 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 		}
 		pc.ChatThread = th
 		pc.ChatMessages = msgs
-		pc.Title = "omoikane — " + firstNonEmpty(th.Title, talkAgentName()+"に聞く")
+		pc.Title = "omoikane — " + firstNonEmpty(th.Title, pc.TalkRespondentName()+"に聞く")
 	}
 	h.render(w, "talk", pc)
+}
+
+// resolveTalkLibrarian fills pc.TalkLibrarian with owner's ACTIVE
+// personal librarian, if any. Left nil (→ default responder identity)
+// on any miss — the same fail-open direction as the webhook-side
+// routing, so what the page shows matches who actually answers.
+func (h *Handler) resolveTalkLibrarian(r *http.Request, pc *pageCtx, owner string) {
+	// Feature gate first: with the runtime unconfigured (OPENCRAB_URL
+	// unset → h.Librarian nil) no librarian can answer, so none may
+	// front the page either — a leftover user_librarians row must not
+	// split identity ("shown: librarian, answering: default responder",
+	// design §25.7). Same gate the webhook router applies via
+	// TalkDispatch == nil.
+	if h.Librarian == nil {
+		return
+	}
+	if ul, err := h.Store.GetUserLibrarian(r.Context(), owner); err == nil && ul.Status == "active" {
+		pc.TalkLibrarian = ul
+	}
+}
+
+// TalkRespondentName is the display name of whoever answers in the
+// current /talk view: the resolved personal librarian, else the default
+// responder. Exported for the talk templates; value receiver because
+// templates receive pageCtx by value.
+func (pc pageCtx) TalkRespondentName() string {
+	if pc.TalkLibrarian != nil {
+		return pc.TalkLibrarian.Name
+	}
+	return talkAgentName()
 }
 
 // talkWindow is the /talk message page size: the initial render and each

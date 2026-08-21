@@ -115,8 +115,11 @@ func ValidChatAuthor(r string) bool {
 	// deliberately OFF-ROSTER community agent (the /talk responder) — it never
 	// holds librarian_instances/tasks, but it does answer in chat
 	// (/talk), so it is a valid chat author without widening the
-	// librarian-role vocabulary.
-	if r == "human" || r == "chronicler" {
+	// librarian-role vocabulary. "assistant" is off-roster in the same
+	// way: the per-user personal librarian (issue #73) answering its
+	// owner's /talk threads with the owner's own token. The vocabulary
+	// only lets it post chat — it never appears on the librarian roster.
+	if r == "human" || r == "chronicler" || r == "assistant" {
 		return true
 	}
 	return ValidLibrarianRole(r)

@@ -3,6 +3,7 @@ package opencrab
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -309,5 +310,36 @@ func TestDispatchTalkConnectionErrorRetries(t *testing.T) {
 	// transport error was classified transient and retried.
 	if time.Since(start) < 6*time.Millisecond {
 		t.Fatal("retries skipped for a connection error")
+	}
+}
+
+// A timeout while awaiting the response is FINAL (issue #79): the
+// messages endpoint is synchronous over the whole agent turn, so a slow
+// turn outlives the client timeout while the request HAS reached the
+// runtime — a re-send queues a second turn and duplicates the reply
+// (three identical replies in prod). Exactly one attempt.
+func TestDispatchTalkNoRetryOnResponseTimeout(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // hold the response until the client has timed out
+	}))
+	defer srv.Close()
+	defer close(release)
+	c := New(srv.URL, "o", "http://kb")
+	c.talkHC.Timeout = 20 * time.Millisecond
+	c.talkBackoff = time.Millisecond
+	start := time.Now()
+	err := c.DispatchTalk(context.Background(), "a", "x")
+	if err == nil {
+		t.Fatal("want error on response timeout")
+	}
+	// One attempt only: total time ~ one client timeout, nowhere near
+	// three timeouts plus backoffs.
+	if elapsed := time.Since(start); elapsed > 45*time.Millisecond {
+		t.Fatalf("took %v — looks like the timeout was retried", elapsed)
+	}
+	var te *transientError
+	if errors.As(err, &te) {
+		t.Fatal("response timeout classified transient — re-send can double-run the turn")
 	}
 }

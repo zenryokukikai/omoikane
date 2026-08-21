@@ -512,3 +512,27 @@ func TestMigration031BackfillsExistingUsersAndEntries(t *testing.T) {
 		t.Fatalf("pre-existing entry space = %q, want internal", spaceID)
 	}
 }
+
+// ============================================================
+// Name length cap — spaces/groups are all-visible metadata
+// ============================================================
+
+func TestSpaceGroupNameLengthCap(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	long := strings.Repeat("あ", 201) // rune count, not bytes
+	if _, err := s.CreateSpace(ctx, long); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("CreateSpace(201 runes) = %v, want ErrInvalidInput", err)
+	}
+	if _, err := s.CreateGroup(ctx, long); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("CreateGroup(201 runes) = %v, want ErrInvalidInput", err)
+	}
+	// Exactly at the cap stays valid (boundary).
+	ok := strings.Repeat("あ", 200)
+	if _, err := s.CreateSpace(ctx, ok); err != nil {
+		t.Errorf("CreateSpace(200 runes): %v", err)
+	}
+	if _, err := s.CreateGroup(ctx, ok); err != nil {
+		t.Errorf("CreateGroup(200 runes): %v", err)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Reserved identifiers and enums (deliberate reserved words, design v2).
@@ -42,6 +43,26 @@ const (
 // PersonalSpaceID returns the id of a user's personal space. The ACL of
 // a personal space is implicit (the owner only, no space_acl rows).
 func PersonalSpaceID(userID string) string { return "p-" + userID }
+
+// maxSpaceGroupNameRunes caps space/group names. They are all-visible
+// metadata rendered on every admin table and (space names) resolvable
+// by anyone — an unbounded name would let a single row bloat those
+// surfaces to hundreds of KB.
+const maxSpaceGroupNameRunes = 200
+
+// validName trims and validates a space/group name against the shared
+// required + length rules.
+func validName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("%w: name required", ErrInvalidInput)
+	}
+	if utf8.RuneCountInString(name) > maxSpaceGroupNameRunes {
+		return "", fmt.Errorf("%w: name must be at most %d characters",
+			ErrInvalidInput, maxSpaceGroupNameRunes)
+	}
+	return name, nil
+}
 
 type Group struct {
 	ID        string    `json:"id"`
@@ -170,11 +191,11 @@ func scanGroup(r rowScanner, g *Group) error {
 }
 
 // CreateGroup mints a g-<8hex> group. Name must be unique
-// (ErrAlreadyExists on collision).
+// (ErrAlreadyExists on collision) and at most 200 characters.
 func (s *Store) CreateGroup(ctx context.Context, name string) (*Group, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("%w: name required", ErrInvalidInput)
+	name, err := validName(name)
+	if err != nil {
+		return nil, err
 	}
 	id := newLibrarianID("g")
 	if _, err := s.db.ExecContext(ctx, `
@@ -265,11 +286,11 @@ func scanSpace(r rowScanner, sp *Space) error {
 // CreateSpace mints an sp-<8hex> restricted space. Only
 // kind=restricted is creatable here by design: 'internal' exists from
 // the migration and personal spaces come from the user-creation hook —
-// a single provisioning contract per kind.
+// a single provisioning contract per kind. Names cap at 200 characters.
 func (s *Store) CreateSpace(ctx context.Context, name string) (*Space, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("%w: name required", ErrInvalidInput)
+	name, err := validName(name)
+	if err != nil {
+		return nil, err
 	}
 	id := newLibrarianID("sp")
 	if _, err := s.db.ExecContext(ctx, `

@@ -42,9 +42,13 @@ func (h *Handler) membersPage(w http.ResponseWriter, r *http.Request) {
 	pc.Me = me
 	pc.BaseURL = publicBase(r)
 
-	if me.Role != "admin" {
+	// Admin gate = the admin scope (the one admin contract, issue #60
+	// design v2) — never users.role. A role=admin user on a token
+	// narrowed to read,write is NOT an admin here, exactly like on
+	// PATCH /v1/admin/users/{id}/role.
+	if !isAdmin(r) {
 		pc.MembersPageError = "Only admins can view the member management page. " +
-			"You are signed in as " + me.Role + "."
+			"You are signed in as " + me.Role + " without the admin scope."
 		h.render(w, "members", pc)
 		return
 	}
@@ -97,8 +101,7 @@ func (h *Handler) membersInvite(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next=/members", http.StatusFound)
 		return
 	}
-	me, err := h.Store.GetUser(r.Context(), tok.UserID)
-	if err != nil || me.Role != "admin" {
+	if !isAdmin(r) { // admin scope, the one admin contract
 		http.Error(w, "admin only", http.StatusForbidden)
 		return
 	}
@@ -139,8 +142,7 @@ func (h *Handler) membersRoleChange(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next=/members", http.StatusFound)
 		return
 	}
-	me, err := h.Store.GetUser(r.Context(), tok.UserID)
-	if err != nil || me.Role != "admin" {
+	if !isAdmin(r) { // admin scope, the one admin contract
 		http.Error(w, "admin only", http.StatusForbidden)
 		return
 	}

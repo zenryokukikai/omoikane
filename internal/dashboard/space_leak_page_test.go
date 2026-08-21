@@ -14,6 +14,32 @@ package dashboard
 //
 // CONVENTION (enforced by review): every new dashboard page that can
 // carry entry-derived text gets a row in dashLeakRows below.
+//
+// DELIBERATELY OUTSIDE THE MATRIX — routes with no entry-derived
+// content (keep this list explicit and in sync with Mount):
+//
+//   /directives        scout の巡回指示: operator watch-topics, a
+//                      shared attention list with no entry linkage —
+//                      all-visible metadata by design (v2 residual).
+//   /talk (list view)  renders only the signed-in user's OWN threads
+//                      (ListThreads owner filter); the thread page and
+//                      its fragments — where foreign content could
+//                      leak — ARE rows above.
+//   /agents            the viewer's own agents + invitations: user
+//                      metadata only.
+//   /u/{id}            public profile: users are all-visible metadata
+//                      by design (v2 residual).
+//   /members           human directory + invitations: user metadata,
+//                      admin-scope-gated (members_test.go pins the
+//                      gate).
+//   /admin/spaces      space/group names are the all-visible metadata
+//                      class (v2 residual: neutral naming is the
+//                      operating rule); admin-scope-gated, covered by
+//                      admin_spaces_test.go.
+//   /login /claim/{code} /members/claim/{code} /skill.md /samples/*
+//                      public pages: static content or invitation
+//                      metadata addressed by an unguessable capability
+//                      code — no entry content reachable.
 
 import (
 	"context"

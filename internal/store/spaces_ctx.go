@@ -22,6 +22,7 @@ import (
 )
 
 type visibleSpacesKey struct{}
+type viewerUserKey struct{}
 
 // visibility distinguishes "restricted to these spaces" from
 // "unrestricted" without overloading nil slices inside the store.
@@ -48,6 +49,42 @@ func visibleSpacesFrom(ctx context.Context) (spaces []string, restricted bool) {
 		return nil, false
 	}
 	return v.spaces, true
+}
+
+// WithViewerUser records WHO the restricted view belongs to (the token's
+// users.id). Installed by the same API middleware that installs
+// WithVisibleSpaces; owner-scoped predicates (talk threads, slice 4)
+// read it via talkThreadCond. Never consulted on unrestricted contexts.
+func WithViewerUser(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, viewerUserKey{}, userID)
+}
+
+// viewerUserFrom returns the viewer's users.id, or "" when none was
+// installed (fail-closed: an owner-scoped predicate with an empty viewer
+// matches nobody's threads).
+func viewerUserFrom(ctx context.Context) string {
+	id, _ := ctx.Value(viewerUserKey{}).(string)
+	return id
+}
+
+// talkThreadCond returns the SQL predicate restricting a chat_threads
+// relation (alias, "" for bare columns) to rows the ctx's viewer may
+// see: non-talk threads (librarian coordination) are shared; a thread
+// with intent='talk' is a personal conversation and only its owner
+// (created_by) may see it. Unrestricted contexts (admin scope, internal
+// jobs, store-level tests) get "" — behaviour byte-identical to
+// pre-slice-4. Composed with a LEFT JOIN the predicate stays true for
+// messages without any thread row (NULL intent != 'talk').
+func talkThreadCond(ctx context.Context, alias string) (clause string, args []any) {
+	if _, restricted := visibleSpacesFrom(ctx); !restricted {
+		return "", nil
+	}
+	intent, createdBy := "intent", "created_by"
+	if alias != "" {
+		intent, createdBy = alias+".intent", alias+".created_by"
+	}
+	return "(COALESCE(" + intent + ",'') != 'talk' OR " + createdBy + " = ?)",
+		[]any{viewerUserFrom(ctx)}
 }
 
 // spaceCond returns the SQL predicate restricting an entries relation

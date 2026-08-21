@@ -50,15 +50,22 @@ func ResolveVisibleSpaces(ctx context.Context, s *store.Store, tok *store.APITok
 
 // withVisibleSpaces resolves the request's visibility once and installs
 // it on the context for every store call downstream. Mounted directly
-// after the auth middleware on all authenticated route groups.
+// after the auth middleware on all authenticated route groups. The
+// viewer's user id rides along (slice 4) so owner-scoped predicates
+// (talk threads) can resolve without a second contract.
 func (h *Handler) withVisibleSpaces(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		spaces, err := ResolveVisibleSpaces(r.Context(), h.Store, auth.FromContext(r.Context()))
+		tok := auth.FromContext(r.Context())
+		spaces, err := ResolveVisibleSpaces(r.Context(), h.Store, tok)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, CodeInternal,
 				"space visibility resolution failed", nil)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(store.WithVisibleSpaces(r.Context(), spaces)))
+		ctx := store.WithVisibleSpaces(r.Context(), spaces)
+		if tok != nil {
+			ctx = store.WithViewerUser(ctx, tok.UserID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

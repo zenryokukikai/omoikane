@@ -1294,9 +1294,18 @@ func (h *Handler) chatThreadsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// /chat is the shared librarian-coordination room. intent=talk
+	// threads are personal conversations and live on /talk only
+	// (issue #60 slice 4).
+	shared := threads[:0]
+	for _, t := range threads {
+		if t.Intent != "talk" {
+			shared = append(shared, t)
+		}
+	}
 	pc := h.renderCtx(r)
 	pc.Title = "omoikane — chat"
-	pc.ChatThreads = threads
+	pc.ChatThreads = shared
 	pc.ChatStatusFilter = status
 	h.render(w, "chat_threads", pc)
 }
@@ -1311,7 +1320,10 @@ func (h *Handler) chatThreadPage(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if thread == nil {
+	// intent=talk threads are personal conversations: /talk/{id} (with
+	// its owner check) is their only dashboard surface (issue #60
+	// slice 4). Hidden == missing, no oracle.
+	if thread == nil || thread.Intent == "talk" {
 		http.NotFound(w, r)
 		return
 	}

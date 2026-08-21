@@ -197,9 +197,17 @@ func TestChatOwnershipAndStream(t *testing.T) {
 }
 
 // POST /v1/events/broadcast publishes an ephemeral chat.status to SSE
-// listeners; unknown types are rejected.
+// listeners; unknown types are rejected. Slice 4: chat.status must name
+// an existing thread the poster may use (owner/admin/agent) — a missing
+// thread_id is 400, an unknown thread 404.
 func TestBroadcastEvent(t *testing.T) {
-	base, adminTok, _ := testServer(t)
+	base, adminTok, st := testServer(t)
+
+	tid, err := st.OpenThread(context.Background(),
+		&store.ChatThread{Title: "status target", CreatedBy: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -248,12 +256,20 @@ func TestBroadcastEvent(t *testing.T) {
 		t.Fatalf("unknown type: got %d want 400", code)
 	}
 	if code := post(map[string]any{"type": "chat.status",
-		"data": map[string]any{"thread_id": "th1", "text": "🔎 検索中…"}}); code != http.StatusAccepted {
+		"data": map[string]any{"text": "no thread"}}); code != http.StatusBadRequest {
+		t.Fatalf("thread-less chat.status: got %d want 400", code)
+	}
+	if code := post(map[string]any{"type": "chat.status",
+		"data": map[string]any{"thread_id": "th-nonexistent", "text": "x"}}); code != http.StatusNotFound {
+		t.Fatalf("unknown thread: got %d want 404", code)
+	}
+	if code := post(map[string]any{"type": "chat.status",
+		"data": map[string]any{"thread_id": tid, "text": "🔎 検索中…"}}); code != http.StatusAccepted {
 		t.Fatalf("chat.status: got %d want 202", code)
 	}
 	select {
 	case d := <-events:
-		if d["thread_id"] != "th1" || d["text"] != "🔎 検索中…" {
+		if d["thread_id"] != tid || d["text"] != "🔎 検索中…" {
 			t.Fatalf("payload wrong: %v", d)
 		}
 	case <-time.After(8 * time.Second):

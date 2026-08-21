@@ -313,6 +313,71 @@ func (h *Handler) librarianList(w http.ResponseWriter, r *http.Request) {
 // /v1/librarian/chat + threads
 // ============================================================
 
+// mayUseThread reports whether the request's principal may read or
+// write the given thread (issue #60 slice 4). Non-talk threads are the
+// shared librarian-coordination room: everyone. intent=talk threads
+// are personal conversations, allowed only to:
+//
+//   - the owner (created_by),
+//   - the admin scope (the one admin-visibility contract), and
+//   - when agentOK: agent users (users.role == "agent"). The /talk
+//     responder runtime reads a thread's history, posts its answers,
+//     and streams chat.status progress with an agent token that is
+//     neither the owner nor admin — without this exception the
+//     deployed response path breaks. The exception covers ONLY that
+//     response path (messages / chat / broadcast); closing a thread is
+//     not part of it, so close passes agentOK=false. Phase 2's
+//     space-scoped agent tokens will narrow this to designated
+//     responders; today every agent user is trusted infrastructure.
+//
+// Callers translate false into 404 — for outsiders a foreign talk
+// thread must be indistinguishable from a missing one.
+func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bool) bool {
+	if th.Intent != "talk" {
+		return true
+	}
+	tok := auth.FromContext(r.Context())
+	if tok == nil {
+		return false
+	}
+	if store.HasScope(tok.Scopes, "admin") {
+		return true
+	}
+	if tok.UserID == "" {
+		return false
+	}
+	if tok.UserID == th.CreatedBy {
+		return true
+	}
+	if !agentOK {
+		return false
+	}
+	u, err := h.Store.GetUser(httpCtx(r), tok.UserID)
+	return err == nil && u.Role == "agent"
+}
+
+// requireUsableThread loads the thread and enforces mayUseThread,
+// writing the error response itself and returning nil on failure. The
+// point of the single helper: "no such thread" and "hidden talk
+// thread" produce ONE byte-identical 404 — the third-party review of
+// this slice caught that the two paths' differing message strings
+// ("store: not found" vs "thread not found") were themselves an
+// existence oracle. Every thread-addressed route (messages / close /
+// chat post / broadcast) must come through here, never through its own
+// GetThread+writeStoreError pair.
+func (h *Handler) requireUsableThread(w http.ResponseWriter, r *http.Request, threadID string, agentOK bool) *store.ChatThread {
+	th, err := h.Store.GetThread(httpCtx(r), threadID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeStoreError(w, err)
+		return nil
+	}
+	if err != nil || !h.mayUseThread(r, th, agentOK) {
+		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
+		return nil
+	}
+	return th
+}
+
 type chatThreadRequest struct {
 	ThreadID       string `json:"thread_id,omitempty"`
 	Title          string `json:"title,omitempty"`
@@ -364,6 +429,13 @@ func (h *Handler) chatCloseThread(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
 			return
 		}
+	}
+	// Same gate as posting, minus the agent exception: closing someone
+	// else's talk thread is a write into their private conversation and
+	// the responder never needs it (owner and admin only; 404, no
+	// oracle).
+	if h.requireUsableThread(w, r, id, false) == nil {
+		return
 	}
 	if err := h.Store.CloseThread(httpCtx(r), id, req.Summary); err != nil {
 		writeStoreError(w, err)
@@ -421,6 +493,17 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	if tok := auth.FromContext(r.Context()); tok != nil {
 		authorUserID = tok.UserID
 	}
+	// Resolve the target thread up front (slice 4): posting into
+	// someone else's talk thread — or a thread that does not exist —
+	// is one indistinguishable 404. (Thread-less messages never could
+	// reference a thread; the librarian_chat FK already rejected
+	// dangling ids, so requiring the row here changes no working flow.)
+	var thread *store.ChatThread
+	if req.ThreadID != "" {
+		if thread = h.requireUsableThread(w, r, req.ThreadID, true); thread == nil {
+			return
+		}
+	}
 	id, err := h.Store.PostChatMessage(httpCtx(r), &store.ChatMessage{
 		ThreadID: req.ThreadID, AuthorRole: req.AuthorRole,
 		AuthorInstanceID: req.AuthorInstanceID,
@@ -436,18 +519,19 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	}
 	// Push to SSE listeners (chat responders, live frontends). Thread
 	// context rides along so listeners can route without a round-trip.
-	if h.Events != nil && req.ThreadID != "" {
+	// The event is delivered under the thread's visibility space:
+	// internal for coordination threads, the owner's personal space for
+	// talk threads (see threadEventSpace / the Event doc comment).
+	if h.Events != nil && thread != nil {
 		ev := map[string]any{
 			"id": id, "thread_id": req.ThreadID,
 			"author_user_id": authorUserID, "author_role": req.AuthorRole,
 			"content": req.Content, "intent": req.Intent,
+			"thread_intent":     thread.Intent,
+			"thread_created_by": thread.CreatedBy,
+			"thread_title":      thread.Title,
 		}
-		if th, terr := h.Store.GetThread(httpCtx(r), req.ThreadID); terr == nil {
-			ev["thread_intent"] = th.Intent
-			ev["thread_created_by"] = th.CreatedBy
-			ev["thread_title"] = th.Title
-		}
-		h.Events.Publish(Event{Type: "chat.message", Data: ev})
+		h.Events.Publish(Event{Type: "chat.message", Data: ev, SpaceID: threadEventSpace(thread)})
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
@@ -478,6 +562,14 @@ func (h *Handler) chatList(w http.ResponseWriter, r *http.Request) {
 	waitStr := r.URL.Query().Get("wait")
 
 	ctx := httpCtx(r)
+
+	// Slice 4: a foreign talk thread and a nonexistent thread are one
+	// indistinguishable 404. (Previously an unknown thread returned an
+	// empty 200 — that would have become an existence oracle next to
+	// the 404 for hidden threads.)
+	if h.requireUsableThread(w, r, threadID, true) == nil {
+		return
+	}
 
 	// Resolve `since` to a timestamp (if it points at a real msg).
 	// Unknown id → treat as no cursor (start from beginning).

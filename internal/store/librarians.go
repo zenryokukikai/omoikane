@@ -367,6 +367,13 @@ func (s *Store) ListThreads(ctx context.Context, status, createdBy string, limit
 		sb.WriteString(` AND created_by = ?`)
 		args = append(args, createdBy)
 	}
+	// intent=talk threads are personal conversations: a restricted view
+	// (slice 4) sees only its own. Unrestricted contexts (admin scope,
+	// dashboard pre-slice-5, internal jobs) are unchanged.
+	if cond, condArgs := talkThreadCond(ctx, ""); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
+	}
 	sb.WriteString(` ORDER BY opened_at DESC LIMIT ?`)
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, sb.String(), args...)
@@ -597,6 +604,10 @@ type LibrarianTask struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	Result      string     `json:"result,omitempty"`
 	Metadata    string     `json:"metadata,omitempty"`
+	// SpaceID: a task minted by an open-work claim reproduces the
+	// entry's title, so it lives in the entry's space (slice 4).
+	// Manually enqueued tasks default to 'internal'.
+	SpaceID string `json:"space_id"`
 }
 
 func (s *Store) EnqueueTask(ctx context.Context, t *LibrarianTask) (string, error) {
@@ -615,11 +626,19 @@ func (s *Store) EnqueueTask(ctx context.Context, t *LibrarianTask) (string, erro
 	if t.Status == "" {
 		t.Status = "PENDING"
 	}
+	if t.SpaceID == "" {
+		t.SpaceID = SpaceInternal
+	}
+	// Same contract as CreateEntry: a space the caller cannot see is
+	// indistinguishable from one that does not exist.
+	if err := requireVisibleSpace(ctx, s.db, t.SpaceID); err != nil {
+		return "", err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO librarian_tasks(task_id, role, title, description, priority, status, assigned_to, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO librarian_tasks(task_id, role, title, description, priority, status, assigned_to, metadata, space_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.TaskID, t.Role, t.Title, nullable(t.Description),
-		t.Priority, t.Status, nullable(t.AssignedTo), nullable(t.Metadata))
+		t.Priority, t.Status, nullable(t.AssignedTo), nullable(t.Metadata), t.SpaceID)
 	if err != nil {
 		return "", translateErr(err)
 	}
@@ -628,11 +647,18 @@ func (s *Store) EnqueueTask(ctx context.Context, t *LibrarianTask) (string, erro
 
 func (s *Store) ClaimTask(ctx context.Context, taskID, instanceID string) error {
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `
+	q := `
 		UPDATE librarian_tasks
 		SET status='IN_PROGRESS', assigned_to=?, started_at=?
-		WHERE task_id = ? AND status = 'PENDING'`,
-		instanceID, now, taskID)
+		WHERE task_id = ? AND status = 'PENDING'`
+	args := []any{instanceID, now, taskID}
+	// A task outside the caller's view is indistinguishable from a
+	// missing one (RowsAffected 0 → ErrNotFound, mapped to 404).
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		q += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return translateErr(err)
 	}
@@ -650,11 +676,16 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, result string, success
 	if !success {
 		status = "FAILED"
 	}
-	res, err := s.db.ExecContext(ctx, `
+	q := `
 		UPDATE librarian_tasks
 		SET status=?, completed_at=?, result=?
-		WHERE task_id = ? AND status != 'DONE'`,
-		status, now, nullable(result), taskID)
+		WHERE task_id = ? AND status != 'DONE'`
+	args := []any{status, now, nullable(result), taskID}
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		q += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return translateErr(err)
 	}
@@ -679,7 +710,7 @@ func (s *Store) ListTasks(ctx context.Context, role, status string, limit int) (
 	)
 	sb.WriteString(`SELECT task_id, role, title, COALESCE(description,''), priority, status,
 		COALESCE(assigned_to,''), created_at, started_at, completed_at,
-		COALESCE(result,''), COALESCE(metadata,'')
+		COALESCE(result,''), COALESCE(metadata,''), space_id
 		FROM librarian_tasks WHERE 1=1`)
 	if role != "" {
 		sb.WriteString(` AND role = ?`)
@@ -688,6 +719,12 @@ func (s *Store) ListTasks(ctx context.Context, role, status string, limit int) (
 	if status != "" {
 		sb.WriteString(` AND status = ?`)
 		args = append(args, status)
+	}
+	// Task titles reproduce entry titles ("impl: <title>"); the list is
+	// narrowed to the caller's visible spaces (slice 4).
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		sb.WriteString(` AND ` + cond)
+		args = append(args, condArgs...)
 	}
 	sb.WriteString(` ORDER BY priority DESC, created_at LIMIT ?`)
 	args = append(args, limit)
@@ -699,7 +736,7 @@ func (s *Store) ListTasks(ctx context.Context, role, status string, limit int) (
 		var started, completed nullTimeBox
 		if err := c.Scan(&t.TaskID, &t.Role, &t.Title, &t.Description, &t.Priority,
 			&t.Status, &t.AssignedTo, &t.CreatedAt, &started, &completed,
-			&t.Result, &t.Metadata); err != nil {
+			&t.Result, &t.Metadata, &t.SpaceID); err != nil {
 			return err
 		}
 		if started.Valid {

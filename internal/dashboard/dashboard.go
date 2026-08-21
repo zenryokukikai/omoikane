@@ -39,6 +39,12 @@ type Handler struct {
 	// Phase A: whether the server has Google OAuth wired up. Drives the
 	// /login page's button visibility.
 	GoogleEnabled bool
+
+	// Librarian provisions personal librarian agents onto the opencrab
+	// runtime (issue #73). nil = feature disabled: /my/librarian answers
+	// 404 and the header link is hidden. Set by server wiring when
+	// OPENCRAB_URL is configured.
+	Librarian LibrarianProvisioner
 }
 
 // sessionCookieName must match api.sessionCookieName. Kept duplicated
@@ -153,7 +159,7 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		"review_queue", "clusters", "cluster", "situations", "situation",
 		"browse", "browse_node", "index", "lookup", "use_case", "entries", "entry_new",
 		"chat_threads", "chat_thread", "talk", "bookmarks", "directives", "login", "claim", "agents", "profile",
-		"members", "member_claim", "admin_spaces"} {
+		"members", "member_claim", "admin_spaces", "my_librarian"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(fsys,
 			"templates/layout.html",
 			"templates/"+name+".html")
@@ -242,6 +248,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/talk", h.talkPage)
 		r.Get("/talk/{id}", h.talkPage)
 		r.Get("/agents", h.agentsPage)
+		r.Get("/my/librarian", h.myLibrarianPage)
 		r.Get("/u/{id}", h.profilePage)
 		r.Get("/members", h.membersPage)
 		r.Get("/admin/spaces", h.adminSpacesPage)
@@ -263,6 +270,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Post("/chat/{id}/post", h.chatThreadPostMessage)
 		r.Post("/chat/{id}/close", h.chatThreadClose)
 		r.Post("/agents/issue", h.agentsIssue)
+		r.Post("/my/librarian", h.myLibrarianSave)
 		r.Post("/u/{id}/edit", h.profileEdit)
 		r.Post("/members/invite", h.membersInvite)
 		r.Post("/members/{id}/role", h.membersRoleChange)
@@ -392,6 +400,16 @@ type pageCtx struct {
 	// Admin spaces page (/admin/spaces) — nil on every other page.
 	Admin *adminSpacesData
 
+	// Personal librarian page (/my/librarian, issue #73).
+	// LibrarianEnabled drives the header link on every page; the rest
+	// only feed the settings page itself.
+	LibrarianEnabled bool                 // OPENCRAB_URL configured → feature on
+	MyLibrarian      *store.UserLibrarian // current row, nil if not set up yet
+	LibrarianName    string               // form echo (current or submitted)
+	LibrarianPersona string               // form echo
+	LibrarianSaved   bool                 // success banner after PRG
+	LibrarianError   string               // error banner
+
 	// Entries list page (/entries) — filterable index over all entries.
 	// EntriesTotal lets the template show "showing N of M total" without
 	// rendering the whole corpus. EntriesFilter echoes the active filter
@@ -417,10 +435,11 @@ type spaceOption struct {
 
 func (h *Handler) renderCtx(r *http.Request) pageCtx {
 	pc := pageCtx{
-		Open:  h.Open,
-		Token: r.URL.Query().Get("token"),
-		Lang:  resolveLang(r),
-		Ctx:   r.Context(),
+		Open:             h.Open,
+		Token:            r.URL.Query().Get("token"),
+		Lang:             resolveLang(r),
+		Ctx:              r.Context(),
+		LibrarianEnabled: h.Librarian != nil,
 	}
 	// Populate Me from the request auth context so every page can show
 	// the signed-in user in the header. Falls through silently when

@@ -50,6 +50,14 @@ type Config struct {
 
 	// Agent registration policy
 	RegisterOpen bool // KB_REGISTER_OPEN=1 disables invite-code requirement (default false)
+
+	// Personal librarian provisioning (issue #73). OPENCRAB_URL is the
+	// base URL of the opencrab agent runtime (internal network, no
+	// auth); empty disables the whole feature (no /my/librarian page).
+	// OPENCRAB_OWNER_ID is the runtime's trusted caller id written into
+	// each provisioned agent's trust row (owner_discord_id).
+	OpencrabURL     string // OPENCRAB_URL (empty = feature disabled)
+	OpencrabOwnerID string // OPENCRAB_OWNER_ID
 }
 
 // Load reads configuration from environment variables (see design.md §10 /
@@ -138,6 +146,9 @@ func Load() (*Config, error) {
 	}
 	c.SessionTTL = sessTTL
 	c.RegisterOpen = envBool("KB_REGISTER_OPEN", false)
+
+	c.OpencrabURL = strings.TrimRight(os.Getenv("OPENCRAB_URL"), "/")
+	c.OpencrabOwnerID = strings.TrimSpace(os.Getenv("OPENCRAB_OWNER_ID"))
 
 	return c, nil
 }

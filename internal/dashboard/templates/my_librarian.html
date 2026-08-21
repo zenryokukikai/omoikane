@@ -1,0 +1,49 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  · <a href="/talk">🎩 {{talkAgentName}}に聞く</a>
+</nav>
+
+<h1>🤖 個人司書</h1>
+<p class="muted">
+  あなた専属の司書を設定します。名前と性格を決めて保存すると、
+  エージェント基盤に司書が敷設され、/talk のあなたのスレッドで応答するようになります
+  (応答の切り替えは次のリリースで有効になります)。
+</p>
+
+{{if .LibrarianSaved}}
+<div class="banner">✅ 保存しました。司書がエージェント基盤に敷設されました。</div>
+{{end}}
+{{if .LibrarianError}}
+<div class="banner">⚠️ {{.LibrarianError}}</div>
+{{end}}
+
+{{if .MyLibrarian}}
+<div class="profile-card">
+  <div class="field"><div class="label">現在の設定</div></div>
+  <p>
+    <strong>{{.MyLibrarian.Name}}</strong>
+    <span class="muted">· <code>{{.MyLibrarian.AgentID}}</code>
+    · {{.MyLibrarian.Status}}
+    · 設定日 {{ltime .MyLibrarian.CreatedAt "date"}}</span>
+  </p>
+  {{if .MyLibrarian.Persona}}<div class="body">{{.MyLibrarian.Persona}}</div>{{end}}
+</div>
+{{end}}
+
+<form method="post" action="/my/librarian{{if .Token}}?token={{urlq .Token}}{{end}}" class="profile-edit">
+  <label>名前(必須・50文字まで)
+    <input type="text" name="name" value="{{.LibrarianName}}" required maxlength="50"
+           placeholder="例: しおり">
+  </label>
+  <label>性格(2000文字まで)
+    <textarea name="persona" rows="10" maxlength="2000"
+              placeholder="話し方、得意分野、応答のトーンなどを自由に書いてください。この文章はあなたの司書だけに組み込まれます。">{{.LibrarianPersona}}</textarea>
+  </label>
+  <button type="submit">{{if .MyLibrarian}}更新する{{else}}司書を作る{{end}}</button>
+  <p class="muted">
+    保存すると omoikane がエージェント基盤へあなた専用の司書を敷設/更新します。
+    司書はあなたと同じ視界(閲覧権限)のトークンで書庫を検索します。
+  </p>
+</form>
+{{end}}

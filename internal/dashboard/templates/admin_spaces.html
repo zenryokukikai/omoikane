@@ -1,0 +1,133 @@
+{{define "content"}}
+<nav class="subnav">
+  <a href="/{{if .Token}}?token={{urlq .Token}}{{end}}">Home</a>
+  {{if .Me}}· <a href="/members{{if .Token}}?token={{urlq .Token}}{{end}}">👥 Members</a>{{end}}
+</nav>
+
+<h1>Spaces &amp; Groups 🗂</h1>
+
+{{if .Admin.Forbidden}}
+<div class="banner">⚠️ Only admins can manage spaces and groups.</div>
+{{else}}
+
+<p class="muted">
+  スペースは<strong>可視性の境界</strong>です。グループに所属するユーザーは、
+  そのグループに付与されたスペースのエントリだけを読めます。
+  <code>internal</code> は全社スペース、<code>p-*</code> は個人スペース(付与不可・本人のみ)。
+</p>
+
+{{if .Admin.Error}}
+<div class="banner">⚠️ {{.Admin.Error}}</div>
+{{end}}
+
+<h2>Spaces</h2>
+<table>
+  <thead><tr><th>Space</th><th>Kind</th><th>Access (group → role)</th><th>Grant access</th></tr></thead>
+  <tbody>
+    {{range .Admin.Spaces}}
+    <tr>
+      <td>
+        <strong>{{.Space.Name}}</strong>
+        <br><span class="badge">{{.Space.ID}}</span>
+      </td>
+      <td><span class="badge">{{.Space.Kind}}</span></td>
+      <td>
+        {{if eq .Space.Kind "personal"}}
+          <span class="muted"><em>本人のみ(暗黙)</em></span>
+        {{else if .Grants}}
+          {{$sp := .Space}}
+          {{range .Grants}}
+          <form method="post" action="/admin/spaces/{{$sp.ID}}/acl/remove{{if $.Token}}?token={{urlq $.Token}}{{end}}" class="role-form">
+            <span class="badge">{{if .GroupName}}{{.GroupName}}{{else}}{{.GroupID}}{{end}}</span>
+            → <code>{{.Role}}</code>
+            <input type="hidden" name="group_id" value="{{.GroupID}}">
+            <button type="submit" title="このグループの付与を剥奪">revoke</button>
+          </form>
+          {{end}}
+        {{else}}
+          <span class="muted"><em>まだどのグループにも付与されていません</em></span>
+        {{end}}
+      </td>
+      <td>
+        {{if ne .Space.Kind "personal"}}
+        <form method="post" action="/admin/spaces/{{.Space.ID}}/acl{{if $.Token}}?token={{urlq $.Token}}{{end}}" class="role-form">
+          <select name="group_id" required>
+            <option value="" disabled selected>group…</option>
+            {{range $.Admin.Groups}}<option value="{{.Group.ID}}">{{.Group.Name}}</option>{{end}}
+          </select>
+          <select name="role">
+            <option value="member" selected>member</option>
+            <option value="admin">admin</option>
+          </select>
+          <button type="submit">Grant</button>
+        </form>
+        {{else}}
+        <span class="muted">—</span>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+
+<details class="chat-newthread">
+  <summary><strong>Create a restricted space</strong></summary>
+  <form method="post" action="/admin/spaces/create{{if .Token}}?token={{urlq .Token}}{{end}}">
+    <label>Name
+      <input type="text" name="name" required placeholder="e.g. 案件A / project-x">
+    </label>
+    <button type="submit">Create space</button>
+    <p class="muted">スペース名は全員に見えるメタデータです。制限案件は中立的な名前を付けてください。</p>
+  </form>
+</details>
+
+<h2>Groups</h2>
+<table>
+  <thead><tr><th>Group</th><th>Members</th><th>Add member</th></tr></thead>
+  <tbody>
+    {{range .Admin.Groups}}
+    <tr>
+      <td>
+        <strong>{{.Group.Name}}</strong>
+        <br><span class="badge">{{.Group.ID}}</span>
+      </td>
+      <td>
+        {{if .Members}}
+          {{$g := .Group}}
+          {{range .Members}}
+          <form method="post" action="/admin/groups/{{$g.ID}}/members/remove{{if $.Token}}?token={{urlq $.Token}}{{end}}" class="role-form">
+            <a href="/u/{{.}}{{if $.Token}}?token={{urlq $.Token}}{{end}}"><code>{{.}}</code></a>
+            <input type="hidden" name="user_id" value="{{.}}">
+            <button type="submit" title="グループから外す">remove</button>
+          </form>
+          {{end}}
+        {{else}}
+          <span class="muted"><em>no members</em></span>
+        {{end}}
+      </td>
+      <td>
+        <form method="post" action="/admin/groups/{{.Group.ID}}/members/add{{if $.Token}}?token={{urlq $.Token}}{{end}}" class="role-form">
+          <select name="user_id" required>
+            <option value="" disabled selected>user…</option>
+            {{range $.Admin.Users}}<option value="{{.ID}}">{{.Name}} ({{.ID}})</option>{{end}}
+          </select>
+          <button type="submit">Add</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+
+<details class="chat-newthread">
+  <summary><strong>Create a group</strong></summary>
+  <form method="post" action="/admin/groups/create{{if .Token}}?token={{urlq .Token}}{{end}}">
+    <label>Name
+      <input type="text" name="name" required placeholder="e.g. dev-team / 経営企画">
+    </label>
+    <button type="submit">Create group</button>
+  </form>
+</details>
+
+{{end}}
+{{end}}

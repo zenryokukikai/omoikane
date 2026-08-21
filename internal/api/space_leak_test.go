@@ -31,14 +31,23 @@ package api
 // (users.role=agent) may read/write foreign talk threads — the /talk
 // responder path — pinned by TestTalkAgentException.
 //
+// Slice 5 (dashboard + admin UI) is covered in
+// internal/dashboard/space_leak_page_test.go: the dashboard installs
+// the SAME ResolveVisibleSpaces middleware, and its own page-level
+// matrix (outsider/member pair) walks every content-carrying page.
+// The /v1/admin/spaces|groups management routes added in slice 5 are
+// admin-scope-only (RequireScope gates them wholesale, asserted in
+// admin_spaces_test.go) and serve org-wide metadata — they belong to
+// the "all-visible metadata by design" class below, not to this
+// matrix.
+//
 // NOT YET COVERED — kept in sync with the /v1 route table in api.go
 // (the third-party review of slice 2 caught four routes that a vague
 // "aggregates etc." list had left dangling; keep this list EXPLICIT):
 //
-//   slice 5: every dashboard page (this slice already excludes
-//     intent=talk from /chat + /chat/{id})
 //   all-visible metadata by design (v2 residual risk): /users, /projects,
-//     /librarian/instances, /librarian/directives, /admin/* ops;
+//     /librarian/instances, /librarian/directives, /admin/* ops
+//     (incl. the slice-5 /admin/spaces|groups management surface);
 //     /librarian/quartet(+/decide) and /librarian/findings list/record —
 //       coordination artefacts with no entry linkage in their payloads
 //       (quartet: topic + librarian role names; finding: external

@@ -285,6 +285,17 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Post("/dead_pool/run", h.adminDeadPool)
 				r.Get("/health/llm_usage", h.adminLLMUsage)
 				r.Get("/health/coverage", h.adminCoverage)
+
+				// Space/group management (issue #60 slice 5) — thin
+				// wrappers over the slice-1 store CRUD.
+				r.Get("/spaces", h.adminListSpaces)
+				r.Post("/spaces", h.adminCreateSpace)
+				r.Put("/spaces/{id}/acl/{groupID}", h.adminSetSpaceACL)
+				r.Delete("/spaces/{id}/acl/{groupID}", h.adminRemoveSpaceACL)
+				r.Get("/groups", h.adminListGroups)
+				r.Post("/groups", h.adminCreateGroup)
+				r.Put("/groups/{id}/members/{userID}", h.adminAddGroupMember)
+				r.Delete("/groups/{id}/members/{userID}", h.adminRemoveGroupMember)
 			})
 		})
 

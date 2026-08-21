@@ -182,6 +182,10 @@ func (s *Store) CreateEntry(ctx context.Context, e *Entry) (string, error) {
 // Bulk check used by renderers that need to decide whether `[[L-XXX]]`
 // references should become live links or muted "broken reference"
 // indicators. One SQL round-trip regardless of len(ids).
+//
+// Space-aware (issue #60 slice 5): under a restricted ctx an entry
+// outside the visible spaces reports "does not exist" — rendering it as
+// a live link would be an existence oracle for hidden ids.
 func (s *Store) EntriesExist(ctx context.Context, ids []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if len(ids) == 0 {
@@ -193,9 +197,12 @@ func (s *Store) EntriesExist(ctx context.Context, ids []string) (map[string]bool
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id FROM entries WHERE id IN (`+strings.Join(placeholders, ",")+`)`,
-		args...)
+	q := `SELECT id FROM entries WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+	if cond, condArgs := spaceCond(ctx, ""); cond != "" {
+		q += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

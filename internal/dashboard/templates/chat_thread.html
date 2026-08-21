@@ -28,7 +28,7 @@
       {{if .Intent}}<span class="badge">{{.Intent}}</span>{{end}}
       <span class="muted">{{ltime .Timestamp "dts"}}</span>
     </div>
-    <div class="chat-body md">{{renderContent .Content $.Token}}</div>
+    <div class="chat-body md">{{renderContent $.Ctx .Content $.Token}}</div>
   </div>
   {{else}}
   <div class="empty">まだ発言なし。下のフォームから話しかけてください。</div>

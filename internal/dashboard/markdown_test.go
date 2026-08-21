@@ -79,7 +79,7 @@ func TestRenderMarkdownRefusesRawHTMLByDefault(t *testing.T) {
 }
 
 func TestRenderContentWikiLinksSurviveMarkdown(t *testing.T) {
-	out := string(renderContent("see [[T-ABC]] for details", "", nil))
+	out := string(renderContent(context.Background(), "see [[T-ABC]] for details", "", nil))
 	if !strings.Contains(out, `href="/entries/T-ABC"`) {
 		t.Fatalf("wiki: %s", out)
 	}
@@ -97,7 +97,7 @@ func TestRenderContentWikiLinksExistingEntryIsLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := string(renderContent("see [[" + id + "]] for the real one", "", s))
+	out := string(renderContent(context.Background(), "see [[" + id + "]] for the real one", "", s))
 	if !strings.Contains(out, `href="/entries/`+id+`"`) {
 		t.Errorf("existing entry should render as live link: %s", out)
 	}
@@ -110,7 +110,7 @@ func TestRenderContentWikiLinksExistingEntryIsLive(t *testing.T) {
 // link is rendered as a muted span — no <a href> to a 404.
 func TestRenderContentWikiLinksMissingEntryIsMuted(t *testing.T) {
 	s := newDashStore(t)
-	out := string(renderContent("see [[T-MISSING]] which doesn't exist", "", s))
+	out := string(renderContent(context.Background(), "see [[T-MISSING]] which doesn't exist", "", s))
 	if strings.Contains(out, `href="/entries/T-MISSING"`) {
 		t.Errorf("missing entry should NOT render as live link: %s", out)
 	}
@@ -131,7 +131,7 @@ func TestRenderContentWikiLinksMissingEntryIsMuted(t *testing.T) {
 func TestRenderContentWikiLinksNonEntryShapeAlwaysLive(t *testing.T) {
 	s := newDashStore(t)
 	for _, id := range []string{"H-1", "SIT-foo", "CL-42"} {
-		out := string(renderContent("see [["+id+"]]", "", s))
+		out := string(renderContent(context.Background(), "see [["+id+"]]", "", s))
 		if strings.Contains(out, "wiki-broken") {
 			t.Errorf("%s should not be marked broken: %s", id, out)
 		}
@@ -142,14 +142,14 @@ func TestRenderContentWikiLinksNonEntryShapeAlwaysLive(t *testing.T) {
 // status quo: always render as a link. Verifies we didn't break the
 // nil-store contract.
 func TestRenderContentWikiLinksNilStoreSkipsCheck(t *testing.T) {
-	out := string(renderContent("see [[T-NOPE]]", "", nil))
+	out := string(renderContent(context.Background(), "see [[T-NOPE]]", "", nil))
 	if !strings.Contains(out, `href="/entries/T-NOPE"`) {
 		t.Errorf("nil store path must always link: %s", out)
 	}
 }
 
 func TestRenderContentMentionsSurviveMarkdown(t *testing.T) {
-	out := string(renderContent("ping @curator please", "", nil))
+	out := string(renderContent(context.Background(), "ping @curator please", "", nil))
 	if !strings.Contains(out, `mention-curator`) {
 		t.Fatalf("mention: %s", out)
 	}
@@ -157,7 +157,7 @@ func TestRenderContentMentionsSurviveMarkdown(t *testing.T) {
 
 func TestRenderContentMarkdownPlusEverything(t *testing.T) {
 	in := "## heading\n\n- bullet with [[T-XYZ]]\n- @judge please review\n\n`inline`"
-	out := string(renderContent(in, "", nil))
+	out := string(renderContent(context.Background(), in, "", nil))
 	for _, want := range []string{
 		"<h2", "<li>", "/entries/T-XYZ", "mention-judge", "<code>inline</code>",
 	} {
@@ -173,7 +173,7 @@ func TestRenderContentUnfurlsImageAttachment(t *testing.T) {
 	a := mustUploadAttachment(t, s, "demo", "alice", "image/png", "before-shot", []byte("PNG"))
 
 	md := "Improvement comparison:\n\n![worst frame run020](attached:" + a.ID + ")"
-	out := string(renderContent(md, "", s))
+	out := string(renderContent(context.Background(), md, "", s))
 
 	if !strings.Contains(out, `<figure class="attachment attachment-image">`) {
 		t.Errorf("missing figure wrapper: %s", out)
@@ -197,7 +197,7 @@ func TestRenderContentUnfurlsVideoAsVideoTag(t *testing.T) {
 	mustCreateUserAndProject(t, s, "alice", "demo")
 	a := mustUploadAttachment(t, s, "demo", "alice", "video/mp4", "demo clip", []byte("MP4"))
 	md := "![demo](attached:" + a.ID + ")"
-	out := string(renderContent(md, "", s))
+	out := string(renderContent(context.Background(), md, "", s))
 	if !strings.Contains(out, `<video src="/v1/attachments/`+a.ID+`/content" controls`) {
 		t.Errorf("video tag not produced: %s", out)
 	}
@@ -211,7 +211,7 @@ func TestRenderContentUnfurlsUnknownMimeAsDownloadLink(t *testing.T) {
 	mustCreateUserAndProject(t, s, "alice", "demo")
 	a := mustUploadAttachment(t, s, "demo", "alice", "application/json", "metrics dump", []byte(`{"k":1}`))
 	md := "metrics: ![](attached:" + a.ID + ")"
-	out := string(renderContent(md, "", s))
+	out := string(renderContent(context.Background(), md, "", s))
 	if !strings.Contains(out, `class="attachment attachment-file"`) {
 		t.Errorf("missing file class: %s", out)
 	}
@@ -231,7 +231,7 @@ func TestRenderContentAttachmentSrcCarriesToken(t *testing.T) {
 	mustCreateUserAndProject(t, s, "alice", "demo")
 	a := mustUploadAttachment(t, s, "demo", "alice", "image/png", "x", []byte("PNG"))
 	md := "![x](attached:" + a.ID + ")"
-	out := string(renderContent(md, "secret-tok", s))
+	out := string(renderContent(context.Background(), md, "secret-tok", s))
 	if !strings.Contains(out, "/v1/attachments/"+a.ID+"/content?token=secret-tok") {
 		t.Errorf("token not propagated into src: %s", out)
 	}
@@ -244,7 +244,7 @@ func TestRenderContentAttachmentSrcNoTokenWhenEmpty(t *testing.T) {
 	mustCreateUserAndProject(t, s, "alice", "demo")
 	a := mustUploadAttachment(t, s, "demo", "alice", "image/png", "x", []byte("PNG"))
 	md := "![x](attached:" + a.ID + ")"
-	out := string(renderContent(md, "", s))
+	out := string(renderContent(context.Background(), md, "", s))
 	if strings.Contains(out, "?token=") {
 		t.Errorf("empty token should not produce ?token= query: %s", out)
 	}
@@ -253,7 +253,7 @@ func TestRenderContentAttachmentSrcNoTokenWhenEmpty(t *testing.T) {
 func TestRenderContentMissingAttachmentRendersPlaceholder(t *testing.T) {
 	s := newDashStore(t)
 	md := "stale ref: ![old](attached:a-deadbeef)"
-	out := string(renderContent(md, "", s))
+	out := string(renderContent(context.Background(), md, "", s))
 	if !strings.Contains(out, `[missing attachment a-deadbeef]`) {
 		t.Errorf("placeholder missing: %s", out)
 	}
@@ -261,7 +261,7 @@ func TestRenderContentMissingAttachmentRendersPlaceholder(t *testing.T) {
 
 func TestRenderContentSafeEvenWithTryHTMLInjection(t *testing.T) {
 	// User content with raw HTML — must be escaped, not rendered.
-	out := string(renderContent("hi <img src=x onerror=alert(1)>", "", nil))
+	out := string(renderContent(context.Background(), "hi <img src=x onerror=alert(1)>", "", nil))
 	if strings.Contains(out, "<img") {
 		t.Fatalf("img leaked: %s", out)
 	}

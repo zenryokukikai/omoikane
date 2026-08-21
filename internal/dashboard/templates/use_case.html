@@ -25,7 +25,7 @@
 {{with .UseCaseSynthesis}}
 <section class="uc-synthesis reading">
   <h2 class="uc-synthesis-head">🧩 共通知見 <span class="muted">— このカテゴリのエントリ群から抽出した、プロジェクト非依存の要点</span></h2>
-  <div class="uc-synthesis-body md">{{renderContent .Body $.Token}}</div>
+  <div class="uc-synthesis-body md">{{renderContent $.Ctx .Body $.Token}}</div>
 </section>
 {{end}}
 
@@ -71,7 +71,7 @@
            defeats its purpose). The body carries its own heading, so no
            separate title line. */}}
       <div class="uc-entry-summary reading">
-        <div class="uc-entry-summary-body">{{renderContent .Body $.Token}}</div>
+        <div class="uc-entry-summary-body">{{renderContent $.Ctx .Body $.Token}}</div>
       </div>
     {{end}}
   </li>

@@ -78,31 +78,72 @@ func TestMembersInviteForm(t *testing.T) {
 	}
 }
 
-// Non-admin can't POST to /members/invite — even with a valid session.
-func TestMembersInviteRefusesNonAdmin(t *testing.T) {
+// postMembersInvite submits the invite form with the given token and
+// returns the immediate status (redirects not followed).
+func postMembersInvite(t *testing.T, srvURL, tok, email string) int {
+	t.Helper()
+	form := url.Values{}
+	form.Set("email", email)
+	form.Set("role", "admin")
+	req, err := http.NewRequest(http.MethodPost,
+		srvURL+"/members/invite?token="+tok, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// The /members admin gate is the token's ADMIN SCOPE — the one admin
+// contract (issue #60 design v2), matching the API's PATCH
+// /v1/admin/users/{id}/role. Two directions pinned here:
+//
+//   - a role=admin user on a token narrowed to read,write is refused:
+//     tokens can only narrow authority, and a narrowed token must not
+//     be re-widened by consulting users.role (that was the slice-5
+//     third-party-review finding — the form gate was weaker than the
+//     equivalent API route);
+//   - a role=member user WITH the admin scope passes: the admin scope
+//     is minted only by the admin CLI (kb-server admin-token) or by
+//     the OAuth session of a role=admin user, so possessing it IS
+//     admin authority; users.role is provisioning/display metadata.
+func TestMembersInviteScopeContract(t *testing.T) {
 	srv, st, _ := mountAuthed(t)
 	ctx := context.Background()
-	_ = st.CreateUser(ctx, &store.User{ID: "bob", Name: "Bob", Role: "member"})
-	memberTok, _ := st.CreateToken(ctx, "bob", "test",
-		[]string{"read", "write", "admin"}, nil)
-	// Note: bob has admin scope on the token but role=member. The
-	// page handler checks role, not scope, because role is what
-	// /members semantically restricts on.
 
-	form := url.Values{}
-	form.Set("email", "trojan@example.com")
-	form.Set("role", "admin")
-	req, _ := http.NewRequest(http.MethodPost,
-		srv.URL+"/members/invite?token="+memberTok, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	// No admin scope → 403, regardless of role.
+	_ = st.CreateUser(ctx, &store.User{ID: "bob", Name: "Bob", Role: "member"})
+	plainTok, _ := st.CreateToken(ctx, "bob", "t", []string{"read", "write"}, nil)
+	if code := postMembersInvite(t, srv.URL, plainTok, "trojan@example.com"); code != http.StatusForbidden {
+		t.Fatalf("member role, no admin scope: %d, want 403", code)
+	}
+
+	// role=admin but a NARROWED token → still 403 (no re-widening).
+	_ = st.CreateUser(ctx, &store.User{ID: "root2", Name: "Root2", Role: "admin"})
+	narrowTok, _ := st.CreateToken(ctx, "root2", "t", []string{"read", "write"}, nil)
+	if code := postMembersInvite(t, srv.URL, narrowTok, "trojan2@example.com"); code != http.StatusForbidden {
+		t.Fatalf("admin role on narrowed token: %d, want 403", code)
+	}
+	if invs, _ := st.ListMemberInvitations(ctx, ""); len(invs) != 0 {
+		t.Fatalf("invitation leaked past the scope gate: %+v", invs)
+	}
+
+	// role=member WITH admin scope → passes (scope is the authority).
+	scopedTok, _ := st.CreateToken(ctx, "bob", "t2", []string{"read", "write", "admin"}, nil)
+	if code := postMembersInvite(t, srv.URL, scopedTok, "ok@example.com"); code != http.StatusSeeOther {
+		t.Fatalf("member role with admin scope: %d, want 303", code)
 	}
 	invs, _ := st.ListMemberInvitations(ctx, "")
-	if len(invs) != 0 {
-		t.Fatalf("invitation leaked from non-admin form: %+v", invs)
+	if len(invs) != 1 || invs[0].TargetEmail != "ok@example.com" {
+		t.Fatalf("admin-scope invite not persisted: %+v", invs)
 	}
 }
 

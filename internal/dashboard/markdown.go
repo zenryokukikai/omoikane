@@ -64,7 +64,13 @@ func renderMarkdown(text string) template.HTML {
 // tests that don't care about attachments), attached: refs are left
 // as-is — the test sees the raw `attached:a-xxx` token rather than
 // failing.
-func renderContent(text, token string, s *store.Store) template.HTML {
+//
+// `ctx` is the request context: it carries the viewer's space
+// visibility (issue #60 slice 5), so the existence check and the
+// attachment lookup stay inside the viewer's view — a hidden entry
+// renders as a broken reference and a hidden attachment as missing,
+// exactly like a nonexistent one.
+func renderContent(ctx context.Context, text, token string, s *store.Store) template.HTML {
 	out := string(renderMarkdown(text))
 
 	// Pre-scan for entry-shape wiki-link targets (T/D/X/L/I/M/F/E
@@ -87,7 +93,7 @@ func renderContent(text, token string, s *store.Store) template.HTML {
 			}
 		}
 		if len(candidates) > 0 {
-			if existing, err := s.EntriesExist(context.Background(), candidates); err == nil {
+			if existing, err := s.EntriesExist(ctx, candidates); err == nil {
 				known = existing
 			}
 		}
@@ -137,7 +143,7 @@ func renderContent(text, token string, s *store.Store) template.HTML {
 				return match
 			}
 			id, alt := groups[1], groups[2]
-			a, err := s.GetAttachment(context.Background(), id)
+			a, err := s.GetAttachment(ctx, id)
 			if err != nil {
 				// Unknown attachment id: render as a muted placeholder
 				// rather than break the page. Lets the human spot the

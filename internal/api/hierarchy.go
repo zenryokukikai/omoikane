@@ -21,6 +21,7 @@ type hierarchyNodeRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	SortOrder   int    `json:"sort_order,omitempty"`
+	SpaceID     string `json:"space_id,omitempty"` // empty = internal; hidden/missing = 404
 	Metadata    string `json:"metadata,omitempty"`
 }
 
@@ -41,6 +42,7 @@ func (h *Handler) createHierarchyNode(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		SortOrder:   req.SortOrder,
+		SpaceID:     req.SpaceID,
 		Metadata:    req.Metadata,
 	}
 	id, err := h.Store.CreateHierarchyNode(httpCtx(r), n)
@@ -86,6 +88,12 @@ func (h *Handler) browseNode(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) browseNodeEntries(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	// Visibility gate: a hidden node 404s exactly like a missing one
+	// (GetHierarchyNode carries the space predicate).
+	if _, err := h.Store.GetHierarchyNode(httpCtx(r), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	entries, err := h.Store.ListEntriesAtNode(httpCtx(r), id, limit)
 	if err != nil {

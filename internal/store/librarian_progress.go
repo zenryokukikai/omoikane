@@ -117,9 +117,16 @@ func (s *Store) ClearProgress(ctx context.Context, role string, entryIDs []strin
 		ph[i] = "?"
 		args = append(args, id)
 	}
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM librarian_progress WHERE role = ? AND entry_id IN (`+strings.Join(ph, ",")+`)`,
-		args...)
+	sqlQ := `DELETE FROM librarian_progress WHERE role = ? AND entry_id IN (` + strings.Join(ph, ",") + `)`
+	// Silent-exclusion semantics (slice 3, same as /reflect): ids the
+	// caller cannot see are simply not cleared — the returned count
+	// never confirms a hidden entry's existence, and a non-member
+	// cannot force re-processing of restricted-space entries.
+	if cond, condArgs := visibleEntryExists(ctx, "librarian_progress.entry_id"); cond != "" {
+		sqlQ += ` AND ` + cond
+		args = append(args, condArgs...)
+	}
+	res, err := s.db.ExecContext(ctx, sqlQ, args...)
 	if err != nil {
 		return 0, translateErr(err)
 	}

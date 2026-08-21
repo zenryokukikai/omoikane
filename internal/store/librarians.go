@@ -874,6 +874,12 @@ func (s *Store) CorrelateFinding(ctx context.Context, findingID, entryID string,
 	if correlation == 0 {
 		correlation = 1.0
 	}
+	// The entry side of the correlation must be visible (slice 3): a
+	// hidden entry is indistinguishable from a missing one, and the
+	// check also keeps the FK error from acting as an existence oracle.
+	if err := requireVisibleEntry(ctx, s.db, entryID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO finding_correlations(finding_id, entry_id, correlation)
 		VALUES (?, ?, ?)

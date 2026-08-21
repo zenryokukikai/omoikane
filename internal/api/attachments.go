@@ -20,9 +20,10 @@ import (
 //   GET  /v1/attachments/{id}    metadata JSON
 //   GET  /v1/attachments/{id}/content   raw bytes streamed
 //
-// Auth: write scope for upload, read for fetch. project_id is on the
-// row but project-level ACL isn't enforced yet — slice 1 treats
-// "authenticated read" as sufficient. Tighter ACL is v2.
+// Auth: write scope for upload, read for fetch. Each attachment lives
+// in exactly one space (issue #60 slice 3): upload accepts an optional
+// space_id form field (empty = internal, hidden/missing = 404) and both
+// GETs 404 on attachments outside the caller's visible spaces.
 // ----------------------------------------------------------------------
 
 // postAttachment handles multipart upload. Form fields:
@@ -108,8 +109,11 @@ func (h *Handler) postAttachment(w http.ResponseWriter, r *http.Request) {
 		Role:       role,
 		Caption:    caption,
 		UploadedBy: tok.UserID,
-		Content:    file,
-		MaxBytes:   maxBytes,
+		// Optional space_id form field pins the attachment to one space
+		// (empty = internal; hidden/missing space = 404 in the store).
+		SpaceID:  r.FormValue("space_id"),
+		Content:  file,
+		MaxBytes: maxBytes,
 	})
 	if err != nil {
 		// Most failures here are user input issues; surface as 400.

@@ -26,6 +26,7 @@ type useCaseUpsertReq struct {
 	Domain        string `json:"domain,omitempty"`
 	Source        string `json:"source,omitempty"`
 	ParentID      string `json:"parent_id,omitempty"`
+	SpaceID       string `json:"space_id,omitempty"` // new rows only (empty = internal); existing rows keep their space
 }
 
 type useCaseJSON struct {
@@ -38,6 +39,7 @@ type useCaseJSON struct {
 	Domain        string    `json:"domain,omitempty"`
 	Source        string    `json:"source"`
 	ParentID      string    `json:"parent_id,omitempty"`
+	SpaceID       string    `json:"space_id,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -47,7 +49,7 @@ func toUseCaseJSON(uc *store.UseCase) useCaseJSON {
 		ID: uc.ID, Slug: uc.Slug, NameJA: uc.NameJA, NameEN: uc.NameEN,
 		DescriptionJA: uc.DescriptionJA, DescriptionEN: uc.DescriptionEN,
 		Domain: uc.Domain, Source: uc.Source, ParentID: uc.ParentID,
-		CreatedAt: uc.CreatedAt, UpdatedAt: uc.UpdatedAt,
+		SpaceID: uc.SpaceID, CreatedAt: uc.CreatedAt, UpdatedAt: uc.UpdatedAt,
 	}
 }
 
@@ -97,6 +99,7 @@ func (h *Handler) upsertUseCase(w http.ResponseWriter, r *http.Request) {
 		Domain:        req.Domain,
 		Source:        req.Source,
 		ParentID:      req.ParentID,
+		SpaceID:       req.SpaceID,
 	})
 	if err != nil {
 		writeStoreError(w, err)

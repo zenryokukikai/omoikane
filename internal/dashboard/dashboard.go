@@ -355,6 +355,7 @@ type pageCtx struct {
 	TalkThreads      []*store.ChatThread // /talk: the signed-in user's responder-chat threads
 	TalkAgent        *store.User         // /talk: the default answering agent (avatar + display name)
 	TalkLibrarian    *store.UserLibrarian // /talk: thread owner's personal librarian; nil → default responder (#73)
+	NavLibrarianName string              // header nav label: viewer's own librarian name; "" → default responder
 	Bookmarked       bool                // entry page: current user starred this entry
 	LatestJournal    *store.Entry        // home: newest daily journal (teaser)
 	JournalTeaser    string              // home: its first lines, markdown stripped
@@ -448,6 +449,15 @@ func (h *Handler) renderCtx(r *http.Request) pageCtx {
 	if tok := auth.FromContext(r.Context()); tok != nil && tok.UserID != "" {
 		if u, err := h.Store.GetUser(r.Context(), tok.UserID); err == nil {
 			pc.Me = u
+		}
+	}
+	// Nav label: the viewer's own librarian answers THEIR /talk, so the
+	// header entry point is named after it (#73 UX: "where do I chat with
+	// my librarian?" — same place, now labelled so). Single PK lookup;
+	// default responder name when the feature is off or unset.
+	if pc.Me != nil && h.Librarian != nil {
+		if ul, err := h.Store.GetUserLibrarian(r.Context(), pc.Me.ID); err == nil && ul.Status == "active" && ul.Name != "" {
+			pc.NavLibrarianName = ul.Name
 		}
 	}
 	return pc

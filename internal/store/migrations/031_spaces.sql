@@ -1,3 +1,7 @@
+-- NB: numbered 031 because version 30 was burned in production by a
+-- since-deleted migration (talk-intent rewrite, #54): the runner records
+-- versions, not filenames, so a deleted file leaves its number applied
+-- forever. Never reuse a version number that ever shipped.
 -- Spaces / groups read-ACL foundation (issue #60, Phase 1 slice 1).
 -- A space is a visibility boundary; project_id stays as the category
 -- WITHIN a space (orthogonal — existing semantics unchanged). Groups

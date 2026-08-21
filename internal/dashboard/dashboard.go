@@ -1753,6 +1753,8 @@ func ltime(v any, p string) template.HTML {
 		layout = "2006-01-02"
 	case "t":
 		layout = "15:04"
+	case "ts":
+		layout = "15:04:05"
 	case "dts":
 		layout = "2006-01-02 15:04:05"
 	case "md":

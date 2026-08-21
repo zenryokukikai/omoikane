@@ -14,7 +14,7 @@
   {{end}}
   <div class="talk-bubble">
     <div class="md">{{renderContent $.Ctx .Content $.Token}}</div>
-    <div class="talk-time muted">{{ltime .Timestamp "t"}}</div>
+    <div class="talk-time muted">{{ltime .Timestamp "ts"}}</div>
   </div>
 </div>
 {{end}}
@@ -247,7 +247,7 @@ function talkEcho(text){
   const tm = document.createElement('div');
   tm.className = 'talk-time muted';
   const tt = document.createElement('time');
-  tt.setAttribute('data-p', 't');
+  tt.setAttribute('data-p', 'ts');
   tt.setAttribute('datetime', new Date().toISOString());
   tm.appendChild(tt);
   bub.appendChild(tm);

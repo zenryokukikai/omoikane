@@ -79,6 +79,7 @@
     var hm = z(d.getHours()) + ':' + z(d.getMinutes());
     if (p === 'date') return date;
     if (p === 't') return hm;
+    if (p === 'ts') return hm + ':' + z(d.getSeconds());
     if (p === 'md') return z(d.getMonth()+1) + '-' + z(d.getDate()) + ' ' + hm;
     if (p === 'dts') return date + ' ' + hm + ':' + z(d.getSeconds());
     return date + ' ' + hm;

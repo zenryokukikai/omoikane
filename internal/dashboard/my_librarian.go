@@ -35,6 +35,16 @@ type LibrarianProvisioner interface {
 	Provision(ctx context.Context, p opencrab.ProvisionParams) error
 }
 
+// GateRegistrar is what the save flow needs from the external gate
+// provisioner (issue #104 G2): the once-per-process kind/schema
+// registration, then the per-user instance. EnsureInstance answers
+// ("", nil) when registration was skipped (subject resolver still
+// upstream work) — the save proceeds without a gate instance.
+type GateRegistrar interface {
+	EnsureRegistered(ctx context.Context) error
+	EnsureInstance(ctx context.Context, agentID, existingInstanceID string) (string, error)
+}
+
 // personalLibrarianTokenName is the api_tokens.name of the kb token
 // issued to a user's personal librarian. Its existence (per user) is
 // the idempotency check — re-saving never mints a second token.
@@ -226,6 +236,33 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// External gate registration (issue #104 G2) — AFTER successful
+	// opencrab provisioning, before the row upsert. Failures here do
+	// NOT revoke a fresh kb token: Provision already wrote the curlrc,
+	// so the token⇔curlrc pairing holds. A skip (resolver still
+	// upstream work) returns an empty id and the save proceeds.
+	gateInstanceID := ""
+	if h.Gate != nil {
+		existing := ""
+		if ul, err := h.Store.GetUserLibrarian(r.Context(), me.ID); err == nil {
+			existing = ul.GateInstanceID
+		}
+		if err := h.Gate.EnsureRegistered(r.Context()); err != nil {
+			h.renderLibrarianError(w, r, me, name, persona, icon,
+				"外部ゲートへの登録に失敗しました: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		id, err := h.Gate.EnsureInstance(r.Context(), personalLibrarianAgentID(me.ID), existing)
+		if err != nil {
+			h.renderLibrarianError(w, r, me, name, persona, icon,
+				"外部ゲートへの登録に失敗しました: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		if id != existing {
+			gateInstanceID = id
+		}
+	}
+
 	if err := h.Store.UpsertUserLibrarian(r.Context(), &store.UserLibrarian{
 		UserID:  me.ID,
 		AgentID: personalLibrarianAgentID(me.ID),
@@ -237,6 +274,16 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 		h.renderLibrarianError(w, r, me, name, persona, icon,
 			"設定の保存に失敗しました: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Persist the freshly registered gate instance id (the row surely
+	// exists after the upsert above).
+	if gateInstanceID != "" {
+		if err := h.Store.SetUserLibrarianGateInstance(r.Context(), me.ID, gateInstanceID); err != nil {
+			h.renderLibrarianError(w, r, me, name, persona, icon,
+				"ゲート登録の保存に失敗しました: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Icon image last — the row surely exists now. A fresh upload wins

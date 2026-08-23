@@ -2210,6 +2210,8 @@ API はブラウザに一切露出しない。スライス A は設定ページ+
 |---|---|
 | `OPENCRAB_URL` | opencrab 基盤の base URL。**未設定なら機能ごと無効**(/my/librarian は 404、ヘッダーリンク非表示) |
 | `OPENCRAB_OWNER_ID` | 基盤 REST の信頼 caller id。敷設時に各エージェントの trust 行(owner_discord_id)へ書く |
+| `GATE_ADMIN_URL` | 外部 gate 管理面(admin API)の base URL(issue #104 G2)。**未設定なら gate 登録は無効**(保存フローは gate をスキップ)。`OPENCRAB_URL` と同じゲート方式 |
+| `GATE_OPERATOR_TOKEN` | gate 管理面の operator 資格情報。全 admin 呼び出しに bearer token として付与 |
 
 エージェントの instructions に埋める omoikane 側 base URL は `KB_OAUTH_REDIRECT_BASE` を再利用する。
 

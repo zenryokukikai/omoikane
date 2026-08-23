@@ -19,6 +19,10 @@ type UserLibrarian struct {
 	IconMime  string    `json:"icon_mime"` // non-empty ⇔ an uploaded image exists
 	IconVer   int64     `json:"icon_ver"`  // bumped per image change; cache-busts the serving URL
 	CreatedAt time.Time `json:"created_at"`
+	// GateInstanceID is the external gate instance registered for this
+	// librarian (issue #104 G2, UUIDv7); "" = not registered. Written
+	// via SetUserLibrarianGateInstance, never via Upsert.
+	GateInstanceID string `json:"gate_instance_id"`
 }
 
 // IconText is the text icon to render when no image is uploaded.
@@ -36,11 +40,12 @@ func (ul *UserLibrarian) IconText() string {
 func (s *Store) GetUserLibrarian(ctx context.Context, userID string) (*UserLibrarian, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT user_id, agent_id, name, persona, status,
-		       icon, icon_mime, icon_ver, created_at
+		       icon, icon_mime, icon_ver, created_at, gate_instance_id
 		  FROM user_librarians WHERE user_id = ?`, userID)
 	var ul UserLibrarian
 	if err := row.Scan(&ul.UserID, &ul.AgentID, &ul.Name, &ul.Persona,
-		&ul.Status, &ul.Icon, &ul.IconMime, &ul.IconVer, &ul.CreatedAt); err != nil {
+		&ul.Status, &ul.Icon, &ul.IconMime, &ul.IconVer, &ul.CreatedAt,
+		&ul.GateInstanceID); err != nil {
 		return nil, translateErr(err)
 	}
 	return &ul, nil

@@ -88,27 +88,50 @@ type LookupHit struct {
 // supplied phrases. Used by the enrichment writer after it extracts
 // symptoms from an entry.
 func (s *Store) ReplaceSymptoms(ctx context.Context, entryID string, phrases []string, source string) error {
+	rows := make([]IndexedTrigger, len(phrases))
+	for i, p := range phrases {
+		rows[i] = IndexedTrigger{Phrase: p}
+	}
+	return s.replacePhraseIndexTx(ctx, "symptoms_index", entryID, rows, source, false)
+}
+
+// replacePhraseIndexTx wipes the indexed phrases for entryID in `table`
+// (symptoms_index or triggers_index) and inserts the supplied rows inside
+// one transaction. withDomain selects the triggers_index column shape;
+// symptoms ignore the Domain field. Blank phrases are skipped.
+func (s *Store) replacePhraseIndexTx(ctx context.Context, table, entryID string, rows []IndexedTrigger, source string, withDomain bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM symptoms_index WHERE entry_id = ?`, entryID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE entry_id = ?`, entryID); err != nil {
 		return translateErr(err)
 	}
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO symptoms_index(entry_id, phrase, phrase_normalized, source)
-		VALUES (?, ?, ?, ?)`)
+	insertSQL := `
+		INSERT INTO ` + table + `(entry_id, phrase, phrase_normalized, source)
+		VALUES (?, ?, ?, ?)`
+	if withDomain {
+		insertSQL = `
+		INSERT INTO ` + table + `(entry_id, phrase, phrase_normalized, domain, source)
+		VALUES (?, ?, ?, ?, ?)`
+	}
+	stmt, err := tx.PrepareContext(ctx, insertSQL)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
-	for _, p := range phrases {
-		p = strings.TrimSpace(p)
+	for _, r := range rows {
+		p := strings.TrimSpace(r.Phrase)
 		if p == "" {
 			continue
 		}
-		if _, err := stmt.ExecContext(ctx, entryID, p, normalisePhrase(p), source); err != nil {
+		args := []any{entryID, p, normalisePhrase(p)}
+		if withDomain {
+			args = append(args, nullable(r.Domain))
+		}
+		args = append(args, source)
+		if _, err := stmt.ExecContext(ctx, args...); err != nil {
 			return translateErr(err)
 		}
 	}
@@ -122,55 +145,24 @@ func (s *Store) LookupBySymptom(ctx context.Context, query string, limit int) ([
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	// Clamp explicitly: cap at the upper bound rather than
-	// silently dropping to the default on overflow.
-	if limit <= 0 {
-		limit = 10
-	} else if limit > 100 {
-		limit = 100
-	}
-	q := ftsTokenise(query)
-	if q == "" {
-		return nil, nil
-	}
+	limit = clampLimit(limit, 10, 100)
 	// The index rows never leave entries' FK, but the visibility filter
 	// needs the entries join (design v2: lookups must narrow at the
 	// candidate stage — a hidden entry's indexed phrase is itself
 	// content).
-	sqlQ := `
+	hits, err := s.ftsLookup(ctx, query, limit, ftsLookupSpec{
+		selectSQL: `
 		SELECT s.entry_id, s.phrase, bm25(symptoms_fts) AS rank
 		FROM symptoms_fts
 		JOIN symptoms_index s ON s.id = symptoms_fts.rowid
 		JOIN entries e ON e.id = s.entry_id
-		WHERE symptoms_fts MATCH ?`
-	args := []any{q}
-	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
-		sqlQ += " AND " + cond
-		args = append(args, condArgs...)
-	}
-	sqlQ += `
-		ORDER BY rank ASC
-		LIMIT ?`
-	args = append(args, limit*3)
-	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
-	if err != nil {
-		return nil, err
-	}
-	values, err := mapRows[LookupHit](rows, func(c rowScanner, h *LookupHit) error {
-		var rank float64
-		if err := c.Scan(&h.EntryID, &h.Phrase, &rank); err != nil {
-			return err
-		}
-		h.Score = -rank
-		h.Source = "fts"
-		return nil
+		WHERE symptoms_fts MATCH ?`,
 	})
 	if err != nil {
 		return nil, err
 	}
-	hits := make([]*LookupHit, len(values))
-	for i := range values {
-		hits[i] = &values[i]
+	if hits == nil {
+		return nil, nil
 	}
 	return dedupeKeepBestHit(hits, limit), nil
 }
@@ -188,32 +180,7 @@ type IndexedTrigger struct {
 // ReplaceTriggers wipes the existing triggers for entryID and inserts the
 // supplied (phrase, domain) pairs.
 func (s *Store) ReplaceTriggers(ctx context.Context, entryID string, triggers []IndexedTrigger, source string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM triggers_index WHERE entry_id = ?`, entryID); err != nil {
-		return translateErr(err)
-	}
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO triggers_index(entry_id, phrase, phrase_normalized, domain, source)
-		VALUES (?, ?, ?, ?, ?)`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	for _, tr := range triggers {
-		p := strings.TrimSpace(tr.Phrase)
-		if p == "" {
-			continue
-		}
-		if _, err := stmt.ExecContext(ctx, entryID, p, normalisePhrase(p),
-			nullable(tr.Domain), source); err != nil {
-			return translateErr(err)
-		}
-	}
-	return tx.Commit()
+	return s.replacePhraseIndexTx(ctx, "triggers_index", entryID, triggers, source, true)
 }
 
 // EntrySymptoms returns the symptom phrases indexed for one entry — the
@@ -262,13 +229,7 @@ func (s *Store) LookupByTrigger(ctx context.Context, query, domain string, limit
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	// Clamp explicitly: cap at the upper bound rather than
-	// silently dropping to the default on overflow.
-	if limit <= 0 {
-		limit = 10
-	} else if limit > 100 {
-		limit = 100
-	}
+	limit = clampLimit(limit, 10, 100)
 
 	// --- Layer 1: rules ---
 	rules, err := s.loadEnabledTriggerRules(ctx, domain)
@@ -300,48 +261,19 @@ func (s *Store) LookupByTrigger(ctx context.Context, query, domain string, limit
 	}
 
 	// --- Layer 2: FTS ---
-	q := ftsTokenise(query)
-	if q != "" {
-		var (
-			rows *sql.Rows
-			args = []any{q}
-			sb   strings.Builder
-		)
-		sb.WriteString(`SELECT t.entry_id, t.phrase, bm25(triggers_fts) AS rank
+	ftsHits, err := s.ftsLookup(ctx, query, limit, ftsLookupSpec{
+		selectSQL: `SELECT t.entry_id, t.phrase, bm25(triggers_fts) AS rank
 			FROM triggers_fts
 			JOIN triggers_index t ON t.id = triggers_fts.rowid
 			JOIN entries e ON e.id = t.entry_id
-			WHERE triggers_fts MATCH ?`)
-		if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
-			sb.WriteString(` AND ` + cond)
-			args = append(args, condArgs...)
-		}
-		if domain != "" {
-			sb.WriteString(` AND t.domain = ?`)
-			args = append(args, domain)
-		}
-		sb.WriteString(` ORDER BY rank ASC LIMIT ?`)
-		args = append(args, limit*3)
-		rows, err = s.db.QueryContext(ctx, sb.String(), args...)
-		if err != nil {
-			return nil, err
-		}
-		ftsHits, err := mapRows[LookupHit](rows, func(c rowScanner, h *LookupHit) error {
-			var rank float64
-			if err := c.Scan(&h.EntryID, &h.Phrase, &rank); err != nil {
-				return err
-			}
-			h.Score = -rank
-			h.Source = "fts"
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		for i := range ftsHits {
-			hits = append(hits, &ftsHits[i])
-		}
+			WHERE triggers_fts MATCH ?`,
+		domainCol: "t.domain",
+		domain:    domain,
+	})
+	if err != nil {
+		return nil, err
 	}
+	hits = append(hits, ftsHits...)
 
 	return dedupeKeepBestHit(hits, limit), nil
 }
@@ -522,13 +454,7 @@ func (s *Store) LookupByTags(ctx context.Context, tags []string, mode string, li
 	if mode != "any" && mode != "all" {
 		return nil, fmt.Errorf("%w: match_mode must be any|all", ErrInvalidInput)
 	}
-	// Clamp explicitly: cap at the upper bound rather than
-	// silently dropping to the default on overflow.
-	if limit <= 0 {
-		limit = 10
-	} else if limit > 100 {
-		limit = 100
-	}
+	limit = clampLimit(limit, 10, 100)
 
 	// Canonicalise + dedupe.
 	canon := make([]string, 0, len(tags))
@@ -615,6 +541,87 @@ func (s *Store) LookupByTags(ctx context.Context, tags []string, mode string, li
 // ----------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------
+
+// clampLimit clamps a caller-supplied page size: def when <= 0, capped at
+// max. Clamp explicitly — cap at the upper bound rather than silently
+// dropping to the default on overflow.
+func clampLimit(limit, def, max int) int {
+	if limit <= 0 {
+		return def
+	}
+	if limit > max {
+		return max
+	}
+	return limit
+}
+
+// ftsLookupSpec parameterises ftsLookup with the per-index candidate query.
+type ftsLookupSpec struct {
+	// selectSQL is the core candidate query — SELECT columns, joins
+	// (which MUST include entries aliased `e` for visibility), and the
+	// `WHERE <fts_table> MATCH ?` predicate. ftsLookup appends the space
+	// visibility condition, the optional domain predicate, and
+	// `ORDER BY rank ASC LIMIT ?`.
+	selectSQL string
+	// domainCol, when non-empty together with domain, appends
+	// `AND <domainCol> = ?` after the visibility condition.
+	domainCol string
+	domain    string
+	// scan maps one row to a LookupHit. nil selects the standard 3-column
+	// shape (entry_id, phrase, rank) with Score=-rank, Source="fts".
+	scan func(rowScanner, *LookupHit) error
+}
+
+// ftsLookup runs one FTS5 candidate query shared by the symptom / trigger /
+// situation lookups: tokenise → bm25-ranked candidates (limit*3) narrowed
+// by spaceCond("e") — never inline space SQL. It returns the raw hits
+// (callers dedupe), or nil with no error when the query yields no usable
+// FTS tokens.
+func (s *Store) ftsLookup(ctx context.Context, query string, limit int, spec ftsLookupSpec) ([]*LookupHit, error) {
+	q := ftsTokenise(query)
+	if q == "" {
+		return nil, nil
+	}
+	sqlQ := spec.selectSQL
+	args := []any{q}
+	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
+		sqlQ += " AND " + cond
+		args = append(args, condArgs...)
+	}
+	if spec.domainCol != "" && spec.domain != "" {
+		sqlQ += " AND " + spec.domainCol + " = ?"
+		args = append(args, spec.domain)
+	}
+	sqlQ += `
+		ORDER BY rank ASC
+		LIMIT ?`
+	args = append(args, limit*3)
+	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
+	if err != nil {
+		return nil, err
+	}
+	scan := spec.scan
+	if scan == nil {
+		scan = func(c rowScanner, h *LookupHit) error {
+			var rank float64
+			if err := c.Scan(&h.EntryID, &h.Phrase, &rank); err != nil {
+				return err
+			}
+			h.Score = -rank
+			h.Source = "fts"
+			return nil
+		}
+	}
+	values, err := mapRows[LookupHit](rows, scan)
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]*LookupHit, len(values))
+	for i := range values {
+		hits[i] = &values[i]
+	}
+	return hits, nil
+}
 
 // normalisePhrase lowercases, trims, collapses whitespace. Used as the
 // `phrase_normalized` column so equality lookups can short-circuit FTS.

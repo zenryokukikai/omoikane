@@ -47,6 +47,12 @@ type Handler struct {
 	// there.
 	AttachmentMaxBytes int64
 
+	// URLSigningKey is the HMAC key behind expiring signed attachment
+	// URLs (issue #104 G4, KB_URL_SIGNING_KEY). Empty/nil disables the
+	// feature: SignAttachmentURL errors and signatures never grant.
+	// Never logged.
+	URLSigningKey []byte
+
 	// TalkDispatch routes /talk messages from users who have a personal
 	// librarian (issue #73 slice B) directly to the agent runtime,
 	// REPLACING webhook delivery for those threads. nil = feature
@@ -310,6 +316,10 @@ func (h *Handler) Mount(r chi.Router) {
 		// larger than the default request body cap). The root-level
 		// LimitBody in server.go exempts /v1/attachments specifically
 		// so this per-route cap is the one in effect.
+		max := h.AttachmentMaxBytes
+		if max <= 0 {
+			max = 50 << 20
+		}
 		r.Group(func(r chi.Router) {
 			r.Use(auth.SessionCookieToBearer(sessionCookieName))
 			// Allow ?token=... on GETs so dashboard-rendered <img>/
@@ -321,13 +331,24 @@ func (h *Handler) Mount(r chi.Router) {
 			// Attachments carry a space_id (slice 3); the store 404s
 			// on any attachment outside this resolved visibility.
 			r.Use(h.withVisibleSpaces)
-			max := h.AttachmentMaxBytes
-			if max <= 0 {
-				max = 50 << 20
-			}
 			r.Use(LimitBody(max))
 			r.With(auth.RequireScope("write")).Post("/attachments", h.postAttachment)
 			r.With(auth.RequireScope("read")).Get("/attachments/{id}", h.getAttachment)
+		})
+
+		// Content GET sits in its own group so the signed-URL fast
+		// path (issue #104 G4) runs BEFORE the auth middleware: a
+		// valid presigned exp+sig pair serves without Authorization
+		// (the gateway contract), while every other request — no sig,
+		// bad sig, expired — falls through to the exact same auth
+		// chain as above, behavior unchanged.
+		r.Group(func(r chi.Router) {
+			r.Use(h.signedAttachmentGrant)
+			r.Use(auth.SessionCookieToBearer(sessionCookieName))
+			r.Use(auth.AllowQueryTokenForGET)
+			r.Use(authMW.Authenticate)
+			r.Use(h.withVisibleSpaces)
+			r.Use(LimitBody(max))
 			r.With(auth.RequireScope("read")).Get("/attachments/{id}/content", h.getAttachmentContent)
 		})
 	})

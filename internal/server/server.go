@@ -204,6 +204,11 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 	}
 	apiH.RegisterOpen = cfg.RegisterOpen
 	apiH.AttachmentMaxBytes = cfg.AttachmentMaxBytes
+	if cfg.URLSigningKey != "" {
+		apiH.URLSigningKey = []byte(cfg.URLSigningKey)
+		// note: never log the key itself
+		logger.Info("attachment url signing enabled (KB_URL_SIGNING_KEY set)")
+	}
 	dashH, err := newDashboard(st, cfg.DashboardOpen)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)

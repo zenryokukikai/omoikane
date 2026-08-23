@@ -66,6 +66,11 @@ type Config struct {
 	// token on every admin call.
 	GateAdminURL      string // GATE_ADMIN_URL (empty = gate registration disabled)
 	GateOperatorToken string // GATE_OPERATOR_TOKEN
+
+	// Expiring signed attachment URLs (issue #104 slice G4). HMAC key
+	// for presigning /v1/attachments/{id}/content; empty disables the
+	// feature (issuance errors, signatures never grant). Never logged.
+	URLSigningKey string // KB_URL_SIGNING_KEY (empty = signed URLs disabled)
 }
 
 // Load reads configuration from environment variables (see design.md §10 /
@@ -160,6 +165,8 @@ func Load() (*Config, error) {
 
 	c.GateAdminURL = strings.TrimRight(os.Getenv("GATE_ADMIN_URL"), "/")
 	c.GateOperatorToken = strings.TrimSpace(os.Getenv("GATE_OPERATOR_TOKEN"))
+
+	c.URLSigningKey = strings.TrimSpace(os.Getenv("KB_URL_SIGNING_KEY"))
 
 	return c, nil
 }

@@ -266,7 +266,7 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 		return nil, 0, err
 	}
 
-	sqlStr := `SELECT ` + selectColumnsForEntry("e") + `, ` + rankSQL + ` AS rank
+	sqlStr := `SELECT ` + entryColumnsSQL + `, ` + rankSQL + ` AS rank
 		` + fromSQL + tagJoin + `
 		WHERE ` + strings.Join(conds, " AND ") + `
 		ORDER BY ` + orderSQL + `
@@ -303,79 +303,8 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 	return out, total, nil
 }
 
-// selectColumnsForEntry mirrors entrySelectSQL's columns, qualified by prefix.
-// FTS5's content table shares column names with entries, so every reference
-// must be qualified to disambiguate.
-func selectColumnsForEntry(prefix string) string {
-	plain := []string{
-		"id", "project_id", "type", "title", "status",
-		"body", "body_format",
-		"valid_from", "enrichment_version", "created_at", "updated_at", "version",
-	}
-	nullableCols := []string{
-		"symptom", "root_cause", "resolution", "prohibited",
-		"attempted_approaches", "observed_behavior", "hypotheses",
-		"scope", "metadata",
-		"superseded_by", "invalidation_reason",
-		"created_by", "created_by_role",
-	}
-	out := []string{}
-	// Order MUST match entrySelectSQL exactly:
-	// id, project_id, type, title, status,
-	// symptom, root_cause, resolution, prohibited,
-	// attempted_approaches, observed_behavior, hypotheses,
-	// body, body_format,
-	// scope, metadata,
-	// valid_from, valid_to,
-	// superseded_by, invalidation_reason,
-	// enrichment_version, enrichment_at,
-	// created_at, updated_at,
-	// created_by, created_by_role,
-	// version
-	add := func(col string, isNullable bool) {
-		if isNullable {
-			out = append(out, "COALESCE("+prefix+"."+col+",'')")
-		} else {
-			out = append(out, prefix+"."+col)
-		}
-	}
-	addRaw := func(col string) {
-		out = append(out, prefix+"."+col)
-	}
-	_ = plain
-	_ = nullableCols
-
-	add("id", false)
-	add("project_id", false)
-	add("type", false)
-	add("title", false)
-	add("status", false)
-	add("symptom", true)
-	add("root_cause", true)
-	add("resolution", true)
-	add("prohibited", true)
-	add("attempted_approaches", true)
-	add("observed_behavior", true)
-	add("hypotheses", true)
-	add("body", false)
-	add("body_format", false)
-	add("scope", true)
-	add("metadata", true)
-	addRaw("valid_from")
-	addRaw("valid_to")
-	add("superseded_by", true)
-	add("invalidation_reason", true)
-	addRaw("enrichment_version")
-	addRaw("enrichment_at")
-	addRaw("created_at")
-	addRaw("updated_at")
-	add("created_by", true)
-	add("created_by_role", true)
-	addRaw("version")
-	addRaw("space_id")
-	return strings.Join(out, ", ")
-}
-
+// scanEntryWithRank scans one entryColumnsSQL row (see entry_scan.go —
+// column order is a contract) plus a trailing rank column.
 func scanEntryWithRank(r scanner) (*Entry, float64, error) {
 	var (
 		e            Entry

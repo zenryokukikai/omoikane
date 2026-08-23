@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/rand"
 	"encoding/base32"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -51,4 +52,15 @@ func newEntryID(entryType string) (string, error) {
 		enc = enc[:6]
 	}
 	return typePrefix(entryType) + "-" + enc, nil
+}
+
+// newLibrarianID returns a fresh ID of the form <prefix>-<8 hex chars>.
+// Despite the historical name it is the package-wide minter for
+// non-entry IDs across several domains: librarian instances, chat
+// threads/messages, tasks, quartets, findings, spaces, groups, entry
+// comments, directives, open-work tasks, and webhooks.
+func newLibrarianID(prefix string) string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return prefix + "-" + hex.EncodeToString(b[:])
 }

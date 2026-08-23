@@ -342,7 +342,7 @@ func dashLeakRows() []dashLeakRow {
 		{name: "internal entry page (relations + attachment unfurl)", path: "/entries/{internal}", outsiderStatus: 200, memberSees: true},
 		{name: "search", path: "/search?q=" + dashLeakMarker, outsiderStatus: 200,
 			memberSees: true, queryEcho: true, memberWant: "secret title"},
-		{name: "project page", path: "/projects/p-leak", outsiderStatus: 200, memberSees: true},
+		{name: "project page", path: "/projects/{project}", outsiderStatus: 200, memberSees: true},
 		{name: "journal", path: "/journal", outsiderStatus: 200},
 		{name: "review queue", path: "/review-queue", outsiderStatus: 200, memberSees: true},
 		{name: "clusters list", path: "/clusters", outsiderStatus: 200, memberSees: true},
@@ -372,6 +372,7 @@ func dashLeakRows() []dashLeakRow {
 
 func (f *dashLeakFixture) expand(p string) string {
 	return strings.NewReplacer(
+		"{project}", "p-leak",
 		"{space}", f.spaceID,
 		"{secret}", f.secretID,
 		"{internal}", f.internalID,

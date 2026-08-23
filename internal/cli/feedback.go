@@ -594,13 +594,3 @@ func cmdClusterRebuild(args []string, stdout io.Writer) error {
 	fmt.Fprintln(stdout, string(b))
 	return nil
 }
-
-// loadClient is a shortcut for the Load+NewClient dance that every Phase 3
-// subcommand uses.
-func loadClient() (*Client, error) {
-	c, err := Load()
-	if err != nil {
-		return nil, err
-	}
-	return NewClient(c)
-}

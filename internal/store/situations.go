@@ -209,56 +209,34 @@ func (s *Store) LookupBySituation(ctx context.Context, query string, limit int) 
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w: query required", ErrInvalidInput)
 	}
-	// Clamp explicitly: cap at the upper bound rather than
-	// silently dropping to the default on overflow.
-	if limit <= 0 {
-		limit = 10
-	} else if limit > 100 {
-		limit = 100
-	}
-	q := ftsTokenise(query)
-	if q == "" {
-		return nil, nil
-	}
+	limit = clampLimit(limit, 10, 100)
 	// Visibility narrows at the candidate stage: a situation may span
 	// spaces (until slice 3 pins aggregates to one), but only entries the
 	// caller can see may come back.
-	sqlQ := `
+	hits, err := s.ftsLookup(ctx, query, limit, ftsLookupSpec{
+		selectSQL: `
 		SELECT se.entry_id, s.description, bm25(situations_fts) AS rank,
 		       COALESCE(se.relevance, 1.0)
 		FROM situations_fts
 		JOIN situations s ON s.rowid = situations_fts.rowid
 		JOIN situation_entries se ON se.situation_id = s.id
 		JOIN entries e ON e.id = se.entry_id
-		WHERE situations_fts MATCH ?`
-	args := []any{q}
-	if cond, condArgs := spaceCond(ctx, "e"); cond != "" {
-		sqlQ += " AND " + cond
-		args = append(args, condArgs...)
-	}
-	sqlQ += `
-		ORDER BY rank ASC
-		LIMIT ?`
-	args = append(args, limit*3)
-	rows, err := s.db.QueryContext(ctx, sqlQ, args...)
-	if err != nil {
-		return nil, err
-	}
-	values, err := mapRows[LookupHit](rows, func(c rowScanner, h *LookupHit) error {
-		var rank, rel float64
-		if err := c.Scan(&h.EntryID, &h.Phrase, &rank, &rel); err != nil {
-			return err
-		}
-		h.Score = -rank * rel
-		h.Source = "situation"
-		return nil
+		WHERE situations_fts MATCH ?`,
+		scan: func(c rowScanner, h *LookupHit) error {
+			var rank, rel float64
+			if err := c.Scan(&h.EntryID, &h.Phrase, &rank, &rel); err != nil {
+				return err
+			}
+			h.Score = -rank * rel
+			h.Source = "situation"
+			return nil
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
-	hits := make([]*LookupHit, len(values))
-	for i := range values {
-		hits[i] = &values[i]
+	if hits == nil {
+		return nil, nil
 	}
 	return dedupeKeepBestHit(hits, limit), nil
 }

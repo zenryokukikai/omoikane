@@ -64,8 +64,7 @@ type pageCtx struct {
 	LookupMode   string // "symptom" | "trigger"
 	LookupDomain string
 	LookupRows   []lookupRow
-	IndexedList  []*store.IndexedEntrySummary // browse list when no query (legacy)
-	UseCaseList  []*store.UseCaseSummary      // new browse list — UseCase-first
+	UseCaseList  []*store.UseCaseSummary // new browse list — UseCase-first
 
 	// Entry page — author user (resolved from created_by)
 	EntryAuthor *store.User

@@ -24,6 +24,7 @@ import (
 	"github.com/zenryokukikai/omoikane/internal/config"
 	"github.com/zenryokukikai/omoikane/internal/dashboard"
 	"github.com/zenryokukikai/omoikane/internal/enrich"
+	"github.com/zenryokukikai/omoikane/internal/gate"
 	"github.com/zenryokukikai/omoikane/internal/opencrab"
 	"github.com/zenryokukikai/omoikane/internal/store"
 	"github.com/zenryokukikai/omoikane/internal/version"
@@ -221,6 +222,20 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 		dashH.Librarian = oc
 		apiH.TalkDispatch = oc
 		logger.Info("personal librarian enabled", "opencrab_url", cfg.OpencrabURL)
+
+		// External gate admin registration (issue #104 G2) — extends
+		// the librarian save flow, so it only exists inside the
+		// opencrab feature. The subject resolver is still a stub
+		// (upstream opencrab#763); instance registration skips until
+		// it lands.
+		if cfg.GateAdminURL != "" {
+			dashH.Gate = &opencrab.GateProvisioner{
+				Admin:    gate.NewAdminClient(cfg.GateAdminURL, cfg.GateOperatorToken),
+				Resolver: opencrab.StubSubjectResolver{},
+				Log:      logger,
+			}
+			logger.Info("gate admin registration enabled", "gate_admin_url", cfg.GateAdminURL)
+		}
 	}
 
 	root := chi.NewRouter()

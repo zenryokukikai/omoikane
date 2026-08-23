@@ -58,6 +58,14 @@ type Config struct {
 	// each provisioned agent's trust row (owner_discord_id).
 	OpencrabURL     string // OPENCRAB_URL (empty = feature disabled)
 	OpencrabOwnerID string // OPENCRAB_OWNER_ID
+
+	// External gate admin registration (issue #104 slice G2).
+	// GATE_ADMIN_URL is the gate admin plane's base URL; empty disables
+	// gate registration entirely (same gating pattern as OPENCRAB_URL).
+	// GATE_OPERATOR_TOKEN is the operator credential sent as a bearer
+	// token on every admin call.
+	GateAdminURL      string // GATE_ADMIN_URL (empty = gate registration disabled)
+	GateOperatorToken string // GATE_OPERATOR_TOKEN
 }
 
 // Load reads configuration from environment variables (see design.md §10 /
@@ -149,6 +157,9 @@ func Load() (*Config, error) {
 
 	c.OpencrabURL = strings.TrimRight(os.Getenv("OPENCRAB_URL"), "/")
 	c.OpencrabOwnerID = strings.TrimSpace(os.Getenv("OPENCRAB_OWNER_ID"))
+
+	c.GateAdminURL = strings.TrimRight(os.Getenv("GATE_ADMIN_URL"), "/")
+	c.GateOperatorToken = strings.TrimSpace(os.Getenv("GATE_OPERATOR_TOKEN"))
 
 	return c, nil
 }

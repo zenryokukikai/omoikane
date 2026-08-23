@@ -30,6 +30,11 @@ type Handler struct {
 	// 404 and the header link is hidden. Set by server wiring when
 	// OPENCRAB_URL is configured.
 	Librarian LibrarianProvisioner
+
+	// Gate registers the librarian on the external gate admin plane
+	// (issue #104 G2). nil = gate registration off (GATE_ADMIN_URL
+	// unset); the save flow then skips the gate step entirely.
+	Gate GateRegistrar
 }
 
 // sessionCookieName must match api.sessionCookieName. Kept duplicated

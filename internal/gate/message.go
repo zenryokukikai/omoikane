@@ -495,6 +495,9 @@ const (
 	forbidAction
 )
 
+// forbidEventMembers rejects members the per-kind table forbids. An
+// empty-but-non-nil Mentions/Attachments slice counts as absent: under
+// omitempty it never reaches the wire, so it cannot violate the table.
 func forbidEventMembers(ev *Event, kind string, set eventMemberSet) error {
 	fail := func(member string) error {
 		return fmt.Errorf("gate: %s forbids %s", kind, member)
@@ -502,13 +505,13 @@ func forbidEventMembers(ev *Event, kind string, set eventMemberSet) error {
 	if set&forbidContent != 0 && ev.Content != nil {
 		return fail("content")
 	}
-	if set&forbidMentions != 0 && ev.Mentions != nil {
+	if set&forbidMentions != 0 && len(ev.Mentions) > 0 {
 		return fail("mentions")
 	}
 	if set&forbidReplyTo != 0 && ev.ReplyTo != "" {
 		return fail("reply_to")
 	}
-	if set&forbidAttachments != 0 && ev.Attachments != nil {
+	if set&forbidAttachments != 0 && len(ev.Attachments) > 0 {
 		return fail("attachments")
 	}
 	if set&forbidTarget != 0 && ev.Target != "" {
@@ -534,66 +537,95 @@ func validateRequestID(id string) error {
 	return nil
 }
 
-// validateBind checks an incoming bind/unbind frame.
-func validateBind(f *bindFrame) error {
+// coreViolation classifies one incoming core-frame violation with its
+// §5 violation-table stable code; detail feeds the err response.
+type coreViolation struct {
+	code   string // unknown_message | unknown_field | missing_field | invalid_field | unknown_enum
+	detail string
+}
+
+func invalidField(detail string) *coreViolation {
+	return &coreViolation{code: "invalid_field", detail: detail}
+}
+
+func missingField(member string) *coreViolation {
+	return &coreViolation{code: "missing_field", detail: "missing member " + member}
+}
+
+func unknownEnum(detail string) *coreViolation {
+	return &coreViolation{code: "unknown_enum", detail: detail}
+}
+
+// validateBind checks an incoming bind/unbind frame. Member presence is
+// checked by the caller first, so an empty value here is present-but-
+// invalid, never missing.
+func validateBind(f *bindFrame) *coreViolation {
 	if err := validateRequestID(f.ID); err != nil {
-		return err
+		return invalidField(err.Error())
 	}
 	if !isCanonicalUUID(f.BindingID) {
-		return errors.New("gate: bind binding_id must be a canonical lowercase UUID")
+		return invalidField("bind binding_id must be a canonical lowercase UUID")
 	}
 	if f.Address == "" {
-		return errors.New("gate: bind address must be nonempty")
+		return invalidField("bind address must be nonempty")
 	}
 	return nil
 }
 
 // validateCatchUp checks an incoming catch_up frame.
-func validateCatchUp(f *catchUpFrame) error {
+func validateCatchUp(f *catchUpFrame) *coreViolation {
 	if err := validateRequestID(f.ID); err != nil {
-		return err
+		return invalidField(err.Error())
 	}
 	if !isCanonicalUUID(f.BindingID) {
-		return errors.New("gate: catch_up binding_id must be a canonical lowercase UUID")
+		return invalidField("catch_up binding_id must be a canonical lowercase UUID")
 	}
 	if f.Address == "" {
-		return errors.New("gate: catch_up address must be nonempty")
+		return invalidField("catch_up address must be nonempty")
 	}
 	switch f.Start.Mode {
 	case "now", "beginning":
 		if f.Start.CursorB64 != nil || f.Start.CursorDigest != nil {
-			return errors.New("gate: catch_up start forbids cursor members for mode " + f.Start.Mode)
+			return invalidField("catch_up start forbids cursor members for mode " + f.Start.Mode)
 		}
 	case "cursor":
-		if f.Start.CursorB64 == nil || !isStdPaddedBase64(*f.Start.CursorB64) {
-			return errors.New("gate: catch_up start cursor_b64 must be standard padded base64")
+		if f.Start.CursorB64 == nil {
+			return missingField("start.cursor_b64")
 		}
-		if f.Start.CursorDigest == nil || !isLowerHexDigest(*f.Start.CursorDigest) {
-			return errors.New("gate: catch_up start cursor_digest must be 64 lowercase hex")
+		if !isStdPaddedBase64(*f.Start.CursorB64) {
+			return invalidField("catch_up start cursor_b64 must be standard padded base64")
 		}
+		if f.Start.CursorDigest == nil {
+			return missingField("start.cursor_digest")
+		}
+		if !isLowerHexDigest(*f.Start.CursorDigest) {
+			return invalidField("catch_up start cursor_digest must be 64 lowercase hex")
+		}
+	case "":
+		return missingField("start.mode")
 	default:
-		return fmt.Errorf("gate: catch_up start mode %q unknown", f.Start.Mode)
+		return unknownEnum(fmt.Sprintf("catch_up start mode %q unknown", f.Start.Mode))
 	}
 	return nil
 }
 
 // validateEffect checks an incoming effect frame. Its id is the
 // canonical UUID text of the delivery_id, not a free-form request id.
-func validateEffect(f *effectFrame) error {
+func validateEffect(f *effectFrame) *coreViolation {
 	if !isCanonicalUUID(f.ID) {
-		return errors.New("gate: effect id must be a canonical lowercase UUID")
+		return invalidField("effect id must be a canonical lowercase UUID")
 	}
 	if !isCanonicalUUID(f.BindingID) {
-		return errors.New("gate: effect binding_id must be a canonical lowercase UUID")
+		return invalidField("effect binding_id must be a canonical lowercase UUID")
 	}
 	if f.Address == "" {
-		return errors.New("gate: effect address must be nonempty")
+		return invalidField("effect address must be nonempty")
 	}
 	if f.Kind != "say" {
-		return fmt.Errorf("gate: effect kind %q unknown", f.Kind)
+		return unknownEnum(fmt.Sprintf("effect kind %q unknown", f.Kind))
 	}
 	if f.Payload == nil {
-		return errors.New("gate: effect payload member missing")
+		return missingField("payload")
 	}
 	return nil
 }
@@ -613,9 +645,8 @@ func validateActivity(f *activityFrame) error {
 		if f.Kind == nil || (*f.Kind != "turn" && *f.Kind != "background") {
 			return errors.New("gate: activity started requires kind turn|background")
 		}
-		if f.Label != nil && *f.Label == "" {
-			return errors.New("gate: activity label must be nonempty when present")
-		}
+		// label is optional here and absent from the spec's nonempty
+		// list, so label:"" counts as label-absent, not a violation.
 	case "progress":
 		if f.Kind != nil {
 			return errors.New("gate: activity progress forbids kind")
@@ -670,10 +701,19 @@ func isLowerHexDigest(s string) bool {
 	return true
 }
 
-// isStdPaddedBase64 reports RFC 4648 standard padded base64.
+// isStdPaddedBase64 reports canonical RFC 4648 standard padded base64:
+// nonempty, strict decode (no non-zero trailing padding bits), and
+// byte-exact round trip, which rejects whitespace/newlines and any
+// other non-canonical encoding of the same bytes.
 func isStdPaddedBase64(s string) bool {
-	_, err := base64.StdEncoding.DecodeString(s)
-	return err == nil
+	if s == "" {
+		return false
+	}
+	b, err := base64.StdEncoding.Strict().DecodeString(s)
+	if err != nil {
+		return false
+	}
+	return base64.StdEncoding.EncodeToString(b) == s
 }
 
 // isAbsoluteHTTPSURL reports an absolute https URL with a host.

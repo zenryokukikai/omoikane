@@ -212,24 +212,22 @@ func waitClosed(t *testing.T, c *Conn) {
 	}
 }
 
+// eventResult carries one SendEvent outcome across goroutines.
+type eventResult struct {
+	seq int64
+	dup bool
+	err error
+}
+
 // sendEventAsync runs SendEvent on a goroutine so the test goroutine
 // can serve the synchronous pipe.
-func sendEventAsync(c *Conn, ev Event) chan struct {
-	seq int64
-	err error
-} {
-	ch := make(chan struct {
-		seq int64
-		err error
-	}, 1)
+func sendEventAsync(c *Conn, ev Event) chan eventResult {
+	ch := make(chan eventResult, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		seq, err := c.SendEvent(ctx, ev)
-		ch <- struct {
-			seq int64
-			err error
-		}{seq, err}
+		seq, dup, err := c.SendEvent(ctx, ev)
+		ch <- eventResult{seq, dup, err}
 	}()
 	return ch
 }

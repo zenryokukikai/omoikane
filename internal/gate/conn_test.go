@@ -133,8 +133,8 @@ func TestHappyPath(t *testing.T) {
 	}
 	fc.ok(fc.str(ev, "id"), map[string]any{"seq": 42, "binding_id": testBindingA})
 	r := <-res
-	if r.err != nil || r.seq != 42 {
-		t.Fatalf("SendEvent = (%d, %v), want (42, nil)", r.seq, r.err)
+	if r.err != nil || r.seq != 42 || r.dup {
+		t.Fatalf("SendEvent = (%d, %v, %v), want (42, false, nil)", r.seq, r.dup, r.err)
 	}
 
 	// Effect in, delivered out.
@@ -158,7 +158,7 @@ func TestSendEventBeforeReadyRefusedLocally(t *testing.T) {
 	c, fc := startConn(t) // hello done, ready not sent
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if _, err := c.SendEvent(ctx, saidEvent(testBindingA, "origin-1")); !errors.Is(err, ErrNotReady) {
+	if _, _, err := c.SendEvent(ctx, saidEvent(testBindingA, "origin-1")); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("SendEvent error = %v, want ErrNotReady", err)
 	}
 	// Nothing must have reached the wire: the next read times out.
@@ -173,7 +173,7 @@ func TestSendEventValidationBlocksWire(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	ev := saidEvent(testBindingA, "") // empty origin
-	if _, err := c.SendEvent(ctx, ev); err == nil {
+	if _, _, err := c.SendEvent(ctx, ev); err == nil {
 		t.Fatal("invalid event accepted")
 	}
 	fc.c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
@@ -285,24 +285,6 @@ func TestCorrelationInterleavedResponses(t *testing.T) {
 	}
 }
 
-func TestUnknownResponseIDIgnored(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	defer c.Close()
-	res := sendEventAsync(c, saidEvent(testBindingA, "origin-1"))
-	ev, _ := fc.recv()
-	fc.ok("no-such-request", map[string]any{"seq": 1, "binding_id": testBindingA})
-	fc.ok(fc.str(ev, "id"), map[string]any{"seq": 44, "binding_id": testBindingA})
-	r := <-res
-	if r.err != nil || r.seq != 44 {
-		t.Fatalf("SendEvent = (%d, %v), want (44, nil)", r.seq, r.err)
-	}
-	select {
-	case <-c.Closed():
-		t.Fatal("unknown response id closed the connection")
-	default:
-	}
-}
-
 func TestErrResponseSurfacesWireError(t *testing.T) {
 	c, fc := readyConn(t, &testHandler{})
 	defer c.Close()
@@ -326,15 +308,6 @@ func TestDuplicateMemberInIncomingFrameCloses(t *testing.T) {
 	waitClosed(t, c)
 	if r := <-res; r.err == nil {
 		t.Fatal("SendEvent succeeded over a duplicate-member response")
-	}
-}
-
-func TestUnknownTopLevelMemberOnStrictMessageCloses(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	fc.sendRaw(`{"id":"b-1","m":"bind","binding_id":"` + testBindingA + `","address":"place-a","extra":1}`)
-	waitClosed(t, c)
-	if err := c.Err(); err == nil {
-		t.Fatal("close reason missing")
 	}
 }
 
@@ -530,7 +503,7 @@ func TestContextCancellationAbandonsRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.SendEvent(ctx, saidEvent(testBindingA, "origin-1"))
+		_, _, err := c.SendEvent(ctx, saidEvent(testBindingA, "origin-1"))
 		done <- err
 	}()
 	ev, _ := fc.recv()

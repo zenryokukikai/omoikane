@@ -102,6 +102,22 @@ func TestValidateEventPerKindTable(t *testing.T) {
 			e.Removed = boolPtr(true)
 			e.Mentions = []string{"author-2"}
 		}), false},
+		// Empty-but-non-nil slices never hit the wire under omitempty,
+		// so they count as absent for the forbidden checks.
+		{"retracted empty non-nil mentions ok", mutate(func(e *Event) {
+			e.Kind = "retracted"
+			e.Content = nil
+			e.Target = "origin-0"
+			e.Removed = boolPtr(true)
+			e.Mentions = []string{}
+		}), true},
+		{"retracted empty non-nil attachments ok", mutate(func(e *Event) {
+			e.Kind = "retracted"
+			e.Content = nil
+			e.Target = "origin-0"
+			e.Removed = boolPtr(true)
+			e.Attachments = []Attachment{}
+		}), true},
 
 		{"reacted valid removed false", mutate(func(e *Event) {
 			e.Kind = "reacted"
@@ -195,6 +211,9 @@ func TestValidateActivityTable(t *testing.T) {
 	}{
 		{"started with kind", activityFrame{M: "activity", Address: "p", ActivityID: "a", State: "started", Kind: str("turn")}, true},
 		{"started background with label", activityFrame{M: "activity", Address: "p", ActivityID: "a", State: "started", Kind: str("background"), Label: str("thinking")}, true},
+		// label is not in the spec's nonempty list: an empty label on
+		// started counts as label-absent, not a violation.
+		{"started empty label treated as absent", activityFrame{M: "activity", Address: "p", ActivityID: "a", State: "started", Kind: str("turn"), Label: str("")}, true},
 		{"started without kind", activityFrame{M: "activity", Address: "p", ActivityID: "a", State: "started"}, false},
 		{"started bad kind", activityFrame{M: "activity", Address: "p", ActivityID: "a", State: "started", Kind: str("foreground")}, false},
 		{"progress with label", activityFrame{M: "activity", Address: "p", ActivityID: "a", State: "progress", Label: str("half")}, true},
@@ -237,12 +256,18 @@ func TestValueGrammarHelpers(t *testing.T) {
 			t.Fatalf("bad digest %q accepted", s)
 		}
 	}
-	if !isStdPaddedBase64("AAECAw==") {
-		t.Fatal("valid padded base64 rejected")
+	for _, s := range []string{"AAECAw==", "AA=="} {
+		if !isStdPaddedBase64(s) {
+			t.Fatalf("valid padded base64 %q rejected", s)
+		}
 	}
-	for _, s := range []string{"AAECAw", "!!", "AAECAw= ="} {
+	// Canonical RFC 4648 standard padded form only: nonempty, no
+	// whitespace/newlines, zero trailing padding bits, byte-exact
+	// round trip.
+	for _, s := range []string{"", "AAECAw", "!!", "AAECAw= =",
+		"AAECAw==\n", "AAEC Aw==", "AB=="} {
 		if isStdPaddedBase64(s) {
-			t.Fatalf("bad base64 %q accepted", s)
+			t.Fatalf("non-canonical base64 %q accepted", s)
 		}
 	}
 }

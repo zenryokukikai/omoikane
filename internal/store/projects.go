@@ -107,3 +107,13 @@ func nullableRaw(m json.RawMessage) any {
 	}
 	return string(m)
 }
+
+// nullableTime is the *time.Time equivalent of nullable: nil or the zero
+// time becomes SQL NULL. Shared by every writer with optional timestamp
+// columns (entries, tokens, cases, ...).
+func nullableTime(t *time.Time) any {
+	if t == nil || t.IsZero() {
+		return sql.NullTime{}
+	}
+	return *t
+}

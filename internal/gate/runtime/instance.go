@@ -1,20 +1,18 @@
 package runtime
 
 // One personal librarian = one gate instance = one instanceRunner: a
-// goroutine that dials the core socket, walks hello → handler → ready,
-// serves core traffic until the connection dies, and reconnects with
-// exponential backoff. The runner is also the gate.Handler — the
-// mapping from the wire to omoikane HTTP lives here:
+// goroutine that dials the core socket, performs the V3 hello (hello ok
+// = RUNNING, no ready stage), serves core traffic until the connection
+// dies, and reconnects with exponential backoff. The runner is also the
+// gate.Handler — the mapping from the wire to omoikane HTTP lives here:
 //
 //	OnBind      record binding_id ↔ address (= /talk thread id),
 //	            then replay missed human messages from the cursor
-//	OnEffect    kind "say" {"text"} → POST /v1/librarian/chat
-//	            (author stamped to this instance's owner)
-//	OnActivity  started/progress → chat.status {thread_id,text},
+//	OnSay       payload {"text"} → POST /v1/librarian/chat
+//	            (author stamped to this instance's owner); ok is a
+//	            plain delivery ack — no message id travels back
+//	OnActivity  started → chat.status {thread_id,text:"考え中…"},
 //	            ended → chat.status {thread_id,done:true}
-//	OnCatchUp   ack no-op (the omoikane-talk kind runs
-//	            catch_up_mode=none; replay is omoikane-side via the
-//	            binding cursor + origin idempotency)
 
 import (
 	"context"
@@ -36,6 +34,11 @@ const handlerCallTimeout = 30 * time.Second
 // replayPageSize is the page size of the on-bind history replay.
 const replayPageSize = 100
 
+// activityStartedStatus is the chat.status text shown while the
+// librarian's turn runs. V3 activity carries no label (started/ended
+// only), so the gateway supplies a generic one.
+const activityStartedStatus = "考え中…"
+
 type instanceRunner struct {
 	rt     *Runtime
 	lib    Librarian
@@ -43,17 +46,19 @@ type instanceRunner struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	mu       sync.Mutex
-	conn     *gate.Conn        // live connection, nil between sessions
-	bindings map[string]string // address (thread id) → binding_id
+	mu        sync.Mutex
+	conn      *gate.Conn        // live connection, nil between sessions
+	bindings  map[string]string // address (thread id) → binding_id
+	addresses map[string]string // binding_id → address (thread id)
 }
 
 func (rt *Runtime) newInstanceRunner(parent context.Context, lib Librarian) *instanceRunner {
 	ctx, cancel := context.WithCancel(parent)
 	return &instanceRunner{
 		rt: rt, lib: lib, ctx: ctx, cancel: cancel,
-		done:     make(chan struct{}),
-		bindings: map[string]string{},
+		done:      make(chan struct{}),
+		bindings:  map[string]string{},
+		addresses: map[string]string{},
 	}
 }
 
@@ -92,43 +97,39 @@ func (r *instanceRunner) run() {
 }
 
 // session dials and serves one connection until it closes. served
-// reports whether Ready completed (used to reset the backoff).
+// reports whether the hello succeeded (used to reset the backoff).
 func (r *instanceRunner) session() (served bool, err error) {
 	rwc, err := r.rt.cfg.Dial(r.ctx, r.rt.cfg.SocketPath)
 	if err != nil {
 		return false, fmt.Errorf("dial: %w", err)
 	}
 	conn, err := gate.NewConn(r.ctx, rwc, gate.HelloParams{
-		KindID:       opencrab.GateKindID,
 		InstanceID:   r.lib.GateInstanceID,
 		Revision:     r.rt.cfg.HelloRevision,
 		ConfigDigest: opencrab.GateInstanceConfigDigest(),
-		OriginScope:  opencrab.GateOriginScope,
-		AddressForm:  opencrab.GateThreadAddressForm,
 	})
 	if err != nil {
 		return false, fmt.Errorf("hello: %w", err)
 	}
 	defer conn.Close()
-	if err := conn.SetHandler(r); err != nil {
-		return false, err
-	}
-	// Install the connection BEFORE Ready: the first bind can arrive
-	// the moment the core processes the ready ack, and OnBind needs
-	// r.conn to kick off the replay. Fresh epoch — the core re-binds
-	// everything it wants served, so stale mappings must not leak in.
+	// Install the connection BEFORE Start: the core sends binds the
+	// moment the hello ok is out, and OnBind needs r.conn to kick off
+	// the replay (dispatch is held until Start, so no bind runs before
+	// this). Fresh maps — the core re-binds everything it wants served,
+	// so stale mappings must not leak in.
 	r.mu.Lock()
 	r.conn = conn
 	r.bindings = map[string]string{}
+	r.addresses = map[string]string{}
 	r.mu.Unlock()
-	if err := conn.Ready(r.ctx); err != nil {
+	if err := conn.Start(r); err != nil {
 		r.mu.Lock()
 		r.conn = nil
 		r.mu.Unlock()
-		return false, fmt.Errorf("ready: %w", err)
+		return false, fmt.Errorf("start: %w", err)
 	}
 	r.rt.log.Info("gate instance connected",
-		"instance_id", r.lib.GateInstanceID, "user_id", r.lib.UserID, "epoch", conn.Epoch())
+		"instance_id", r.lib.GateInstanceID, "user_id", r.lib.UserID)
 
 	select {
 	case <-conn.Closed():
@@ -151,16 +152,25 @@ func (r *instanceRunner) liveBinding(address string) (*gate.Conn, string) {
 	return r.conn, r.bindings[address]
 }
 
+// addressOf resolves a binding_id back to its thread address ("" when
+// the binding is unknown on this connection).
+func (r *instanceRunner) addressOf(bindingID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.addresses[bindingID]
+}
+
 // ---- gate.Handler ---------------------------------------------------
 
 // OnBind records the binding locally (the server-side row already
 // exists — it was written at thread creation) and kicks off the
 // missed-message replay. The replay runs on its own goroutine: the
-// dispatch loop is serialized, and a replay doing HTTP + SendEvent
-// round-trips must not delay subsequent binds and effects.
+// dispatch loop is serialized, and a replay doing HTTP + SendSaid
+// round-trips must not delay subsequent binds and says.
 func (r *instanceRunner) OnBind(b gate.Binding) error {
 	r.mu.Lock()
 	r.bindings[b.Address] = b.BindingID
+	r.addresses[b.BindingID] = b.Address
 	conn := r.conn
 	r.mu.Unlock()
 	if conn != nil {
@@ -169,102 +179,91 @@ func (r *instanceRunner) OnBind(b gate.Binding) error {
 	return nil
 }
 
-func (r *instanceRunner) OnUnbind(b gate.Binding) error {
-	r.mu.Lock()
-	if r.bindings[b.Address] == b.BindingID {
-		delete(r.bindings, b.Address)
-	}
-	r.mu.Unlock()
-	return nil
-}
-
-// effectPayload is the say payload. Unknown members are tolerated by
-// construction: plain json.Unmarshal into a struct ignores extras.
-type effectPayload struct {
+// sayPayload is the say payload. Unknown members are ignored by
+// construction (§3.4): plain json.Unmarshal into a struct drops extras.
+type sayPayload struct {
 	Text string `json:"text"`
 }
 
-// OnEffect posts the librarian's reply into the thread. Outcome map
-// (spec §7, no fabrication):
+// OnSay posts the librarian's reply into the thread. Outcome map (V3
+// §3.4, no fabrication):
 //
-//	201 + id            → delivered, origin = stored message id
-//	malformed payload   → err response (invalid_field), conn kept
-//	4xx (not stored)    → rejected
+//	201                 → delivered (plain ok; the stored message id
+//	                      does not travel back on the wire)
+//	text missing/empty  → err external_rejected, zero external I/O
+//	4xx (not stored)    → err external_rejected
 //	5xx/timeout/other   → unknown (socket closes without answering)
-func (r *instanceRunner) OnEffect(e gate.Effect) gate.EffectResult {
-	var p effectPayload
-	if err := json.Unmarshal(e.Payload, &p); err != nil {
-		at := "payload"
+func (r *instanceRunner) OnSay(s gate.Say) gate.SayResult {
+	var p sayPayload
+	if err := json.Unmarshal(s.Payload, &p); err != nil {
 		detail := "say payload must be a JSON object: " + err.Error()
-		return gate.EffectWireErr("invalid_field", &at, &detail)
+		return gate.SayRejected(&detail)
 	}
 	if p.Text == "" {
-		at := "payload.text"
-		detail := "say requires nonempty text"
-		return gate.EffectWireErr("invalid_field", &at, &detail)
+		detail := "say payload.text must be a nonempty string"
+		return gate.SayRejected(&detail)
+	}
+	address := r.addressOf(s.BindingID)
+	if address == "" {
+		detail := "say binding_id is not bound on this connection"
+		return gate.SayRejected(&detail) // zero external I/O: definitely not delivered
 	}
 	ctx, cancel := context.WithTimeout(r.ctx, handlerCallTimeout)
 	defer cancel()
-	msgID, err := r.rt.kb.PostAssistantReply(ctx, e.Address, r.lib.UserID, p.Text)
-	if err == nil {
-		return gate.EffectDelivered(msgID)
+	if _, err := r.rt.kb.PostAssistantReply(ctx, address, r.lib.UserID, p.Text); err != nil {
+		var rej *RejectedError
+		if errors.As(err, &rej) {
+			r.rt.log.Warn("say rejected by kb",
+				"instance_id", r.lib.GateInstanceID, "thread_id", address, "err", err)
+			detail := fmt.Sprintf("kb rejected the post: HTTP %d", rej.Status)
+			return gate.SayRejected(&detail)
+		}
+		// Indeterminate: the POST may or may not have stored the
+		// message. Answering anything would be fabrication — close
+		// without answering (SayUnknown ⇒ conn closes, core records the
+		// delivery indeterminate).
+		r.rt.log.Error("say outcome unknown; closing connection",
+			"instance_id", r.lib.GateInstanceID, "thread_id", address, "err", err)
+		return gate.SayUnknown()
 	}
-	var rej *RejectedError
-	if errors.As(err, &rej) {
-		r.rt.log.Warn("effect rejected by kb",
-			"instance_id", r.lib.GateInstanceID, "thread_id", e.Address, "err", err)
-		return gate.EffectRejected()
-	}
-	// Indeterminate: the POST may or may not have stored the message.
-	// Answering anything would be fabrication — close without answering
-	// (EffectUnknown ⇒ conn closes, core records disconnect).
-	r.rt.log.Error("effect outcome unknown; closing connection",
-		"instance_id", r.lib.GateInstanceID, "thread_id", e.Address, "err", err)
-	return gate.EffectUnknown()
+	return gate.SayDelivered()
 }
 
-// OnActivity translates progress to chat.status broadcasts.
+// OnActivity translates started/ended to chat.status broadcasts.
 // Best-effort by contract: activity has no response frame, and a lost
 // status line only costs UI feedback — errors are logged, never fatal.
-// It runs inline on the dispatch loop ON PURPOSE: the "considering…"
-// status must reach the UI before the reply that OnEffect posts next.
+// It runs inline on the dispatch loop ON PURPOSE: the "考え中…" status
+// must reach the UI before the reply that OnSay posts next.
 func (r *instanceRunner) OnActivity(a gate.Activity) {
+	address := r.addressOf(a.BindingID)
+	if address == "" {
+		return // unknown binding: nothing to display
+	}
 	ctx, cancel := context.WithTimeout(r.ctx, handlerCallTimeout)
 	defer cancel()
 	var err error
 	switch a.State {
-	case "started", "progress":
-		err = r.rt.kb.BroadcastStatus(ctx, a.Address, r.lib.UserID, a.Label, false)
+	case "started":
+		err = r.rt.kb.BroadcastStatus(ctx, address, r.lib.UserID, activityStartedStatus, false)
 	case "ended":
-		err = r.rt.kb.BroadcastStatus(ctx, a.Address, r.lib.UserID, "", true)
+		err = r.rt.kb.BroadcastStatus(ctx, address, r.lib.UserID, "", true)
 	}
 	if err != nil {
 		r.rt.log.Warn("activity status broadcast failed",
-			"instance_id", r.lib.GateInstanceID, "thread_id", a.Address,
+			"instance_id", r.lib.GateInstanceID, "thread_id", address,
 			"state", a.State, "err", err)
 	}
-}
-
-// OnCatchUp acks without doing anything: the omoikane-talk kind is
-// registered catch_up_mode=none, so the core should never send this.
-// If a core does anyway, acking is safe — omoikane replays missed
-// inbound itself (OnBind replay + origin idempotency), which gives the
-// same at-least-once guarantee the cursor contract would.
-func (r *instanceRunner) OnCatchUp(cu gate.CatchUp) error {
-	r.rt.log.Warn("unexpected catch_up on a catch_up_mode=none kind; acked as no-op",
-		"instance_id", r.lib.GateInstanceID, "binding_id", cu.BindingID, "mode", cu.Mode)
-	return nil
 }
 
 // ---- replay ---------------------------------------------------------
 
 // replay re-sends human messages the core may have missed while this
 // instance was disconnected: list thread messages after the binding
-// cursor, SendEvent each with origin = message id (the core dedupes by
-// origin, so overlap is harmless), and advance the cursor after each
-// confirmed send. Cursor read/advance degrade gracefully: a cursor
-// error (or the no-op store) just replays from the beginning, which
-// origin idempotency makes safe.
+// cursor, SendSaid each with origin = message id (the core answers a
+// re-sent origin with the first seq, so overlap is harmless), and
+// advance the cursor after each confirmed send. Cursor read/advance
+// degrade gracefully: a cursor error (or the no-op store) just replays
+// from the beginning, which origin idempotency makes safe.
 func (r *instanceRunner) replay(conn *gate.Conn, b gate.Binding) {
 	ctx := r.ctx
 	cursor, err := r.rt.cursors.Cursor(ctx, b.Address)
@@ -300,10 +299,10 @@ func (r *instanceRunner) replay(conn *gate.Conn, b gate.Binding) {
 	}
 }
 
-// sendSaid submits one human message as a said event and advances the
-// cursor on success. Reports false when the send failed hard (the
-// caller stops; a discarded event — seq null — is a core decision, not
-// a failure, and does not stop the replay).
+// sendSaid submits one human message as a said and advances the cursor
+// on success. Reports false when the send failed hard (the caller
+// stops; a discarded said — seq null — is a core decision, not a
+// failure, and does not stop the replay).
 func (r *instanceRunner) sendSaid(ctx context.Context, conn *gate.Conn, bindingID, address, msgID, authorID, text string) bool {
 	if authorID == "" {
 		// Legacy pre-migration-012 rows lack author_user_id; a talk
@@ -312,22 +311,20 @@ func (r *instanceRunner) sendSaid(ctx context.Context, conn *gate.Conn, bindingI
 	}
 	sctx, cancel := context.WithTimeout(ctx, handlerCallTimeout)
 	defer cancel()
-	_, recorded, err := conn.SendEvent(sctx, gate.Event{
-		Kind:      "said",
-		Address:   address,
+	_, recorded, err := conn.SendSaid(sctx, gate.Said{
 		BindingID: bindingID,
-		Author:    gate.Author{ID: authorID},
-		Content:   gate.Text(text),
 		Origin:    msgID,
+		AuthorID:  authorID,
+		Text:      text,
 	})
 	if err != nil {
-		r.rt.log.Warn("said event failed",
+		r.rt.log.Warn("said failed",
 			"instance_id", r.lib.GateInstanceID, "thread_id", address,
 			"origin", msgID, "err", err)
 		return false
 	}
 	if !recorded {
-		r.rt.log.Info("core discarded said event",
+		r.rt.log.Info("core discarded said",
 			"instance_id", r.lib.GateInstanceID, "thread_id", address, "origin", msgID)
 	}
 	if err := r.rt.cursors.Advance(sctx, address, msgID); err != nil {

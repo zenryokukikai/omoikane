@@ -94,12 +94,12 @@ fi
 
 if grep -q 'gate instance connected' "$logs"; then
   n="$(grep -c 'gate instance connected' "$logs")"
-  ok "hello/ready succeeded for $n instance connect(s) (gate instance connected)"
+  ok "hello succeeded for $n instance connect(s) (gate instance connected)"
 else
   if [ "${connectable:-0}" = "0" ]; then
     printf 'note: no "gate instance connected" line yet, but 0 connectable rows — expected until an instance is registered.\n'
   else
-    fail "no 'gate instance connected' line despite $connectable connectable row(s) — hello/ready to the core has not succeeded"
+    fail "no 'gate instance connected' line despite $connectable connectable row(s) — hello to the core has not succeeded"
   fi
 fi
 

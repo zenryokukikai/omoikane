@@ -463,7 +463,7 @@ func (f *fakeBindingAdmin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if f.fail {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, `{"error":{"code":"store_error","at":null,"detail":null}}`)
+		_, _ = io.WriteString(w, `{"error":{"code":"store_error","detail":null}}`)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -559,8 +559,9 @@ func gwCreateThread(t *testing.T, base, tok, intent string) (int, string, []byte
 	return s, out.ThreadID, raw
 }
 
-// Happy path: creating a /talk thread PUTs one binding (address = the
-// thread id, empty metadata, null catch-up) and stores the row.
+// Happy path: creating a /talk thread PUTs one binding (V3 exact
+// request: {instance_id, address}, address = the thread id) and stores
+// the row.
 func TestTalkThreadCreationBindsGate(t *testing.T) {
 	base, st, aliceTok, bobTok, instanceID, admin := gateBindServer(t, false)
 
@@ -573,18 +574,21 @@ func TestTalkThreadCreationBindsGate(t *testing.T) {
 	if len(puts) != 1 {
 		t.Fatalf("binding PUTs = %d (%+v), want 1", len(puts), admin.calls)
 	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(puts[0].Body), &members); err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 {
+		t.Errorf("binding PUT body = %s, want exactly {instance_id, address}", puts[0].Body)
+	}
 	var req struct {
-		InstanceID         string  `json:"instance_id"`
-		Address            string  `json:"address"`
-		Label              *string `json:"label"`
-		BindingMetadataB64 string  `json:"binding_metadata_b64"`
-		CatchUpStart       any     `json:"catch_up_start"`
+		InstanceID string `json:"instance_id"`
+		Address    string `json:"address"`
 	}
 	if err := json.Unmarshal([]byte(puts[0].Body), &req); err != nil {
 		t.Fatal(err)
 	}
-	if req.InstanceID != instanceID || req.Address != threadID ||
-		req.BindingMetadataB64 != "e30=" || req.CatchUpStart != nil {
+	if req.InstanceID != instanceID || req.Address != threadID {
 		t.Errorf("binding PUT body: %s", puts[0].Body)
 	}
 	wantBindingID := strings.TrimPrefix(puts[0].Path, "/api/gate-bindings/")

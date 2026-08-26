@@ -1,10 +1,9 @@
 // Package gate implements the gateway (client) side of the opencrab
-// external gate protocol 2 wire contract (issue #104, slice G1). The
-// authoritative grammar is opencrab docs/design/external-gate.md §5
-// (framing, message union, field grammar, violation table) and §6
-// (connection state machine).
+// external gate V3 minimal contract (issue #104). The authoritative
+// grammar is DESIGN-EXTGATE-V3.md §3 (framing, message union, field
+// grammar) and §4 (state machine).
 //
-// Role split (spec §1): a gateway does external I/O and protocol
+// Role split (spec §1): a gateway does external I/O and wire
 // translation only. This package therefore knows nothing about
 // omoikane's store, routing, or policy — it turns Go calls into LF-JSON
 // frames on a Unix socket and incoming frames into handler callbacks.
@@ -12,7 +11,8 @@
 // This file owns the transport framing: one UTF-8 JSON object per line,
 // LF-terminated, at most 1,048,576 bytes including the LF, duplicate
 // members rejected anywhere in the document (Go's encoding/json accepts
-// duplicates by default, so rejection is a manual token walk).
+// duplicates by default, so rejection is a manual token walk). Unknown
+// members are IGNORED at every nesting level (§3.1).
 package gate
 
 import (
@@ -26,7 +26,7 @@ import (
 	"unicode/utf8"
 )
 
-// MaxFrameBytes is the spec §5 hard cap for one frame, including the
+// MaxFrameBytes is the spec §3.1 hard cap for one frame, including the
 // trailing LF.
 const MaxFrameBytes = 1048576
 
@@ -106,8 +106,8 @@ func (w *frameWriter) writeFrame(v any) error {
 // validateFrameShape enforces the transport-level rules that apply to
 // every incoming frame before any typed decode: valid UTF-8, exactly
 // one JSON object, and no duplicate members at any nesting depth
-// (free-JSON regions like effect.payload included — spec §5 states the
-// duplicate rule unconditionally for the frame).
+// (free-JSON regions like say.payload included — spec §3.1 states the
+// duplicate rule for all object levels of the frame).
 func validateFrameShape(data []byte) error {
 	if !utf8.Valid(data) {
 		return errInvalidUTF8
@@ -179,18 +179,27 @@ func walkValue(dec *json.Decoder) error {
 	return nil
 }
 
-// decodeStrictBody decodes data into v rejecting unknown members
-// (recursively, per typed struct fields) and trailing data. The caller
-// must already have run validateFrameShape over the enclosing frame, so
-// UTF-8 and duplicate members are settled by the time this runs.
-func decodeStrictBody(data []byte, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("gate: strict decode: %w", err)
+// decodeFrame decodes one already-shape-validated frame into v,
+// ignoring unknown members (§3.1), and reports the set of top-level
+// member names so callers can check required-member presence and
+// distinguish explicit null from absence.
+func decodeFrame(data []byte, v any) (map[string]json.RawMessage, error) {
+	if err := json.Unmarshal(data, v); err != nil {
+		return nil, fmt.Errorf("gate: decode frame: %w", err)
 	}
-	if dec.More() {
-		return errTrailingData
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(data, &members); err != nil {
+		return nil, fmt.Errorf("gate: decode frame: %w", err)
+	}
+	return members, nil
+}
+
+// requireMembers reports the first missing required member, if any.
+func requireMembers(members map[string]json.RawMessage, names ...string) error {
+	for _, name := range names {
+		if _, present := members[name]; !present {
+			return fmt.Errorf("gate: frame missing required member %q", name)
+		}
 	}
 	return nil
 }

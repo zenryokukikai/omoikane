@@ -22,12 +22,12 @@ import (
 )
 
 const (
-	testInstanceA = "0190a1b2-c3d4-7e5f-8a6b-000000000001"
-	testInstanceB = "0190a1b2-c3d4-7e5f-8a6b-000000000002"
-	testBinding1  = "0190a1b2-c3d4-7e5f-8a6b-0000000000aa"
-	testEffectID  = "0190a1b2-c3d4-7e5f-8a6b-0000000000ee"
-	testThread    = "thread-0000aaaa"
-	testToken     = "tok-gateway-test"
+	testInstanceA  = "0190a1b2-c3d4-7e5f-8a6b-000000000001"
+	testInstanceB  = "0190a1b2-c3d4-7e5f-8a6b-000000000002"
+	testBinding1   = "0190a1b2-c3d4-7e5f-8a6b-0000000000aa"
+	testDeliveryID = "0190a1b2-c3d4-7e5f-8a6b-0000000000ee"
+	testThread     = "thread-0000aaaa"
+	testToken      = "tok-gateway-test"
 )
 
 func testLibA() Librarian {
@@ -312,36 +312,36 @@ func (f *fakeCore) send(v any) {
 	}
 }
 
-func (f *fakeCore) ok(id string, payload any) {
-	f.send(map[string]any{"id": id, "ok": payload})
+func (f *fakeCore) ok(id string) {
+	f.send(map[string]any{"id": id, "m": "ok"})
 }
 
-// serveHandshake serves hello (epoch) and ready, asserting the hello's
-// instance_id, and returns after the gate is ACTIVE-ready.
-func (f *fakeCore) serveHandshake(wantInstance string, epoch uint64) {
+// okSeq answers a said request with {id, m:"ok", seq}.
+func (f *fakeCore) okSeq(id string, seq any) {
+	f.send(map[string]any{"id": id, "m": "ok", "seq": seq})
+}
+
+// serveHandshake serves the V3 hello (hello ok = RUNNING; no ready
+// stage exists), asserting the hello's instance_id.
+func (f *fakeCore) serveHandshake(wantInstance string) {
 	f.t.Helper()
-	if got := f.serveHandshakeAny(epoch); got != wantInstance {
+	if got := f.serveHandshakeAny(); got != wantInstance {
 		f.t.Fatalf("hello instance_id=%q, want %q", got, wantInstance)
 	}
 }
 
-// serveHandshakeAny serves hello (epoch) and ready for whichever
-// instance dialed this connection, returning the hello's instance_id
-// (runner dial order is map-iteration order, so multi-instance tests
-// identify connections by the hello rather than by arrival).
-func (f *fakeCore) serveHandshakeAny(epoch uint64) string {
+// serveHandshakeAny serves the hello for whichever instance dialed this
+// connection, returning the hello's instance_id (runner dial order is
+// map-iteration order, so multi-instance tests identify connections by
+// the hello rather than by arrival).
+func (f *fakeCore) serveHandshakeAny() string {
 	f.t.Helper()
 	m := f.recv()
 	if got := f.str(m, "m"); got != "hello" {
 		f.t.Fatalf("first frame m=%q, want hello", got)
 	}
 	instance := f.str(m, "instance_id")
-	f.ok(f.str(m, "id"), map[string]any{"protocol": 2, "connection_epoch": epoch})
-	m = f.recv()
-	if got := f.str(m, "m"); got != "ready" {
-		f.t.Fatalf("frame m=%q, want ready", got)
-	}
-	f.ok(f.str(m, "id"), map[string]any{})
+	f.ok(f.str(m, "id"))
 	return instance
 }
 
@@ -374,19 +374,17 @@ func (f *fakeCore) bind(reqID, bindingID, address string) {
 	if got := f.str(m, "id"); got != reqID {
 		f.t.Fatalf("bind ack id=%q, want %q", got, reqID)
 	}
-	if _, isOK := m["ok"]; !isOK {
-		f.t.Fatalf("bind answered err: %v", m)
+	if got := f.str(m, "m"); got != "ok" {
+		f.t.Fatalf("bind answered %v, want ok", m)
 	}
 }
 
-// recvEvent reads frames until an event request arrives (skipping
-// nothing — the gate only sends events after the handshake here) and
-// returns it decoded.
-func (f *fakeCore) recvEvent() map[string]json.RawMessage {
+// recvSaid reads one frame and asserts it is a said request.
+func (f *fakeCore) recvSaid() map[string]json.RawMessage {
 	f.t.Helper()
 	m := f.recv()
-	if got := f.str(m, "m"); got != "event" {
-		f.t.Fatalf("frame m=%q, want event", got)
+	if got := f.str(m, "m"); got != "said" {
+		f.t.Fatalf("frame m=%q, want said", got)
 	}
 	return m
 }
@@ -490,16 +488,14 @@ func (m *memCursors) advancedList() []string {
 	return append([]string(nil), m.advanced...)
 }
 
-// contentText extracts content.text from an event frame.
-func contentText(t *testing.T, m map[string]json.RawMessage) string {
+// saidText extracts the text member from a said frame.
+func saidText(t *testing.T, m map[string]json.RawMessage) string {
 	t.Helper()
-	var c struct {
-		Text string `json:"text"`
+	var s string
+	if err := json.Unmarshal(m["text"], &s); err != nil {
+		t.Fatalf("said text: %v", err)
 	}
-	if err := json.Unmarshal(m["content"], &c); err != nil {
-		t.Fatalf("event content: %v", err)
-	}
-	return c.Text
+	return s
 }
 
 // authorList returns the captured ?author_user_id= values, in order.

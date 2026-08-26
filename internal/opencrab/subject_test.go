@@ -162,8 +162,11 @@ func TestEnsureInstanceWithRuntimeResolver(t *testing.T) {
 	if got, _ := p.Body["subject_id"].(float64); int64(got) != 77 {
 		t.Fatalf("instance PUT subject_id = %v, want 77", p.Body["subject_id"])
 	}
-	if p.Body["kind_id"] != GateKindID || p.Body["label"] != agent {
-		t.Fatalf("instance PUT kind/label = %v/%v", p.Body["kind_id"], p.Body["label"])
+	if p.Body["kind_id"] != GateKindID {
+		t.Fatalf("instance PUT kind_id = %v, want %v", p.Body["kind_id"], GateKindID)
+	}
+	if len(p.Body) != 4 { // V3 exact member set: kind_id,subject_id,enabled,config_b64
+		t.Fatalf("instance PUT body = %v, want exactly 4 members", p.Body)
 	}
 	if p.Body["config_b64"] != base64.StdEncoding.EncodeToString(gateInstanceConfig) {
 		t.Fatalf("instance PUT config_b64 = %v", p.Body["config_b64"])

@@ -1,22 +1,26 @@
 # omoikane-gate operator runbook
 
-Issue #104, slice G3 (E2E prep). This runbook brings the `omoikane-gate`
-binary up against a real opencrab protocol-2 core. It is **deployment
-scaffolding**: the binary is complete and unit-tested, but **not yet
-end-to-end verified**, because the platform's real UDS core does not
-exist yet. Two values (below) are filled in at compose-confirmation
-time; everything else here is final.
+Issue #104 (E2E prep, V3 contract). This runbook brings the
+`omoikane-gate` binary up against a real opencrab core speaking the
+external gate **V3 minimal contract** (DESIGN-EXTGATE-V3.md — the sole
+wire/admin authority). It is **deployment scaffolding**: the binary is
+complete and unit-tested, but **not yet end-to-end verified**, because
+the platform's real UDS core does not exist yet. Two values (below) are
+filled in at compose-confirmation time; everything else here is final.
 
 ## What omoikane-gate is
 
-One process. It holds one protocol-2 connection **per ACTIVE personal
+One process. It holds one V3 connection **per ACTIVE personal
 librarian** (platform ruling: one process, N sockets) over a **single
 Unix-domain socket to the opencrab core**, and translates between the
 external gate wire and omoikane's chat HTTP surface:
 
-- `effect(say)` from the core → `POST /v1/librarian/chat` (assistant reply)
-- librarian activity → `chat.status` broadcasts (`POST /v1/events/broadcast`)
-- human `chat.message` (SSE `GET /v1/events`) → `event(said)` down the socket
+- `say` from the core → `POST /v1/librarian/chat` (assistant reply);
+  the success answer on the wire is a plain `ok` — no message id
+  travels back
+- `activity` (started/ended) → `chat.status` broadcasts
+  (`POST /v1/events/broadcast`)
+- human `chat.message` (SSE `GET /v1/events`) → `said` down the socket
 
 It listens on **no** network port. It is purely an outbound client to
 two places: the core's Unix socket (which it *dials*), and omoikane's
@@ -41,21 +45,20 @@ provisioned librarians connect without a restart.
    container (see the compose fragment). The gate refuses to start if
    the path is empty; if the path is set but the socket is not yet
    present, the gate dials, fails, and retries with backoff.
-4. **The omoikane-talk gate kind and per-librarian instances registered**
-   on the core's admin plane. That registration is omoikane-side work
+4. **Per-librarian instances registered** on the core's admin plane
+   (V3 has no kind/schema registration — `kind_id` is an opaque value
+   on the instance). That registration is omoikane-side work
    (`internal/opencrab.GateProvisioner`) driven by the librarian save
    flow; it is a prerequisite for any instance to be connectable, not a
-   step this runbook performs. Facts an operator/E2E needs to confirm the
-   registration match:
-   - kind id: `omoikane-talk`
-   - protocol major: `2`
-   - origin scope: `instance`
-   - ingress discovery: `prebound`
-   - address form (binding address = /talk thread id): `^thread-[0-9a-f]{8}$`
-   - catch-up mode: `none`
-   - instance config digest: SHA-256 of the empty object `{}` — the
-     `config_digest` every `omoikane-talk` hello presents. Compute it
-     with: `printf '{}' | shasum -a 256` →
+   step this runbook performs. Facts an operator/E2E needs to confirm
+   the registration match (instance PUT body:
+   `{kind_id, subject_id, enabled, config_b64}`):
+   - kind id (opaque): `omoikane-talk`
+   - wire protocol: `2` (fixed in the hello frame)
+   - binding address = the /talk thread id (`thread-` + 8 lower hex)
+   - instance config: the empty object `{}` (`config_b64` = `e30=`);
+     its digest — the `config_digest` every `omoikane-talk` hello
+     presents — is `printf '{}' | shasum -a 256` →
      `44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a`.
 
 ## Environment variables
@@ -71,7 +74,7 @@ Names are read verbatim by `internal/gate/runtime/config.go`
 | `GATE_DISCOVERY_INTERVAL` | no | `60s` | How often the librarian roster is re-polled to pick up newly provisioned librarians. Positive Go duration (e.g. `30s`, `2m`). |
 | `GATE_RECONNECT_MIN` | no | `1s` | Lower bound of the per-instance / SSE reconnect backoff (exponential, doubling from min to max). Positive Go duration. |
 | `GATE_RECONNECT_MAX` | no | `60s` | Upper bound of the reconnect backoff. Positive Go duration; must be `>= GATE_RECONNECT_MIN`. |
-| `GATE_HELLO_REVISION` | no | `1` | Active config revision presented in the hello frame. Positive integer. The omoikane-talk instance config is immutable (empty object, no revision flow), so leave at `1` unless a future revision flow appears. |
+| `GATE_HELLO_REVISION` | no | `1` | Active config revision presented in the hello frame. Positive integer. The core rejects a hello whose revision does not match the instance's active revision (`revision_mismatch` → close), so after any revision POST this value must be raised to match. Instances register at revision `1`; leave at `1` until a revision flow is used. |
 
 Misconfiguration is reported **all at once** at startup (all missing
 required values in one error), and the process exits `2` without
@@ -86,8 +89,8 @@ connecting.
    `omoikane-gate starting socket=<path> kb=<base>`.
 4. It immediately syncs the roster (`GET /v1/gateway/librarians`), then
    opens the SSE stream and, for each librarian row that carries a
-   non-empty `gate_instance_id`, dials the socket and performs the
-   protocol-2 hello/ready handshake.
+   non-empty `gate_instance_id`, dials the socket and performs the V3
+   hello (hello success = RUNNING; there is no ready stage).
 
 ## Verifying it connected
 
@@ -96,8 +99,8 @@ Look for these log lines (all `level=INFO`, on stderr):
 - `event stream connected` — the SSE subscription to omoikane is up.
 - `serving gate instance instance_id=… user_id=… agent_id=…` — a runner
   was started for a discovered instance.
-- `gate instance connected instance_id=… user_id=… epoch=…` — the
-  hello/ready handshake with the core **succeeded** for that instance.
+- `gate instance connected instance_id=… user_id=…` — the hello with
+  the core **succeeded** for that instance (V3 has no connection epoch).
   This is the "connected" signal per instance.
 
 And on the socket side:
@@ -150,7 +153,7 @@ replay is origin-idempotent, so re-sent history dedupes core-side).
 
 ## revision 更新 / instance 削除の手順
 
-契約 §6 の簡素化 (#104) により、ある gate instance の **LIVE 接続を
+V3 契約 §5.5 (#104) により、ある gate instance の **LIVE 接続を
 gate が保持している間**、プラットフォームはその instance への
 **revision POST** と **instance DELETE** を `409 instance_active` で
 拒否する (自動 invalidation スイープは廃止された)。順序は運用側の
@@ -167,7 +170,8 @@ gate が保持している間**、プラットフォームはその instance へ
   だけなので、必ず roster 離脱 → 自動切断を先に確認する。
 
 **binding PUT/DELETE はこの LIVE 拒否の対象外**であり、通常運用中も
-そのまま実行できる (スレッドの bind/unbind に gate の停止は不要)。
+そのまま実行できる (スレッドの binding 追加/close に gate の停止は
+不要。新規 PUT は live 接続へ binding 単位で bind される — V3 §5.5)。
 
 ## Filling in the two platform-provided values
 
@@ -195,8 +199,8 @@ running; no e2e possible).
 
 - **Not end-to-end verified.** The binary is unit-tested against a
   scripted fake core (`net.Pipe`) and an `httptest` omoikane, but no
-  real protocol-2 UDS core exists yet to verify against. Treat first
-  contact with the real core as the E2E gate.
+  real V3 UDS core exists yet to verify against. Treat first contact
+  with the real core as the E2E gate.
 - **Instance registration needs a runtime that exposes `subject_id`.**
   The production subject resolver (`RuntimeSubjectResolver`) reads
   `subject_id` from the runtime's `GET /api/agents/{id}` (upstream

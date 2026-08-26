@@ -4,7 +4,7 @@ package runtime
 // (discovery: GET /v1/gateway/librarians, re-polled so newly
 // provisioned librarians connect without a restart) and the single SSE
 // subscription that fans human chat.message events out to the right
-// instance connection as said events.
+// instance connection as said messages.
 
 import (
 	"context"
@@ -219,7 +219,7 @@ func (rt *Runtime) inboundLoop(ctx context.Context) {
 }
 
 // routeInbound forwards one chat.message to the serving instance as a
-// said event, origin = the message id (idempotency key). Messages that
+// said, origin = the message id (idempotency key). Messages that
 // are not human /talk traffic for a served librarian are ignored; a
 // thread not yet bound on the live connection is dropped here and
 // covered by the replay when its bind arrives.

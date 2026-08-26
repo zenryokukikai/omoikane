@@ -1,19 +1,12 @@
 package gate
 
-// Admin-plane client for the opencrab external gate registration API
-// (issue #104 slice G2). The authoritative contract is opencrab
-// docs/design/external-gate.md §3 (admin wire 正本): exact DTO field
-// order, the uniform error envelope, and the total HTTP-status→code
-// map. This file covers the 11 operations omoikane's provisioning
-// needs (schemas, kinds, instances, revisions, bindings); the
-// source-cursor / catch-up operations are out of scope while the
-// omoikane-talk kind runs catch_up_mode=none.
-//
-// DTO structs are declared in the spec's §3.1 member order — Go's
-// encoding/json serializes struct fields in declaration order, which
-// is how the "object field order is as written" requirement is met.
-// Nullable members use pointers WITHOUT omitempty: the spec requires
-// the member present with a null value, never absent.
+// Admin-plane client for the external gate V3 provisioning API
+// (DESIGN-EXTGATE-V3.md §5). The surface is exactly 6 operations:
+// Instance GET/PUT/DELETE, revision POST, Binding PUT/DELETE. Schema,
+// kind, Binding GET, and cursor APIs no longer exist. The error
+// envelope is {"error":{code,detail}} with the §5.4 stable code
+// vocabulary; field order is non-semantic and unknown members are
+// ignored server-side (duplicates are rejected).
 
 import (
 	"bytes"
@@ -29,180 +22,73 @@ import (
 // ---- error model ----------------------------------------------------
 
 // AdminError is the uniform admin error envelope
-// {"error":{code,at,detail}} plus the HTTP status it arrived with.
-// At/Detail mirror the wire: always present, possibly null.
+// {"error":{code,detail}} plus the HTTP status it arrived with. Detail
+// mirrors the wire: always present, possibly null.
 type AdminError struct {
 	Status int
 	Code   string
-	At     *string
 	Detail *string
 }
 
 func (e *AdminError) Error() string {
 	msg := fmt.Sprintf("gate admin: %s (HTTP %d)", e.Code, e.Status)
-	if e.At != nil {
-		msg += " at " + *e.At
-	}
 	if e.Detail != nil {
 		msg += ": " + *e.Detail
 	}
 	return msg
 }
 
-// adminStatusCodes is the spec §3 total map: every stable error code
-// and the one HTTP status it may arrive with. Used to fail loudly on
-// an envelope that contradicts the contract.
+// adminStatusCodes is the §5.4 map of every HTTP-carried stable error
+// code and the one status it may arrive with. Used to fail loudly on an
+// envelope that contradicts the contract.
 var adminStatusCodes = map[string]int{
-	"unauthorized":              401,
-	"bad_request":               400,
-	"bad_schema_id":             400,
-	"bad_kind_id":               400,
-	"bad_instance_id":           400,
-	"bad_binding_id":            400,
-	"unknown_field":             400,
-	"path_body_mismatch":        400,
-	"schema_unknown":            404,
-	"kind_unknown":              404,
-	"subject_unknown":           404,
-	"instance_unknown":          404,
-	"binding_unknown":           404,
-	"schema_conflict":           409,
-	"kind_in_use":               409,
-	"builtin_reserved":          409,
-	"instance_conflict":         409,
-	"instance_deleted":          409,
-	"revision_conflict":         409,
-	"instance_disabled":         409,
-	"binding_closed":            409,
-	"binding_conflict":          409,
-	"address_in_use":            409,
-	"instance_active":           409,
-	"instance_not_ready":        409,
-	"epoch_mismatch":            409,
-	"catch_up_in_progress":      409,
-	"schema_validation_failed":  422,
-	"schema_role_mismatch":      422,
-	"address_form_invalid":      422,
-	"address_invalid":           422,
-	"catch_up_contract_invalid": 422,
-	"cursor_invalid":            422,
-	"catch_up_unsupported":      422,
-	"store_error":               500,
+	"unauthorized":       401,
+	"bad_request":        400,
+	"subject_unknown":    404,
+	"instance_unknown":   404,
+	"binding_unknown":    404,
+	"instance_conflict":  409,
+	"revision_conflict":  409,
+	"instance_disabled":  409,
+	"binding_closed":     409,
+	"binding_conflict":   409,
+	"address_in_use":     409,
+	"instance_active":    409,
+	"instance_not_ready": 409,
+	"store_error":        500,
 }
 
-// ---- DTOs (spec §3.1, declaration order = wire order) ---------------
+// ---- DTOs (spec §5.2) -----------------------------------------------
 
-// Schema is the stored schema document row.
-type Schema struct {
-	SchemaID       string `json:"schema_id"`
-	Role           string `json:"role"`
-	Format         string `json:"format"`
-	DocumentB64    string `json:"document_b64"`
-	DocumentDigest string `json:"document_digest"`
-	CreatedAt      int64  `json:"created_at"`
-}
-
-// Kind is a registered gate kind.
-type Kind struct {
-	KindID                  string  `json:"kind_id"`
-	Registration            string  `json:"registration"`
-	ProtocolMajor           uint32  `json:"protocol_major"`
-	OriginScope             string  `json:"origin_scope"`
-	IngressDiscovery        string  `json:"ingress_discovery"`
-	AddressForm             *string `json:"address_form"`
-	ConfigSchemaID          *string `json:"config_schema_id"`
-	BindingMetadataSchemaID *string `json:"binding_metadata_schema_id"`
-	SecretManifestSchemaID  *string `json:"secret_manifest_schema_id"`
-	CatchUpMode             *string `json:"catch_up_mode"`
-	CursorSchemaID          *string `json:"cursor_schema_id"`
-}
-
-// Connection is the readiness projection inside an Instance response.
-type Connection struct {
-	State    string  `json:"state"`
-	Revision *uint64 `json:"revision"`
-	Epoch    *uint64 `json:"epoch"`
-}
-
-// SecretManifest lists the kind's secret names (byte-sorted, distinct).
-type SecretManifest struct {
-	Required []string `json:"required"`
-	Optional []string `json:"optional"`
-}
-
-// Instance is a registered gate instance.
+// Instance is a registered gate instance row.
 type Instance struct {
-	InstanceID     string         `json:"instance_id"`
-	KindID         string         `json:"kind_id"`
-	Label          string         `json:"label"`
-	SubjectID      int64          `json:"subject_id"`
-	ActiveRevision uint64         `json:"active_revision"`
-	Present        bool           `json:"present"`
-	Enabled        bool           `json:"enabled"`
-	ConfigB64      string         `json:"config_b64"`
-	ConfigDigest   string         `json:"config_digest"`
-	CreatedAt      int64          `json:"created_at"`
-	Connection     Connection     `json:"connection"`
-	SecretManifest SecretManifest `json:"secret_manifest"`
+	InstanceID   string `json:"instance_id"`
+	KindID       string `json:"kind_id"`
+	SubjectID    int64  `json:"subject_id"`
+	Revision     uint64 `json:"revision"`
+	Enabled      bool   `json:"enabled"`
+	ConfigB64    string `json:"config_b64"`
+	ConfigDigest string `json:"config_digest"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+	DeletedAt    *int64 `json:"deleted_at"`
 }
 
-// CatchUpStart is the binding PUT request's catch-up start. Mode is
-// "now" | "beginning" | "supplied"; CursorB64 is present exactly when
-// Mode is "supplied" (an extra member would be an unknown field).
-type CatchUpStart struct {
-	Mode      string  `json:"mode"`
-	CursorB64 *string `json:"cursor_b64,omitempty"`
-}
-
-// StoredStart is the response form: mode only, never cursor bytes.
-type StoredStart struct {
-	Mode string `json:"mode"`
-}
-
-// AdminBinding is a registered gate binding (the wire-side bind target
-// keeps the short Binding name from G1).
+// AdminBinding is a registered gate binding row (the wire-side bind
+// target keeps the short Binding name).
 type AdminBinding struct {
-	BindingID          string       `json:"binding_id"`
-	InstanceID         string       `json:"instance_id"`
-	Address            string       `json:"address"`
-	Label              *string      `json:"label"`
-	BindingMetadataB64 string       `json:"binding_metadata_b64"`
-	Purposes           []string     `json:"purposes"`
-	CatchUpStart       *StoredStart `json:"catch_up_start"`
-	PlacePublicKey     string       `json:"place_public_key"`
-	SubjectID          int64        `json:"subject_id"`
-	ClosedAt           *int64       `json:"closed_at"`
-	CloseReason        *string      `json:"close_reason"`
-	CursorDigest       *string      `json:"cursor_digest"`
+	BindingID  string `json:"binding_id"`
+	InstanceID string `json:"instance_id"`
+	Address    string `json:"address"`
+	CreatedAt  int64  `json:"created_at"`
+	ClosedAt   *int64 `json:"closed_at"`
 }
 
-// ---- request payloads (spec §3.2, exact member sets) ----------------
-
-// SchemaPut is the PUT /api/gate-schemas/{schema_id} request.
-type SchemaPut struct {
-	Role        string `json:"role"`
-	Format      string `json:"format"`
-	DocumentB64 string `json:"document_b64"`
-}
-
-// KindPut is the PUT /api/gate-kinds/{kind_id} request. Registration
-// is not a request member — the server records external.
-type KindPut struct {
-	ProtocolMajor           uint32  `json:"protocol_major"`
-	OriginScope             string  `json:"origin_scope"`
-	IngressDiscovery        string  `json:"ingress_discovery"`
-	AddressForm             *string `json:"address_form"`
-	ConfigSchemaID          *string `json:"config_schema_id"`
-	BindingMetadataSchemaID *string `json:"binding_metadata_schema_id"`
-	SecretManifestSchemaID  *string `json:"secret_manifest_schema_id"`
-	CatchUpMode             *string `json:"catch_up_mode"`
-	CursorSchemaID          *string `json:"cursor_schema_id"`
-}
+// ---- request payloads (spec §5.3, exact member sets) ----------------
 
 // InstancePut is the PUT /api/gate-instances/{instance_id} request.
 type InstancePut struct {
 	KindID    string `json:"kind_id"`
-	Label     string `json:"label"`
 	SubjectID int64  `json:"subject_id"`
 	Enabled   bool   `json:"enabled"`
 	ConfigB64 string `json:"config_b64"`
@@ -210,41 +96,35 @@ type InstancePut struct {
 
 // RevisionPost is the POST /api/gate-instances/{id}/revisions request.
 type RevisionPost struct {
-	ExpectedActiveRevision uint64 `json:"expected_active_revision"`
-	Enabled                bool   `json:"enabled"`
-	ConfigB64              string `json:"config_b64"`
+	ExpectedRevision uint64 `json:"expected_revision"`
+	Enabled          bool   `json:"enabled"`
+	ConfigB64        string `json:"config_b64"`
 }
 
 // BindingPut is the PUT /api/gate-bindings/{binding_id} request.
-// Purposes is not a request member — the server always creates the
-// literal ["inbound","outbound"] pair.
 type BindingPut struct {
-	InstanceID         string        `json:"instance_id"`
-	Address            string        `json:"address"`
-	Label              *string       `json:"label"`
-	BindingMetadataB64 string        `json:"binding_metadata_b64"`
-	CatchUpStart       *CatchUpStart `json:"catch_up_start"`
+	InstanceID string `json:"instance_id"`
+	Address    string `json:"address"`
 }
 
 // ---- non-DTO success bodies -----------------------------------------
 
-// InstanceDeleted is the DELETE instance response. Deleted=false means
-// the instance was already tombstoned (write-zero).
+// InstanceDeleted is the DELETE instance response.
 type InstanceDeleted struct {
 	InstanceID string `json:"instance_id"`
 	Deleted    bool   `json:"deleted"`
-	Revision   uint64 `json:"revision"`
 }
 
 // RevisionCreated is the POST revisions response.
 type RevisionCreated struct {
 	InstanceID   string `json:"instance_id"`
 	Revision     uint64 `json:"revision"`
-	ConfigDigest string `json:"config_digest"`
 	Enabled      bool   `json:"enabled"`
+	ConfigDigest string `json:"config_digest"`
 }
 
-// BindingClosed is the DELETE binding response.
+// BindingClosed is the DELETE binding response. Closed is true even
+// when the binding was already closed (write-zero response, §5.3).
 type BindingClosed struct {
 	BindingID string `json:"binding_id"`
 	Closed    bool   `json:"closed"`
@@ -252,10 +132,8 @@ type BindingClosed struct {
 
 // ---- client ---------------------------------------------------------
 
-// AdminClient talks to the gate admin registration API with operator
-// credentials. The token is sent as an Authorization bearer header —
-// "既存operator認証" per spec §3; the exact header shape is the
-// operator-auth convention of the deployment.
+// AdminClient talks to the gate admin plane with the operator Bearer
+// token (§5.1).
 type AdminClient struct {
 	baseURL string
 	token   string
@@ -273,70 +151,35 @@ func NewAdminClient(baseURL, operatorToken string) *AdminClient {
 }
 
 // clientErr is a request rejected client-side before any wire I/O
-// (grammar violations the server would answer 400/422 to anyway).
+// (grammar violations the server would answer 400 to anyway).
 func clientErr(format string, a ...any) error {
 	return fmt.Errorf("gate admin: "+format, a...)
 }
 
-// PutSchema creates (201) or matches byte-equivalent (200) a schema.
-// created reports which.
-func (c *AdminClient) PutSchema(ctx context.Context, schemaID string, req SchemaPut) (out *Schema, created bool, err error) {
-	if schemaID == "" {
-		return nil, false, clientErr("schema id must be nonempty")
+// GetInstance fetches one instance (deleted rows answer
+// instance_unknown).
+func (c *AdminClient) GetInstance(ctx context.Context, instanceID string) (*Instance, error) {
+	if !isCanonicalUUID(instanceID) {
+		return nil, clientErr("instance id must be a canonical lowercase UUID")
 	}
-	if !isStdPaddedBase64(req.DocumentB64) {
-		return nil, false, clientErr("document_b64 must be standard padded base64")
-	}
-	out = &Schema{}
-	created, err = c.do(ctx, http.MethodPut, "/api/gate-schemas/"+schemaID, req, out)
-	if err != nil {
-		return nil, false, err
-	}
-	return out, created, nil
-}
-
-// GetSchema fetches one schema.
-func (c *AdminClient) GetSchema(ctx context.Context, schemaID string) (*Schema, error) {
-	if schemaID == "" {
-		return nil, clientErr("schema id must be nonempty")
-	}
-	out := &Schema{}
-	if _, err := c.do(ctx, http.MethodGet, "/api/gate-schemas/"+schemaID, nil, out); err != nil {
+	out := &Instance{}
+	if _, err := c.do(ctx, http.MethodGet, "/api/gate-instances/"+instanceID, nil, out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// PutKind creates (201) or equivalently replaces (200) a kind.
-func (c *AdminClient) PutKind(ctx context.Context, kindID string, req KindPut) (out *Kind, created bool, err error) {
-	if kindID == "" {
-		return nil, false, clientErr("kind id must be nonempty")
-	}
-	out = &Kind{}
-	created, err = c.do(ctx, http.MethodPut, "/api/gate-kinds/"+kindID, req, out)
-	if err != nil {
-		return nil, false, err
-	}
-	return out, created, nil
-}
-
-// GetKind fetches one kind.
-func (c *AdminClient) GetKind(ctx context.Context, kindID string) (*Kind, error) {
-	if kindID == "" {
-		return nil, clientErr("kind id must be nonempty")
-	}
-	out := &Kind{}
-	if _, err := c.do(ctx, http.MethodGet, "/api/gate-kinds/"+kindID, nil, out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// PutInstance creates (201) or matches aggregate-equivalent (200) an
-// instance. The path id must be a UUIDv7 (spec §3.2).
+// PutInstance creates (201) or matches byte-equivalent existing (200)
+// an instance at revision 1. created reports which.
 func (c *AdminClient) PutInstance(ctx context.Context, instanceID string, req InstancePut) (out *Instance, created bool, err error) {
-	if !isUUIDv7(instanceID) {
-		return nil, false, clientErr("instance id must be a canonical lowercase UUIDv7")
+	if !isCanonicalUUID(instanceID) {
+		return nil, false, clientErr("instance id must be a canonical lowercase UUID")
+	}
+	if req.KindID == "" {
+		return nil, false, clientErr("kind_id must be nonempty")
+	}
+	if req.SubjectID <= 0 {
+		return nil, false, clientErr("subject_id must be positive")
 	}
 	if !isStdPaddedBase64(req.ConfigB64) {
 		return nil, false, clientErr("config_b64 must be standard padded base64")
@@ -349,20 +192,8 @@ func (c *AdminClient) PutInstance(ctx context.Context, instanceID string, req In
 	return out, created, nil
 }
 
-// GetInstance fetches one instance.
-func (c *AdminClient) GetInstance(ctx context.Context, instanceID string) (*Instance, error) {
-	if !isCanonicalUUID(instanceID) {
-		return nil, clientErr("instance id must be a canonical lowercase UUID")
-	}
-	out := &Instance{}
-	if _, err := c.do(ctx, http.MethodGet, "/api/gate-instances/"+instanceID, nil, out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// DeleteInstance tombstones an instance (closing its bindings/places).
-// Already-tombstoned answers Deleted=false, not an error.
+// DeleteInstance deletes an instance (closing its open bindings in the
+// same transaction). A live instance answers 409 instance_active.
 func (c *AdminClient) DeleteInstance(ctx context.Context, instanceID string) (*InstanceDeleted, error) {
 	if !isCanonicalUUID(instanceID) {
 		return nil, clientErr("instance id must be a canonical lowercase UUID")
@@ -374,10 +205,14 @@ func (c *AdminClient) DeleteInstance(ctx context.Context, instanceID string) (*I
 	return out, nil
 }
 
-// PostRevision appends a new config revision (CAS on the active one).
+// PostRevision bumps the active revision by exactly one (CAS on
+// expected_revision). A live instance answers 409 instance_active.
 func (c *AdminClient) PostRevision(ctx context.Context, instanceID string, req RevisionPost) (*RevisionCreated, error) {
 	if !isCanonicalUUID(instanceID) {
 		return nil, clientErr("instance id must be a canonical lowercase UUID")
+	}
+	if req.ExpectedRevision == 0 {
+		return nil, clientErr("expected_revision must be positive")
 	}
 	if !isStdPaddedBase64(req.ConfigB64) {
 		return nil, clientErr("config_b64 must be standard padded base64")
@@ -389,21 +224,17 @@ func (c *AdminClient) PostRevision(ctx context.Context, instanceID string, req R
 	return out, nil
 }
 
-// PutBinding creates (201) or matches byte-equivalent (200) a binding.
-// The path id must be a UUIDv7 (spec §3.2).
+// PutBinding creates (201) or matches byte-equivalent open row (200) a
+// binding. Legal while the instance is live (§5.5).
 func (c *AdminClient) PutBinding(ctx context.Context, bindingID string, req BindingPut) (out *AdminBinding, created bool, err error) {
-	if !isUUIDv7(bindingID) {
-		return nil, false, clientErr("binding id must be a canonical lowercase UUIDv7")
+	if !isCanonicalUUID(bindingID) {
+		return nil, false, clientErr("binding id must be a canonical lowercase UUID")
 	}
 	if !isCanonicalUUID(req.InstanceID) {
 		return nil, false, clientErr("instance_id must be a canonical lowercase UUID")
 	}
-	if !isStdPaddedBase64(req.BindingMetadataB64) {
-		return nil, false, clientErr("binding_metadata_b64 must be standard padded base64")
-	}
-	if s := req.CatchUpStart; s != nil && s.Mode == "supplied" &&
-		(s.CursorB64 == nil || !isStdPaddedBase64(*s.CursorB64)) {
-		return nil, false, clientErr("catch_up_start cursor_b64 must be standard padded base64")
+	if req.Address == "" {
+		return nil, false, clientErr("address must be nonempty")
 	}
 	out = &AdminBinding{}
 	created, err = c.do(ctx, http.MethodPut, "/api/gate-bindings/"+bindingID, req, out)
@@ -413,19 +244,8 @@ func (c *AdminClient) PutBinding(ctx context.Context, bindingID string, req Bind
 	return out, created, nil
 }
 
-// GetBinding fetches one binding.
-func (c *AdminClient) GetBinding(ctx context.Context, bindingID string) (*AdminBinding, error) {
-	if !isCanonicalUUID(bindingID) {
-		return nil, clientErr("binding id must be a canonical lowercase UUID")
-	}
-	out := &AdminBinding{}
-	if _, err := c.do(ctx, http.MethodGet, "/api/gate-bindings/"+bindingID, nil, out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// DeleteBinding closes a binding.
+// DeleteBinding closes a binding. Already-closed answers the same
+// write-zero response. Legal while the instance is live (§5.5).
 func (c *AdminClient) DeleteBinding(ctx context.Context, bindingID string) (*BindingClosed, error) {
 	if !isCanonicalUUID(bindingID) {
 		return nil, clientErr("binding id must be a canonical lowercase UUID")
@@ -437,9 +257,10 @@ func (c *AdminClient) DeleteBinding(ctx context.Context, bindingID string) (*Bin
 	return out, nil
 }
 
-// do issues one admin request. body==nil sends no body (GET/DELETE).
-// Success (2xx) decodes into out and reports created=(201). Any other
-// status must carry the uniform error envelope and becomes *AdminError.
+// do issues one admin request. body==nil sends no body (GET/DELETE have
+// 0-byte request bodies, §5.3). Success (2xx) decodes into out and
+// reports created=(201). Any other status must carry the uniform error
+// envelope and becomes *AdminError.
 func (c *AdminClient) do(ctx context.Context, method, path string, body, out any) (created bool, err error) {
 	var rdr io.Reader
 	if body != nil {
@@ -479,12 +300,11 @@ func (c *AdminClient) do(ctx context.Context, method, path string, body, out any
 	}
 
 	// Every non-2xx must be the uniform envelope, and the (status,
-	// code) pair must sit inside the spec's total map — anything else
-	// is a contract violation worth failing loudly on.
+	// code) pair must sit inside the §5.4 map — anything else is a
+	// contract violation worth failing loudly on.
 	var env struct {
 		Error *struct {
 			Code   string  `json:"code"`
-			At     *string `json:"at"`
 			Detail *string `json:"detail"`
 		} `json:"error"`
 	}
@@ -499,7 +319,6 @@ func (c *AdminClient) do(ctx context.Context, method, path string, body, out any
 	return false, &AdminError{
 		Status: resp.StatusCode,
 		Code:   env.Error.Code,
-		At:     env.Error.At,
 		Detail: env.Error.Detail,
 	}
 }

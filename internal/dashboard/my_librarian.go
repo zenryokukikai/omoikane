@@ -36,12 +36,11 @@ type LibrarianProvisioner interface {
 }
 
 // GateRegistrar is what the save flow needs from the external gate
-// provisioner (issue #104 G2): the once-per-process kind/schema
-// registration, then the per-user instance. EnsureInstance answers
-// ("", nil) when registration was skipped (subject resolver still
-// upstream work) — the save proceeds without a gate instance.
+// provisioner (issue #104, V3 contract): the per-user instance PUT (the
+// V3 admin plane has no kind/schema registration). EnsureInstance
+// answers ("", nil) when registration was skipped (no subject mapping
+// yet) — the save proceeds without a gate instance.
 type GateRegistrar interface {
-	EnsureRegistered(ctx context.Context) error
 	EnsureInstance(ctx context.Context, agentID, existingInstanceID string) (string, error)
 }
 
@@ -53,7 +52,7 @@ const personalLibrarianTokenName = "personal-librarian"
 const (
 	librarianNameMaxRunes    = 50
 	librarianPersonaMaxRunes = 2000
-	librarianIconMaxRunes = 8 // text icon: an emoji (ZWJ sequences included), not a sentence
+	librarianIconMaxRunes    = 8 // text icon: an emoji (ZWJ sequences included), not a sentence
 	// Uploaded icon image cap. Must stay comfortably under the server's
 	// whole-body limit (KB_REQUEST_BODY_MAX, default 1MB) — the body
 	// also carries the persona text and multipart framing, and a file
@@ -246,11 +245,6 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 		existing := ""
 		if ul, err := h.Store.GetUserLibrarian(r.Context(), me.ID); err == nil {
 			existing = ul.GateInstanceID
-		}
-		if err := h.Gate.EnsureRegistered(r.Context()); err != nil {
-			h.renderLibrarianError(w, r, me, name, persona, icon,
-				"外部ゲートへの登録に失敗しました: "+err.Error(), http.StatusBadGateway)
-			return
 		}
 		id, err := h.Gate.EnsureInstance(r.Context(), personalLibrarianAgentID(me.ID), existing)
 		if err != nil {

@@ -1,10 +1,10 @@
-// Package runtime is the omoikane-gate orchestration layer (issue #104
-// slice G3b): it discovers the personal librarians to serve
-// (GET /v1/gateway/librarians), holds one protocol 2 connection per
-// gate instance (platform ruling: one process may hold N sockets), and
+// Package runtime is the omoikane-gate orchestration layer (issue
+// #104): it discovers the personal librarians to serve
+// (GET /v1/gateway/librarians), holds one V3 connection per gate
+// instance (platform ruling: one process may hold N sockets), and
 // translates between the gate wire and omoikane's chat HTTP surface —
-// effect(say) → POST /v1/librarian/chat, activity → chat.status
-// broadcasts, SSE chat.message → event(said).
+// say → POST /v1/librarian/chat, activity → chat.status broadcasts,
+// SSE chat.message → said.
 //
 // The package deliberately splits policy from transport: internal/gate
 // speaks the wire, the KB interface (kb.go) speaks omoikane HTTP, and

@@ -52,7 +52,14 @@ func New(cfg Config, logger *slog.Logger) (*Runtime, error) {
 		cfg.KB = newHTTPKB(cfg.KBBaseURL, cfg.Token)
 	}
 	if cfg.Cursors == nil {
-		cfg.Cursors = noCursorStore{}
+		// The real httpKB doubles as the CursorStore (GET/PUT
+		// /v1/gateway/threads/{id}/cursor). A fake KB that does not
+		// implement it degrades to the no-op store.
+		if cs, ok := cfg.KB.(CursorStore); ok {
+			cfg.Cursors = cs
+		} else {
+			cfg.Cursors = noCursorStore{}
+		}
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -239,9 +246,10 @@ func (rt *Runtime) routeInbound(ctx context.Context, data json.RawMessage) {
 	r.sendSaid(ctx, conn, bindingID, m.ThreadID, m.ID, m.AuthorUserID, m.Content)
 }
 
-// logCursorGapOnce logs the missing-cursor-endpoint condition once per
-// process instead of once per message (the gap is static — see
-// ErrCursorUnavailable).
+// logCursorGapOnce logs the first cursor read/advance failure once per
+// process instead of once per message: replay falls back to the thread
+// start (origin-deduped), so a persistent cursor problem must not spam
+// the log line-for-line.
 func (rt *Runtime) logCursorGapOnce(err error) {
 	rt.cursorGapOnce.Do(func() {
 		rt.log.Warn("thread cursor unavailable; replay runs from thread start (origin-deduped)", "err", err)

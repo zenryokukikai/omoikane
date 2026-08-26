@@ -7,17 +7,24 @@ package runtime
 // Endpoint map (all with the gateway-scoped bearer token):
 //
 //	ListLibrarians      GET  /v1/gateway/librarians
-//	PostAssistantReply  POST /v1/librarian/chat        (author stamped)
-//	BroadcastStatus     POST /v1/events/broadcast      (author stamped)
-//	ListMessagesSince   GET  /v1/librarian/threads/{id}/messages
-//	StreamEvents        GET  /v1/events                (SSE)
+//	PostAssistantReply  POST /v1/librarian/chat                 (author stamped)
+//	BroadcastStatus     POST /v1/events/broadcast               (author stamped)
+//	ListMessagesSince   GET  /v1/librarian/threads/{id}/messages (author stamped)
+//	Cursor              GET  /v1/gateway/threads/{id}/cursor
+//	Advance             PUT  /v1/gateway/threads/{id}/cursor
+//	StreamEvents        GET  /v1/events                         (SSE)
 //
-// TOKEN CONTRACT (G3a adversarial review, MEDIUM): the gateway token
-// must be issued USER-LESS — user_id empty, scope "gateway". Binding it
-// to a user (an agent-role user especially) would let the stamp path
-// mint that user's authority on top of the gateway's. Issue it with the
-// admin CLI leaving user_id blank; nothing in this binary works around
-// a mis-issued token.
+// TOKEN CONTRACT (G3a adversarial review, MEDIUM): the gateway token is
+// issued USER-LESS — user_id empty, scope "gateway". The server's stamp
+// path is fail-closed regardless (issue #104 G3c hardened mayUseThread
+// so a gateway stamp confers exactly the stamped user's ownership, never
+// the token's own role), but a user-less token remains the correct issue
+// form: nothing in this binary depends on the token carrying a user.
+// Issue it with the admin CLI leaving user_id blank.
+//
+// The replay read stamps ?author_user_id=<thread owner> so the
+// ownership check on the server runs as the owner — the user-less
+// gateway token otherwise 404s on a talk thread it does not own.
 
 import (
 	"bufio"
@@ -87,8 +94,10 @@ type KB interface {
 	BroadcastStatus(ctx context.Context, threadID, authorUserID, text string, done bool) error
 	// ListMessagesSince returns up to limit messages of threadID newer
 	// than sinceID (all from the beginning when sinceID is ""), oldest
-	// first.
-	ListMessagesSince(ctx context.Context, threadID, sinceID string, limit int) ([]ChatMessage, error)
+	// first. authorUserID is the thread owner the read is stamped as
+	// (?author_user_id=): the user-less gateway token cannot otherwise
+	// read a talk thread it does not own. "" omits the stamp.
+	ListMessagesSince(ctx context.Context, threadID, sinceID, authorUserID string, limit int) ([]ChatMessage, error)
 	// StreamEvents opens the SSE stream and emits events until the
 	// stream breaks, then closes the channel. The caller reconnects.
 	StreamEvents(ctx context.Context) (<-chan StreamEvent, error)
@@ -104,33 +113,21 @@ type CursorStore interface {
 	Advance(ctx context.Context, threadID, messageID string) error
 }
 
-// ErrCursorUnavailable — SERVER GAP (follow-up for #104): the store has
-// talk_gate_bindings.last_sent_message_id and Set/GetTalkGateBinding,
-// but NO authenticated HTTP endpoint exposes them, and inventing an
-// unauthenticated one here is out of the question. Until a
-// gateway-scoped endpoint exists (e.g. GET/PUT
-// /v1/gateway/threads/{id}/cursor), noCursorStore answers this error:
-// replay starts from the beginning of the thread and cursor advances
-// are dropped. Correctness holds anyway — event origin (= message id)
-// is the idempotency key, so re-sent history dedupes core-side — the
-// cursor is purely a replay-cost optimization.
-//
-// Related gap, same follow-up: GET /v1/librarian/threads/{id}/messages
-// has no gateway-stamp parameter, and the gateway token is USER-LESS by
-// contract (see the token note above), so on a real server the replay
-// read itself answers 404 for talk threads until that endpoint (or a
-// dedicated gateway replay endpoint) accepts the gateway scope.
-var ErrCursorUnavailable = errors.New("gate runtime: no cursor endpoint on the server yet (issue #104 follow-up)")
-
-// noCursorStore is the stand-in until the server grows the endpoint.
+// noCursorStore degrades cursor tracking to a no-op: Cursor answers ""
+// (replay from the beginning) and Advance drops the write. It is the
+// fallback for a Config whose injected KB does not implement
+// CursorStore (the real httpKB does — see New()). Correctness holds
+// without a cursor: event origin (= message id) is the idempotency key,
+// so re-sent history dedupes core-side; the cursor is purely a
+// replay-cost optimization.
 type noCursorStore struct{}
 
 func (noCursorStore) Cursor(context.Context, string) (string, error) {
-	return "", ErrCursorUnavailable
+	return "", nil
 }
 
 func (noCursorStore) Advance(context.Context, string, string) error {
-	return ErrCursorUnavailable
+	return nil
 }
 
 // httpKB is the real client.
@@ -259,10 +256,15 @@ func (k *httpKB) BroadcastStatus(ctx context.Context, threadID, authorUserID, te
 	return k.doJSON(ctx, http.MethodPost, "/v1/events/broadcast", body, nil)
 }
 
-func (k *httpKB) ListMessagesSince(ctx context.Context, threadID, sinceID string, limit int) ([]ChatMessage, error) {
+func (k *httpKB) ListMessagesSince(ctx context.Context, threadID, sinceID, authorUserID string, limit int) ([]ChatMessage, error) {
 	q := url.Values{}
 	if sinceID != "" {
 		q.Set("since", sinceID)
+	}
+	if authorUserID != "" {
+		// Gateway stamp: the read runs as the thread owner so the
+		// user-less gateway token clears the ownership check (#104 G3c).
+		q.Set("author_user_id", authorUserID)
 	}
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
@@ -278,6 +280,32 @@ func (k *httpKB) ListMessagesSince(ctx context.Context, threadID, sinceID string
 		return nil, err
 	}
 	return out.Messages, nil
+}
+
+// Cursor reads the reconnect replay cursor for threadID via
+// GET /v1/gateway/threads/{id}/cursor. A 404 (no gate binding row yet)
+// is not an error — it means "no cursor", so replay starts from the
+// beginning. *httpKB thus doubles as the production CursorStore.
+func (k *httpKB) Cursor(ctx context.Context, threadID string) (string, error) {
+	var out struct {
+		LastSentMessageID string `json:"last_sent_message_id"`
+	}
+	path := "/v1/gateway/threads/" + url.PathEscape(threadID) + "/cursor"
+	if err := k.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		var rej *RejectedError
+		if errors.As(err, &rej) && rej.Status == http.StatusNotFound {
+			return "", nil // no binding row: replay from the beginning
+		}
+		return "", err
+	}
+	return out.LastSentMessageID, nil
+}
+
+// Advance records messageID as the newest dispatched id for threadID via
+// PUT /v1/gateway/threads/{id}/cursor.
+func (k *httpKB) Advance(ctx context.Context, threadID, messageID string) error {
+	path := "/v1/gateway/threads/" + url.PathEscape(threadID) + "/cursor"
+	return k.doJSON(ctx, http.MethodPut, path, map[string]string{"message_id": messageID}, nil)
 }
 
 // StreamEvents opens GET /v1/events and parses the SSE wire minimally:

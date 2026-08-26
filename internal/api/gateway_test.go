@@ -253,6 +253,172 @@ func TestGatewayLibrarians(t *testing.T) {
 	}
 }
 
+// G3c hardening: a gateway stamp confers EXACTLY the stamped user's
+// ownership, never agent authority — even when the gateway token's OWN
+// user is an agent-role user (the mis-mint the review flagged). Pre-fix,
+// the agent exception (keyed on the caller) would have let the stamp
+// reach any thread; now the stamp path never consults the role.
+func TestGatewayStampNeverMintsAgentAuthority(t *testing.T) {
+	base, st, _, _, _ := gwSetup(t)
+	ctx := context.Background()
+	if err := st.CreateUser(ctx, &store.User{ID: "agent-bot", Name: "bot", Role: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	agentGwTok, err := st.CreateToken(ctx, "agent-bot", "gw-agent", []string{"read", "write", "gateway"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobTh := gwOpenTalkThread(t, st, "bob")
+
+	// Stamp alice — a user who does NOT own bob's thread — with an
+	// agent-role gateway token. Must be a uniform 404, not a leak.
+	s, raw := doJSON(t, http.MethodPost, base+"/v1/librarian/chat", agentGwTok, map[string]any{
+		"thread_id": bobTh, "author_role": "human", "content": "impersonation attempt",
+		"author_user_id": "alice",
+	}, nil)
+	if s != http.StatusNotFound {
+		t.Fatalf("agent-role gateway token stamping alice into bob's thread: %d %s, want 404", s, raw)
+	}
+
+	// Non-regression: the SAME agent-role gateway token stamping the
+	// actual owner into the owner's own thread still succeeds — the fix
+	// narrows to ownership, it does not break legitimate relays.
+	bobOwnTh := gwOpenTalkThread(t, st, "bob")
+	s, raw = doJSON(t, http.MethodPost, base+"/v1/librarian/chat", agentGwTok, map[string]any{
+		"thread_id": bobOwnTh, "author_role": "human", "content": "legit relay",
+		"author_user_id": "bob",
+	}, nil)
+	if s != http.StatusCreated {
+		t.Fatalf("agent-role gateway token stamping bob into bob's own thread: %d %s, want 201", s, raw)
+	}
+}
+
+// GET/PUT /v1/gateway/threads/{id}/cursor (issue #104 G3c): binding-row
+// lifecycle, the message-membership guard on advance, and the uniform
+// wrong-scope 403.
+func TestGatewayThreadCursor(t *testing.T) {
+	base, st, gwTok, aliceTok, _ := gwSetup(t)
+	ctx := context.Background()
+	th := gwOpenTalkThread(t, st, "alice")
+	otherTh := gwOpenTalkThread(t, st, "alice")
+	msgID, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: th, AuthorRole: "human", AuthorUserID: "alice", Content: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherMsgID, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: otherTh, AuthorRole: "human", AuthorUserID: "alice", Content: "elsewhere"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cursorURL := base + "/v1/gateway/threads/" + th + "/cursor"
+
+	// No binding row yet → GET 404, PUT 404 (the cursor only trails an
+	// existing binding).
+	if s, _ := doJSON(t, http.MethodGet, cursorURL, gwTok, nil, nil); s != http.StatusNotFound {
+		t.Fatalf("GET cursor without binding: %d, want 404", s)
+	}
+	if s, _ := doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": msgID}, nil); s != http.StatusNotFound {
+		t.Fatalf("PUT cursor without binding: %d, want 404", s)
+	}
+
+	// Register a binding → GET returns the empty cursor.
+	if err := st.PutTalkGateBinding(ctx, th, "binding-1", "inst-1"); err != nil {
+		t.Fatal(err)
+	}
+	decodeCursor := func(raw []byte) (threadID, cursor string) {
+		t.Helper()
+		var c struct {
+			ThreadID          string `json:"thread_id"`
+			LastSentMessageID string `json:"last_sent_message_id"`
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatalf("decode cursor %s: %v", raw, err)
+		}
+		return c.ThreadID, c.LastSentMessageID
+	}
+	s, raw := doJSON(t, http.MethodGet, cursorURL, gwTok, nil, nil)
+	if tid, c := decodeCursor(raw); s != http.StatusOK || tid != th || c != "" {
+		t.Fatalf("GET fresh cursor: %d %s", s, raw)
+	}
+
+	// PUT advance guards: empty id, a nonexistent id, and a cross-thread
+	// id are all 400 — never silently stored.
+	if s, _ := doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": ""}, nil); s != http.StatusBadRequest {
+		t.Fatalf("PUT empty message_id: %d, want 400", s)
+	}
+	if s, _ := doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": "does-not-exist"}, nil); s != http.StatusBadRequest {
+		t.Fatalf("PUT unknown message_id: %d, want 400", s)
+	}
+	if s, _ := doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": otherMsgID}, nil); s != http.StatusBadRequest {
+		t.Fatalf("PUT cross-thread message_id: %d, want 400", s)
+	}
+
+	// PUT a real message of this thread → 200, and GET reflects it.
+	s, raw = doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": msgID}, nil)
+	if _, c := decodeCursor(raw); s != http.StatusOK || c != msgID {
+		t.Fatalf("PUT valid cursor: %d %s", s, raw)
+	}
+	if b, err := st.GetTalkGateBinding(ctx, th); err != nil || b.LastSentMessageID != msgID {
+		t.Fatalf("cursor row after PUT: %+v err=%v", b, err)
+	}
+	_, raw = doJSON(t, http.MethodGet, cursorURL, gwTok, nil, nil)
+	if _, c := decodeCursor(raw); c != msgID {
+		t.Fatalf("GET after advance = %s, want cursor %q", raw, msgID)
+	}
+
+	// Wrong scope: RequireScope's uniform 403 on both verbs.
+	if s, _ := doJSON(t, http.MethodGet, cursorURL, aliceTok, nil, nil); s != http.StatusForbidden {
+		t.Errorf("read/write token GET cursor: %d, want 403", s)
+	}
+	if s, _ := doJSON(t, http.MethodPut, cursorURL, aliceTok, map[string]any{"message_id": msgID}, nil); s != http.StatusForbidden {
+		t.Errorf("read/write token PUT cursor: %d, want 403", s)
+	}
+}
+
+// chatList replay stamp (issue #104 G3c): the message-list read honours
+// ?author_user_id= ONLY under the gateway scope, so the user-less
+// gateway token can replay a talk thread as its owner; every other
+// caller sees the query param ignored exactly as before.
+func TestChatListGatewayStampReplay(t *testing.T) {
+	base, st, gwTok, aliceTok, _ := gwSetup(t)
+	ctx := context.Background()
+	aliceTh := gwOpenTalkThread(t, st, "alice")
+	if _, err := st.PostChatMessage(ctx, &store.ChatMessage{
+		ThreadID: aliceTh, AuthorRole: "human", AuthorUserID: "alice", Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	msgsURL := base + "/v1/librarian/threads/" + aliceTh + "/messages"
+
+	// User-less gateway token, no stamp → 404 (can't see the talk thread).
+	if s, _ := doJSON(t, http.MethodGet, msgsURL, gwTok, nil, nil); s != http.StatusNotFound {
+		t.Fatalf("gateway read without stamp: %d, want 404", s)
+	}
+	// With the owner stamp in the query → 200 and the message is returned.
+	s, raw := doJSON(t, http.MethodGet, msgsURL+"?author_user_id=alice", gwTok, nil, nil)
+	if s != http.StatusOK || !strings.Contains(string(raw), "hello") {
+		t.Fatalf("gateway stamped read: %d %s", s, raw)
+	}
+	// Stamped as a non-owner → still 404.
+	if s, _ := doJSON(t, http.MethodGet, msgsURL+"?author_user_id=bob", gwTok, nil, nil); s != http.StatusNotFound {
+		t.Fatalf("gateway stamped non-owner read: %d, want 404", s)
+	}
+	// Non-gateway token: the query param is ignored, so bob's token
+	// cannot read alice's thread by stamping alice.
+	bobTok, err := st.CreateToken(ctx, "bob", "bob-tok", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := doJSON(t, http.MethodGet, msgsURL+"?author_user_id=alice", bobTok, nil, nil); s != http.StatusNotFound {
+		t.Fatalf("non-gateway token with stamp query: %d, want 404 (field ignored)", s)
+	}
+	// The owner reads her own thread normally.
+	if s, _ := doJSON(t, http.MethodGet, msgsURL, aliceTok, nil, nil); s != http.StatusOK {
+		t.Fatalf("owner read: %d, want 200", s)
+	}
+}
+
 // The gateway scope resolves to the unrestricted view (nil), mirroring
 // admin; a user-less token without it stays pinned to 'internal'.
 func TestResolveVisibleSpacesGatewayScope(t *testing.T) {

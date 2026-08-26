@@ -76,10 +76,10 @@ type Config struct {
 	// from KBBaseURL/Token. Tests may inject a fake.
 	KB KB
 
-	// Cursors is the per-thread catch-up cursor store. nil =
-	// noCursorStore (see kb.go: the server has no cursor endpoint yet —
-	// flagged follow-up), which replays from the beginning of a thread
-	// and relies on origin idempotency.
+	// Cursors is the per-thread catch-up cursor store. nil = the real
+	// httpKB (GET/PUT /v1/gateway/threads/{id}/cursor) when the KB is the
+	// production client, else the no-op noCursorStore. The no-op replays
+	// from the beginning of a thread and relies on origin idempotency.
 	Cursors CursorStore
 }
 

@@ -262,8 +262,9 @@ func (r *instanceRunner) OnCatchUp(cu gate.CatchUp) error {
 // instance was disconnected: list thread messages after the binding
 // cursor, SendEvent each with origin = message id (the core dedupes by
 // origin, so overlap is harmless), and advance the cursor after each
-// confirmed send. Cursor read/advance degrade gracefully — see
-// ErrCursorUnavailable in kb.go for the flagged server gap.
+// confirmed send. Cursor read/advance degrade gracefully: a cursor
+// error (or the no-op store) just replays from the beginning, which
+// origin idempotency makes safe.
 func (r *instanceRunner) replay(conn *gate.Conn, b gate.Binding) {
 	ctx := r.ctx
 	cursor, err := r.rt.cursors.Cursor(ctx, b.Address)
@@ -272,7 +273,10 @@ func (r *instanceRunner) replay(conn *gate.Conn, b gate.Binding) {
 		cursor = "" // replay from the beginning; origin dedup keeps it safe
 	}
 	for {
-		msgs, err := r.rt.kb.ListMessagesSince(ctx, b.Address, cursor, replayPageSize)
+		// Stamp the read as the thread owner (r.lib.UserID): the
+		// user-less gateway token cannot read a talk thread it does not
+		// own, and the personal librarian's owner IS that thread's owner.
+		msgs, err := r.rt.kb.ListMessagesSince(ctx, b.Address, cursor, r.lib.UserID, replayPageSize)
 		if err != nil {
 			r.rt.log.Warn("replay: listing thread messages failed",
 				"instance_id", r.lib.GateInstanceID, "thread_id", b.Address, "err", err)

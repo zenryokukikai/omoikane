@@ -46,9 +46,19 @@ import (
 // "gateway" scope (validated by gatewayStampedAuthor — the only
 // producer of a non-empty actor) and relays on behalf of that user, so
 // a thread the stamped user cannot use stays a 404 exactly as if the
-// user had called directly. The agent exception below still judges the
-// CALLER's role, never the stamped user's — otherwise the stamp could
-// mint agent authority out of thin air.
+// user had called directly.
+//
+// INVARIANT (G3a adversarial review, MEDIUM): a gateway stamp confers
+// EXACTLY the stamped user's ownership, never agent authority — so a
+// gateway token's own UserID/role is irrelevant to stamped calls. When
+// actor != "" the only question asked is `actor == th.CreatedBy`; the
+// agent exception below is NOT consulted. This is fail-closed by
+// construction: even a gateway token mis-minted with a UserID that
+// resolves to an agent-role user cannot impersonate an arbitrary user
+// into an arbitrary talk thread, because the stamp path never reaches
+// the role check. Only the non-stamped path (actor == "") — where the
+// caller acts as itself — may use the agent exception, keyed on the
+// CALLER's own role.
 //
 // Callers translate false into 404 — for outsiders a foreign talk
 // thread must be indistinguishable from a missing one.
@@ -63,14 +73,17 @@ func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bo
 	if store.HasScope(tok.Scopes, "admin") {
 		return true
 	}
-	userID := tok.UserID
+	// Gateway-stamped relay: authority is exactly the stamped user's
+	// ownership. The agent exception is deliberately unreachable here so
+	// the gateway token's own identity can never widen the stamp.
 	if actor != "" {
-		userID = actor
+		return actor == th.CreatedBy
 	}
-	if userID == "" {
+	// Non-stamped path: the caller acts as itself.
+	if tok.UserID == "" {
 		return false
 	}
-	if userID == th.CreatedBy {
+	if tok.UserID == th.CreatedBy {
 		return true
 	}
 	if !agentOK {
@@ -311,7 +324,16 @@ func (h *Handler) chatList(w http.ResponseWriter, r *http.Request) {
 	// indistinguishable 404. (Previously an unknown thread returned an
 	// empty 200 — that would have become an existence oracle next to
 	// the 404 for hidden threads.)
-	if h.requireUsableThread(w, r, threadID, true, "") == nil {
+	//
+	// Gateway replay (issue #104 G3c): a read is authenticated by query
+	// (never a body), so the gateway stamp arrives as ?author_user_id=.
+	// gatewayStampedAuthor honours it ONLY under the literal "gateway"
+	// scope; every other caller gets "" and the param is ignored exactly
+	// as before. The stamp flows through the same actor param as the
+	// write paths, so the ownership check runs as the stamped owner and a
+	// foreign thread stays a 404.
+	actor := gatewayStampedAuthor(r, r.URL.Query().Get("author_user_id"))
+	if h.requireUsableThread(w, r, threadID, true, actor) == nil {
 		return
 	}
 

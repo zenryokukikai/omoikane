@@ -23,9 +23,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/zenryokukikai/omoikane/internal/auth"
 	"github.com/zenryokukikai/omoikane/internal/store"
@@ -87,6 +90,76 @@ func (h *Handler) gatewayListLibrarians(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"librarians": out})
+}
+
+// GET /v1/gateway/threads/{threadID}/cursor — the reconnect replay
+// cursor for one /talk thread: the newest message id the gateway
+// confirmed dispatching (last_sent_message_id, "" = nothing sent yet).
+// 404 when the thread has no gate binding row — same shape as the
+// store's ErrNotFound, and the gate reads that as "replay from the
+// beginning" (origin idempotency keeps the overlap harmless).
+// RequireScope("gateway") gates the route; every other token gets the
+// uniform 403 (pinned in gateway_test.go).
+func (h *Handler) gatewayGetThreadCursor(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	b, err := h.Store.GetTalkGateBinding(httpCtx(r), threadID)
+	if err != nil {
+		writeStoreError(w, err) // ErrNotFound → 404
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"thread_id":            threadID,
+		"last_sent_message_id": b.LastSentMessageID,
+	})
+}
+
+type gatewayCursorRequest struct {
+	MessageID string `json:"message_id"`
+}
+
+// PUT /v1/gateway/threads/{threadID}/cursor — advances the replay
+// cursor after the gate confirmed dispatching message_id. The id must
+// be a real message OF THIS THREAD: an arbitrary or cross-thread id is
+// rejected (400), never silently stored, so the cursor can only ever
+// trail this thread's own history. 404 when the thread has no binding
+// row (the cursor only trails an existing binding).
+// RequireScope("gateway") gates the route.
+func (h *Handler) gatewaySetThreadCursor(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	var req gatewayCursorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
+		return
+	}
+	if req.MessageID == "" {
+		writeError(w, http.StatusBadRequest, CodeMissingFields, "message_id is required", nil)
+		return
+	}
+	// Membership check: the store's SetTalkGateBindingCursor does not
+	// validate that the id belongs to the thread, so guard it here rather
+	// than trust the caller. A missing or cross-thread id is a 400 — the
+	// cursor never points outside its own thread's history.
+	msg, err := h.Store.GetChatMessage(httpCtx(r), req.MessageID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusBadRequest, CodeBadRequest, "message_id does not belong to this thread", nil)
+			return
+		}
+		writeStoreError(w, err)
+		return
+	}
+	if msg.ThreadID != threadID {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "message_id does not belong to this thread", nil)
+		return
+	}
+	if err := h.Store.SetTalkGateBindingCursor(httpCtx(r), threadID, req.MessageID); err != nil {
+		writeStoreError(w, err) // ErrNotFound (no binding) → 404
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"thread_id":            threadID,
+		"last_sent_message_id": req.MessageID,
+	})
 }
 
 // talkGateBindTimeout caps the admin-plane PUT during thread creation.

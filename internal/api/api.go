@@ -31,12 +31,12 @@ type Handler struct {
 
 	// Phase A auth — nil disables OAuth login (the rest of the API
 	// keeps working with admin-issued Bearer tokens).
-	OAuthGoogle      oauth.Provider
+	OAuthGoogle       oauth.Provider
 	OAuthRedirectBase string // for canonical-host enforcement (e.g. "http://localhost:8095")
-	AuthAllowDomains []string
-	AuthAllowEmails  []string
-	HTTPSEnabled     bool
-	SessionTTL       time.Duration
+	AuthAllowDomains  []string
+	AuthAllowEmails   []string
+	HTTPSEnabled      bool
+	SessionTTL        time.Duration
 
 	// Agent registration policy
 	RegisterOpen bool // KB_REGISTER_OPEN=1 disables invite-code requirement
@@ -135,12 +135,12 @@ func (h *Handler) Mount(r chi.Router) {
 			r.With(auth.RequireScope("admin")).Get("/admin/members/invitations", h.listMemberInvites)
 			r.With(auth.RequireScope("admin")).Patch("/admin/users/{id}/role", h.updateUserRole)
 
-				// Webhook subscriptions (issue #33) — push events to
-				// external agent runtimes; delivery contract in design.md.
-				r.With(auth.RequireScope("admin")).Post("/admin/webhooks", h.createWebhook)
-				r.With(auth.RequireScope("admin")).Get("/admin/webhooks", h.listWebhooks)
-				r.With(auth.RequireScope("admin")).Patch("/admin/webhooks/{id}", h.patchWebhook)
-				r.With(auth.RequireScope("admin")).Delete("/admin/webhooks/{id}", h.deleteWebhook)
+			// Webhook subscriptions (issue #33) — push events to
+			// external agent runtimes; delivery contract in design.md.
+			r.With(auth.RequireScope("admin")).Post("/admin/webhooks", h.createWebhook)
+			r.With(auth.RequireScope("admin")).Get("/admin/webhooks", h.listWebhooks)
+			r.With(auth.RequireScope("admin")).Patch("/admin/webhooks/{id}", h.patchWebhook)
+			r.With(auth.RequireScope("admin")).Delete("/admin/webhooks/{id}", h.deleteWebhook)
 
 			r.With(auth.RequireScope("read")).Get("/projects", h.listProjects)
 			r.With(auth.RequireScope("read")).Get("/projects/{id}", h.getProject)
@@ -292,6 +292,10 @@ func (h *Handler) Mount(r chi.Router) {
 			// one service token, webhook-dispatcher trust level (see
 			// gateway.go).
 			r.With(auth.RequireScope("gateway")).Get("/gateway/librarians", h.gatewayListLibrarians)
+			// Reconnect replay cursor per /talk thread (issue #104 G3c):
+			// the gate reads it on connect and advances it after dispatch.
+			r.With(auth.RequireScope("gateway")).Get("/gateway/threads/{threadID}/cursor", h.gatewayGetThreadCursor)
+			r.With(auth.RequireScope("gateway")).Put("/gateway/threads/{threadID}/cursor", h.gatewaySetThreadCursor)
 
 			// Phase 6 — tier listing
 			r.With(auth.RequireScope("read")).Get("/tiers", h.tierList)
@@ -370,9 +374,9 @@ func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":      "ok",
 		"started_at":  h.StartedAt,
-		"build":       h.BuildInfo,      // "App (sha)" — full version string
-		"app_version": version.App,      // bare semver
-		"git_sha":     version.Build,    // bare build sha (or "dev")
+		"build":       h.BuildInfo,   // "App (sha)" — full version string
+		"app_version": version.App,   // bare semver
+		"git_sha":     version.Build, // bare build sha (or "dev")
 	})
 }
 

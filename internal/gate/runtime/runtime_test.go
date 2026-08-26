@@ -299,14 +299,17 @@ func TestReconnectReplaysFromCursor(t *testing.T) {
 	}
 }
 
-// The default cursor store (no server endpoint yet) still replays —
-// from the beginning — and never fails the runner.
-func TestReplayWithoutCursorEndpoint(t *testing.T) {
+// The production default cursor store is the httpKB itself (nil Cursors
+// + real KB): with no binding row the GET cursor 404s, so replay runs
+// from the beginning, and the replay read is stamped with the thread
+// owner (?author_user_id=) so the user-less gateway token clears the
+// ownership check. Never fails the runner.
+func TestReplayReadsCursorOverHTTPNoBinding(t *testing.T) {
 	kb := newFakeKBServer(t)
 	kb.messages[testThread] = []ChatMessage{
 		{ID: "m-1", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "first"},
 	}
-	_, core := startBoundInstance(t, kb, nil) // nil → noCursorStore
+	_, core := startBoundInstance(t, kb, nil) // nil → httpKB CursorStore
 
 	m := core.recvEvent()
 	if got := core.str(m, "origin"); got != "m-1" {
@@ -318,7 +321,45 @@ func TestReplayWithoutCursorEndpoint(t *testing.T) {
 	since := append([]string(nil), kb.sinceSeen...)
 	kb.mu.Unlock()
 	if len(since) == 0 || since[0] != "" {
-		t.Fatalf("since=%v, want replay from the beginning", since)
+		t.Fatalf("since=%v, want replay from the beginning (no binding → GET cursor 404)", since)
+	}
+	if authors := kb.authorList(); len(authors) == 0 || authors[0] != testLibA().UserID {
+		t.Fatalf("replay author stamp=%v, want owner %q on the first read", authors, testLibA().UserID)
+	}
+}
+
+// With a binding row, the default httpKB cursor store reads the stored
+// cursor over HTTP (GET) and advances it over HTTP (PUT) after the
+// confirmed send — no in-memory stub involved.
+func TestReplayReadsAndAdvancesCursorOverHTTP(t *testing.T) {
+	kb := newFakeKBServer(t)
+	kb.messages[testThread] = []ChatMessage{
+		{ID: "m-1", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "already sent"},
+		{ID: "m-2", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "missed while down"},
+	}
+	// Seed a binding row with cursor at m-1: GET must return it so replay
+	// resumes after m-1 (m-2 only).
+	kb.cursors[testThread] = "m-1"
+	_, core := startBoundInstance(t, kb, nil) // nil → httpKB CursorStore
+
+	m := core.recvEvent()
+	if got := core.str(m, "origin"); got != "m-2" {
+		t.Fatalf("replayed origin=%q, want m-2 (resumed after the HTTP cursor m-1)", got)
+	}
+	core.ok(core.str(m, "id"), map[string]any{"seq": int64(9), "binding_id": testBinding1})
+
+	waitFor(t, "cursor advance PUT to m-2", func() bool {
+		puts := kb.cursorPutList()
+		return len(puts) == 1 && puts[0] == testThread+"=m-2"
+	})
+	kb.mu.Lock()
+	since := append([]string(nil), kb.sinceSeen...)
+	kb.mu.Unlock()
+	if len(since) == 0 || since[0] != "m-1" {
+		t.Fatalf("replay listed since=%v, want first query from the HTTP cursor m-1", since)
+	}
+	if authors := kb.authorList(); len(authors) == 0 || authors[0] != testLibA().UserID {
+		t.Fatalf("replay author stamp=%v, want owner %q", authors, testLibA().UserID)
 	}
 }
 

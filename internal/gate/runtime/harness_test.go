@@ -68,6 +68,9 @@ type fakeKBServer struct {
 	broadcasts  []broadcastBody
 	messages    map[string][]ChatMessage // thread → full history (oldest first)
 	sinceSeen   []string                 // captured ?since= values
+	authorSeen  []string                 // captured ?author_user_id= values
+	cursors     map[string]string        // thread → last_sent_message_id (key present = binding row exists)
+	cursorPuts  []string                 // "thread=msg" advance calls in order
 	sse         chan string              // preformatted SSE blocks
 	lastAuth    string
 	sseConnects int
@@ -79,6 +82,7 @@ func newFakeKBServer(t *testing.T) *fakeKBServer {
 		chatStatus: http.StatusCreated,
 		nextMsgID:  "m-reply-1",
 		messages:   map[string][]ChatMessage{},
+		cursors:    map[string]string{},
 		sse:        make(chan string, 16),
 	}
 	mux := http.NewServeMux()
@@ -86,6 +90,8 @@ func newFakeKBServer(t *testing.T) *fakeKBServer {
 	mux.HandleFunc("POST /v1/librarian/chat", f.handleChat)
 	mux.HandleFunc("POST /v1/events/broadcast", f.handleBroadcast)
 	mux.HandleFunc("GET /v1/librarian/threads/{id}/messages", f.handleMessages)
+	mux.HandleFunc("GET /v1/gateway/threads/{id}/cursor", f.handleGetCursor)
+	mux.HandleFunc("PUT /v1/gateway/threads/{id}/cursor", f.handlePutCursor)
 	mux.HandleFunc("GET /v1/events", f.handleSSE)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -141,6 +147,7 @@ func (f *fakeKBServer) handleMessages(w http.ResponseWriter, r *http.Request) {
 	since := r.URL.Query().Get("since")
 	f.mu.Lock()
 	f.sinceSeen = append(f.sinceSeen, since)
+	f.authorSeen = append(f.authorSeen, r.URL.Query().Get("author_user_id"))
 	hist := f.messages[thread]
 	f.mu.Unlock()
 	out := hist
@@ -160,6 +167,44 @@ func (f *fakeKBServer) handleMessages(w http.ResponseWriter, r *http.Request) {
 		out = []ChatMessage{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": out})
+}
+
+// handleGetCursor serves GET /v1/gateway/threads/{id}/cursor: 404 when
+// no binding row (no map key), else the stored last_sent_message_id.
+func (f *fakeKBServer) handleGetCursor(w http.ResponseWriter, r *http.Request) {
+	f.auth(r)
+	thread := r.PathValue("id")
+	f.mu.Lock()
+	cur, ok := f.cursors[thread]
+	f.mu.Unlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no binding"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"thread_id": thread, "last_sent_message_id": cur})
+}
+
+// handlePutCursor serves PUT /v1/gateway/threads/{id}/cursor: records
+// the advance, 404 when no binding row (mirrors the real server, where
+// the cursor only trails an existing binding).
+func (f *fakeKBServer) handlePutCursor(w http.ResponseWriter, r *http.Request) {
+	f.auth(r)
+	thread := r.PathValue("id")
+	var body struct {
+		MessageID string `json:"message_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		f.t.Errorf("cursor put decode: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.cursors[thread]; !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no binding"})
+		return
+	}
+	f.cursors[thread] = body.MessageID
+	f.cursorPuts = append(f.cursorPuts, thread+"="+body.MessageID)
+	writeJSON(w, http.StatusOK, map[string]any{"thread_id": thread, "last_sent_message_id": body.MessageID})
 }
 
 func (f *fakeKBServer) handleSSE(w http.ResponseWriter, r *http.Request) {
@@ -423,6 +468,20 @@ func contentText(t *testing.T, m map[string]json.RawMessage) string {
 		t.Fatalf("event content: %v", err)
 	}
 	return c.Text
+}
+
+// authorList returns the captured ?author_user_id= values, in order.
+func (f *fakeKBServer) authorList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.authorSeen...)
+}
+
+// cursorPutList returns the "thread=msg" cursor advances, in order.
+func (f *fakeKBServer) cursorPutList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.cursorPuts...)
 }
 
 // hasPrefixAuth asserts the recorded Authorization header carried the

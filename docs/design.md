@@ -1709,13 +1709,16 @@ skill 品質の維持:
   "mentions": ["@coordinator"],
   "content": "...",
   "intent": "observation",
-  "related_entries": ["T-001"],
+  "related_entries": "[\"T-001\"]",
   "input_tokens": 1245,
   "output_tokens": 287
 }
 ```
 
 `intent`: `observation` / `question` / `proposal` / `celebration` / `concern` / `arbitration` / `PASS`
+
+`related_entries` は **JSON エンコード済み文字列**(API 構造体は `string` 型。
+生の JSON 配列 `["T-001"]` を送ると 400 になる)。
 
 状態機械:
 ```

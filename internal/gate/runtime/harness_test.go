@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -319,19 +320,50 @@ func (f *fakeCore) ok(id string, payload any) {
 // instance_id, and returns after the gate is ACTIVE-ready.
 func (f *fakeCore) serveHandshake(wantInstance string, epoch uint64) {
 	f.t.Helper()
+	if got := f.serveHandshakeAny(epoch); got != wantInstance {
+		f.t.Fatalf("hello instance_id=%q, want %q", got, wantInstance)
+	}
+}
+
+// serveHandshakeAny serves hello (epoch) and ready for whichever
+// instance dialed this connection, returning the hello's instance_id
+// (runner dial order is map-iteration order, so multi-instance tests
+// identify connections by the hello rather than by arrival).
+func (f *fakeCore) serveHandshakeAny(epoch uint64) string {
+	f.t.Helper()
 	m := f.recv()
 	if got := f.str(m, "m"); got != "hello" {
 		f.t.Fatalf("first frame m=%q, want hello", got)
 	}
-	if got := f.str(m, "instance_id"); got != wantInstance {
-		f.t.Fatalf("hello instance_id=%q, want %q", got, wantInstance)
-	}
+	instance := f.str(m, "instance_id")
 	f.ok(f.str(m, "id"), map[string]any{"protocol": 2, "connection_epoch": epoch})
 	m = f.recv()
 	if got := f.str(m, "m"); got != "ready" {
 		f.t.Fatalf("frame m=%q, want ready", got)
 	}
 	f.ok(f.str(m, "id"), map[string]any{})
+	return instance
+}
+
+// expectClosed waits for the gate to close this connection (the read
+// returning a peer-close error). A read deadline expiring instead means
+// the connection was NOT closed — that fails the test.
+func (f *fakeCore) expectClosed() {
+	f.t.Helper()
+	if err := f.c.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		f.t.Fatalf("SetReadDeadline: %v", err)
+	}
+	for {
+		_, err := f.br.ReadBytes('\n')
+		if err == nil {
+			continue // drain in-flight frames until the close lands
+		}
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			f.t.Fatal("connection was not closed by the gate")
+		}
+		return
+	}
 }
 
 // bind sends a bind for (bindingID, address) and consumes the ack.

@@ -148,6 +148,27 @@ state; it re-discovers the roster and re-binds from scratch (reconnect
 replay is origin-idempotent, so re-sent history dedupes core-side).
 `restart: unless-stopped` in compose is appropriate.
 
+## revision 更新 / instance 削除の手順
+
+契約 §6 の簡素化 (#104) により、ある gate instance の **LIVE 接続を
+gate が保持している間**、プラットフォームはその instance への
+**revision POST** と **instance DELETE** を `409 instance_active` で
+拒否する (自動 invalidation スイープは廃止された)。順序は運用側の
+責任になる:
+
+- **revision 更新**: `omoikane-gate` を停止する (または gate がその
+  instance の接続を落とすのを待つ) → revision を適用する → 新しい
+  設定 (`GATE_HELLO_REVISION` 等) で gate を再起動する。接続が生きて
+  いる限り revision POST は 409 で弾かれるので、停止が先。
+- **instance 削除 (librarian 削除)**: librarian を deactivate して
+  roster から外す → gate は次の roster poll でその instance の接続を
+  自動切断する (ログ: `stopping gate instance (left roster)`) → その後
+  instance を DELETE する。接続が残ったまま DELETE しても 409 になる
+  だけなので、必ず roster 離脱 → 自動切断を先に確認する。
+
+**binding PUT/DELETE はこの LIVE 拒否の対象外**であり、通常運用中も
+そのまま実行できる (スレッドの bind/unbind に gate の停止は不要)。
+
 ## Filling in the two platform-provided values
 
 Everything above is final **except** two values, deferred until the

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // startBoundInstance boots a runtime serving testLibA, walks the
@@ -262,6 +263,52 @@ func TestDiscoveryConnectsNewLibrarian(t *testing.T) {
 
 	coreB := h.nextCore()
 	coreB.serveHandshake(testInstanceB, 1)
+}
+
+// Discovery, the reverse direction (#104 contract §6): an instance that
+// leaves the roster (librarian deactivated / gate_instance_id cleared)
+// gets its connection closed and its reconnect loop stopped — the
+// platform rejects revision POST / instance DELETE 409 instance_active
+// while the gate holds a live connection, so the gate must actually let
+// go. Reappearing later is a normal new-instance connect.
+func TestDiscoveryDisconnectsRemovedLibrarian(t *testing.T) {
+	kb := newFakeKBServer(t)
+	kb.setRoster(testLibA(), testLibB())
+	h := startRuntime(t, kb, nil)
+
+	// Both instances connect; dial order is map order, so identify the
+	// connections by their hello.
+	cores := map[string]*fakeCore{}
+	for i := 0; i < 2; i++ {
+		c := h.nextCore()
+		cores[c.serveHandshakeAny(1)] = c
+	}
+	coreA, coreB := cores[testInstanceA], cores[testInstanceB]
+	if coreA == nil || coreB == nil {
+		t.Fatalf("connected instances = %v, want A and B", cores)
+	}
+
+	// B leaves the roster → the next poll closes B's connection.
+	kb.setRoster(testLibA())
+	coreB.expectClosed()
+
+	// …and B's runner is gone for good: across several discovery and
+	// backoff cycles no reconnect is dialed (A stays connected and never
+	// redials, so any arrival here would be B).
+	time.Sleep(8 * 25 * time.Millisecond)
+	select {
+	case <-h.cores:
+		t.Fatal("removed instance was redialed")
+	default:
+	}
+
+	// A is unaffected: its live connection still serves a bind.
+	coreA.bind("b-req-a", testBinding1, testThread)
+
+	// B reappearing on a later poll reconnects like any new librarian.
+	kb.setRoster(testLibA(), testLibB())
+	coreB2 := h.nextCore()
+	coreB2.serveHandshake(testInstanceB, 2)
 }
 
 // Reconnect: a new session replays human messages after the stored

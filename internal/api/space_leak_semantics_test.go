@@ -303,3 +303,69 @@ func TestBacklogReprocessVisibility(t *testing.T) {
 		t.Errorf("member cleared = %d, want 1 (the fixture's cataloger progress row)", out.Cleared)
 	}
 }
+
+// TestThreadRelatedEntriesVisibility (issue #103): related_entries is a
+// JSON array of entry ids (skill.md) and every id is validated like any
+// other entry reference — a member may link a granted-space entry, an
+// outsider's invisible id and a nonexistent id produce byte-identical
+// 404s (no existence oracle), and message-level related_entries follow
+// the same contract as thread-level ones.
+func TestThreadRelatedEntriesVisibility(t *testing.T) {
+	f := newLeakFixture(t)
+	threadsURL := f.base + "/v1/librarian/threads"
+	chatURL := f.base + "/v1/librarian/chat"
+
+	t.Run("member links a granted-space entry", func(t *testing.T) {
+		s, raw := doJSON(t, "POST", threadsURL, f.memberTok, map[string]any{
+			"title": "member thread", "related_entries": `["` + f.secretID + `"]`,
+		}, nil)
+		if s != 201 {
+			t.Fatalf("member open: %d %s", s, raw)
+		}
+		s, raw = doJSON(t, "POST", chatURL, f.memberTok, map[string]any{
+			"thread_id": f.coordThreadID, "author_role": "human",
+			"content": "member message", "related_entries": `["` + f.secretID + `"]`,
+		}, nil)
+		if s != 201 {
+			t.Fatalf("member chat post: %d %s", s, raw)
+		}
+	})
+
+	t.Run("invisible == nonexistent (byte-identical 404)", func(t *testing.T) {
+		sHidden, rawHidden := doJSON(t, "POST", threadsURL, f.outsiderTok, map[string]any{
+			"title": "probe", "related_entries": `["` + f.secretID + `"]`,
+		}, nil)
+		sMissing, rawMissing := doJSON(t, "POST", threadsURL, f.outsiderTok, map[string]any{
+			"title": "probe", "related_entries": `["T-NOSUCH"]`,
+		}, nil)
+		if sHidden != 404 || sMissing != 404 {
+			t.Fatalf("outsider open: hidden=%d missing=%d", sHidden, sMissing)
+		}
+		if string(rawHidden) != string(rawMissing) {
+			t.Errorf("404 bodies differ (existence oracle):\nhidden:  %s\nmissing: %s",
+				rawHidden, rawMissing)
+		}
+	})
+
+	t.Run("nonexistent id is 404 for the member too", func(t *testing.T) {
+		if s, raw := doJSON(t, "POST", threadsURL, f.memberTok, map[string]any{
+			"title": "probe", "related_entries": `["T-NOSUCH"]`,
+		}, nil); s != 404 {
+			t.Errorf("member open with missing id: %d %s", s, raw)
+		}
+		if s, raw := doJSON(t, "POST", chatURL, f.memberTok, map[string]any{
+			"thread_id": f.coordThreadID, "author_role": "human",
+			"content": "m", "related_entries": `["T-NOSUCH"]`,
+		}, nil); s != 404 {
+			t.Errorf("member chat post with missing id: %d %s", s, raw)
+		}
+	})
+
+	t.Run("non-JSON related_entries is rejected", func(t *testing.T) {
+		if s, raw := doJSON(t, "POST", threadsURL, f.memberTok, map[string]any{
+			"title": "probe", "related_entries": "not-json",
+		}, nil); s != 400 {
+			t.Errorf("member open with junk related_entries: %d %s", s, raw)
+		}
+	})
+}

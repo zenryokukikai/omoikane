@@ -1,0 +1,72 @@
+# omoikane-gate compose fragment (issue #104 slice G3, E2E prep).
+#
+# ADDITIVE / STANDALONE. There is no in-repo compose that builds
+# kb-server — the production stack lives on the server at
+# /srv/omoikane-deploy and is deployed there (compose + scripts/deploy.sh
+# --bump), never built locally. This file documents how the gate service
+# ATTACHES to that stack. Bring it up alongside the existing stack:
+#
+#   docker compose \
+#     -f /srv/omoikane-deploy/docker-compose.yml \
+#     -f deploy/omoikane-gate.compose.yml \
+#     up -d omoikane-gate
+#
+# Match the real stack's names before use:
+#   - `networks: [omoikane]` must be the network kb-server is on. If the
+#     server stack names it differently, rename here (or mark external).
+#   - `KB_BASE_URL` below assumes the kb-server service is reachable as
+#     http://kb-server:8080 on that network. Adjust to the real service
+#     name / port if they differ.
+#   - `opencrab-core-socket` is the named volume SHARED with the opencrab
+#     core container. The core must mount the SAME named volume and
+#     create its listening socket inside it; the gate mounts it read-write
+#     and dials that socket. This shared-volume mount is the whole point
+#     of the fragment — a UDS cannot cross containers any other way.
+#
+# The two confirmation-time values (OPENCRAB_GATE_SOCKET, GATEWAY_TOKEN)
+# come from gateway.env (git-ignored; copy from deploy/gateway.env.example).
+# See docs/gateway-runbook.md.
+
+services:
+  omoikane-gate:
+    build:
+      context: ..
+      dockerfile: deploy/omoikane-gate.Dockerfile
+      args:
+        # Provided by the deploy pipeline; "dev" for local builds.
+        GIT_SHA: ${GIT_SHA:-dev}
+    image: omoikane-gate:${GIT_SHA:-dev}
+    restart: unless-stopped
+    # Values from gateway.env. The two upstream/confirmation-time secrets
+    # (OPENCRAB_GATE_SOCKET, GATEWAY_TOKEN) live there and are NOT
+    # committed.
+    env_file:
+      - gateway.env
+    environment:
+      # KB_BASE_URL points at the kb-server service on the shared
+      # network. Override in gateway.env if your service name/port differ.
+      KB_BASE_URL: ${KB_BASE_URL:-http://kb-server:8080}
+      # OPENCRAB_GATE_SOCKET and GATEWAY_TOKEN come from gateway.env
+      # (env_file above). They intentionally have no default here — an
+      # empty value makes the gate refuse to start, which is correct.
+    volumes:
+      # SHARED named volume carrying the core's Unix socket. The core
+      # container must mount this same volume and create its socket at the
+      # path OPENCRAB_GATE_SOCKET points to INSIDE this volume's mount.
+      # Read-write so the gate can connect(2) to the socket.
+      - opencrab-core-socket:/run/opencrab
+    networks:
+      - omoikane
+    # No `ports:` — the gate listens on nothing. It is an outbound client
+    # to the core socket and to kb-server only.
+
+volumes:
+  # Declared here so this fragment is usable standalone. When the
+  # opencrab core is added to the stack it MUST mount this same named
+  # volume (external: true if it is defined by the core's own compose).
+  opencrab-core-socket:
+
+networks:
+  # The network kb-server is on. Mark `external: true` and give the real
+  # name if the server stack already defines it.
+  omoikane:

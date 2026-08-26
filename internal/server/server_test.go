@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -113,6 +114,84 @@ func TestAdminTokenWithTTL(t *testing.T) {
 	}
 }
 
+func TestAdminTokenUserless(t *testing.T) {
+	dbPath := setupEnv(t)
+	out := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	code := AdminToken([]string{"--userless", "--name", "gateway-svc",
+		"--scopes", "read,write,gateway"}, out, stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(out.String(), "USER  : (userless)") {
+		t.Fatalf("missing userless marker: %s", out.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	plain := strings.TrimSpace(lines[len(lines)-1])
+	if plain == "" {
+		t.Fatalf("no token in output: %s", out.String())
+	}
+
+	st, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	tok, err := st.LookupToken(context.Background(), plain)
+	if err != nil {
+		t.Fatalf("minted token does not look up: %v", err)
+	}
+	if tok.UserID != "" {
+		t.Fatalf("user_id = %q, want empty (user-less)", tok.UserID)
+	}
+	// Scopes are stored in canonical (sorted) order.
+	if got := strings.Join(tok.Scopes, ","); got != "gateway,read,write" {
+		t.Fatalf("scopes = %q, want gateway,read,write", got)
+	}
+	// No user row must have been created (not even the "admin" default).
+	if _, err := st.GetUser(context.Background(), "admin"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("user row created in userless mode: err=%v", err)
+	}
+}
+
+func TestAdminTokenUserlessAdminScopeRefused(t *testing.T) {
+	setupEnv(t)
+	stderr := &bytes.Buffer{}
+	code := AdminToken([]string{"--userless", "--scopes", "read,admin"},
+		&bytes.Buffer{}, stderr)
+	if code != 2 {
+		t.Fatalf("code=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "admin scope") {
+		t.Fatalf("stderr: %s", stderr.String())
+	}
+}
+
+func TestAdminTokenUserlessRequiresScopes(t *testing.T) {
+	setupEnv(t)
+	stderr := &bytes.Buffer{}
+	code := AdminToken([]string{"--userless"}, &bytes.Buffer{}, stderr)
+	if code != 2 {
+		t.Fatalf("code=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "-scopes required") {
+		t.Fatalf("stderr: %s", stderr.String())
+	}
+}
+
+func TestAdminTokenUserlessRejectsUserFlags(t *testing.T) {
+	setupEnv(t)
+	stderr := &bytes.Buffer{}
+	code := AdminToken([]string{"--userless", "--scopes", "read",
+		"--user", "u1"}, &bytes.Buffer{}, stderr)
+	if code != 2 {
+		t.Fatalf("code=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "do not apply") {
+		t.Fatalf("stderr: %s", stderr.String())
+	}
+}
+
 func TestAdminTokenBadFlag(t *testing.T) {
 	setupEnv(t)
 	code := AdminToken([]string{"--nope"}, &bytes.Buffer{}, &bytes.Buffer{})
@@ -179,7 +258,7 @@ func TestRunAdminTokenGetUserUnknownError(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	code := runAdminToken(context.Background(),
 		&fakeAdminStore{getUserErr: io.ErrUnexpectedEOF},
-		"u", "n", "admin", "read", "", 0, &bytes.Buffer{}, stderr)
+		"u", "n", "admin", "read", "", 0, false, &bytes.Buffer{}, stderr)
 	if code != 1 {
 		t.Fatalf("code=%d", code)
 	}
@@ -195,7 +274,7 @@ func TestRunAdminTokenCreateUserError(t *testing.T) {
 			getUserErr:    store.ErrNotFound,
 			createUserErr: io.ErrUnexpectedEOF,
 		},
-		"u", "n", "admin", "read", "", 0, &bytes.Buffer{}, stderr)
+		"u", "n", "admin", "read", "", 0, false, &bytes.Buffer{}, stderr)
 	if code != 1 {
 		t.Fatalf("code=%d", code)
 	}
@@ -211,7 +290,7 @@ func TestRunAdminTokenCreateTokenError(t *testing.T) {
 			getUserErr:   store.ErrNotFound,
 			createTokErr: io.ErrUnexpectedEOF,
 		},
-		"u", "n", "admin", "read", "", 0, &bytes.Buffer{}, stderr)
+		"u", "n", "admin", "read", "", 0, false, &bytes.Buffer{}, stderr)
 	if code != 1 {
 		t.Fatalf("code=%d", code)
 	}

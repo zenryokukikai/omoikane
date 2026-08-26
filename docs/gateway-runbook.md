@@ -33,8 +33,10 @@ provisioned librarians connect without a restart.
 1. **omoikane API reachable** at `KB_BASE_URL` (the running `kb-server`;
    default listen `:8080`). The gate needs network reachability to it.
 2. **A gateway-scoped omoikane API token** (`GATEWAY_TOKEN`), issued
-   **USER-LESS** — `user_id` empty, scope `gateway`. Mint it with the
-   omoikane admin CLI leaving `user_id` blank. A user-bound token (an
+   **USER-LESS** — `user_id` empty, scope `gateway`. Mint it with
+   `kb-server admin-token -userless -name gateway -scopes
+   read,write,gateway` (no user row is created; `-scopes` is mandatory
+   and the `admin` scope is refused). A user-bound token (an
    agent-role user especially) would let the author-stamping path
    compound that user's authority onto the gateway's; the server stamp
    path is fail-closed regardless (#104 G3c), but user-less is the

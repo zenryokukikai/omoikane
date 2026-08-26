@@ -40,16 +40,12 @@
 #   (with its personal space) and mints its API token in one step.
 #
 # NOTE 2 (gateway token): the gateway token must be USER-LESS (user_id
-#   NULL, scope "gateway" — docs/gateway-runbook.md prereq 2), but the
-#   admin-token CLI cannot mint one: `-user ""` fails in CreateUser
-#   (empty id = invalid input). No official non-interactive path exists
-#   today, so this script does the smallest honest workaround: generate
-#   the plain token locally and INSERT the api_tokens row directly
-#   (token_hash = SHA-256(plain), user_id NULL, scopes
-#   read,write,gateway) with the sqlite3 CLI. Same row CreateToken
-#   would write. Follow-up: teach admin-token a --userless flag.
+#   NULL, scope "gateway" — docs/gateway-runbook.md prereq 2). The
+#   official path is `kb-server admin-token -userless -scopes …`
+#   (issue #111): no user row is created, explicit -scopes is required,
+#   and the admin scope is refused for user-less tokens.
 #
-# Dependencies: bash, curl, jq, go, sqlite3, shasum|sha256sum, openssl.
+# Dependencies: bash, curl, jq, go.
 # No secrets are hardcoded; everything minted lands under $QC_DIR
 # (mode 700). Nothing here touches a production DB — kb-server starts
 # on a fresh file and refuses to reuse an existing one.
@@ -124,11 +120,6 @@ diag_platform() {
   printf -- '------------------------------------------------------\n'
 }
 
-sha256_hex() {
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1
-  else sha256sum | cut -d' ' -f1; fi
-}
-
 # admin_token USER NAME ROLE SCOPES → prints the plain token
 admin_token() {
   KB_DB_PATH="$KB_DB_PATH" "$QC_DIR/kb-server" admin-token \
@@ -143,7 +134,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for dep in curl jq go sqlite3 openssl; do
+for dep in curl jq go; do
   command -v "$dep" >/dev/null 2>&1 || { echo "missing dependency: $dep" >&2; exit 1; }
 done
 
@@ -214,13 +205,11 @@ fi
 pass "librarian saved"
 
 # ---- 6. user-less gateway token (NOTE 2) -----------------------------
-step "mint user-less gateway token (direct api_tokens INSERT — NOTE 2)"
-GATEWAY_TOKEN="$(openssl rand -hex 32)"
-GW_HASH="$(printf '%s' "$GATEWAY_TOKEN" | sha256_hex)"
-sqlite3 "$KB_DB_PATH" \
-  "INSERT INTO api_tokens(token_hash, user_id, name, scopes, token_type)
-   VALUES ('$GW_HASH', NULL, 'gateway-qc-e2e', 'read,write,gateway', 'api');" \
-  || fail "sqlite insert of the gateway token failed"
+step "mint user-less gateway token (kb-server admin-token -userless — NOTE 2)"
+GATEWAY_TOKEN="$(KB_DB_PATH="$KB_DB_PATH" "$QC_DIR/kb-server" admin-token \
+  -userless -name gateway-qc-e2e -scopes read,write,gateway | tail -n 1)" \
+  || fail "userless gateway token mint failed"
+[ -n "$GATEWAY_TOKEN" ] || fail "gateway token came back empty"
 printf '%s\n' "$GATEWAY_TOKEN" > "$QC_DIR/gateway-token.txt"
 
 ROSTER="$(curl -sf -H "Authorization: Bearer $GATEWAY_TOKEN" "$KB_BASE/v1/gateway/librarians")" \

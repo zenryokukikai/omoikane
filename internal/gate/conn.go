@@ -254,14 +254,20 @@ func (c *Conn) Failed(ctx context.Context, code string) error {
 	return err
 }
 
-// SendEvent submits one inbound event. On success seq is the
-// core-assigned sequence and duplicate is false; when the core reports
-// seq null (already-known origin) duplicate is true and seq is 0.
-// Grammar violations are refused locally before any bytes are written,
-// and calls before Ready fail with ErrNotReady. The core must echo the
+// SendEvent submits one inbound event. When the core records (or has
+// already recorded) the event, recorded is true and seq is the
+// core-assigned sequence; the same origin always maps to the same seq,
+// so a re-sent origin returns the seq of the first delivery and callers
+// can use seq equality for idempotency checks. seq null in the ok
+// payload means the core REJECTED/discarded the event without recording
+// it: recorded is false and seq is 0. That outcome is NOT a transport
+// error and NOT a duplicate — err is nil, the connection stays open,
+// and the caller decides what a discarded event means. Grammar
+// violations are refused locally before any bytes are written, and
+// calls before Ready fail with ErrNotReady. The core must echo the
 // request's binding_id in the ok payload; a mismatch is a core protocol
 // violation and closes the connection (response_invalid).
-func (c *Conn) SendEvent(ctx context.Context, ev Event) (seq int64, duplicate bool, err error) {
+func (c *Conn) SendEvent(ctx context.Context, ev Event) (seq int64, recorded bool, err error) {
 	if err := c.requireReady(); err != nil {
 		return 0, false, err
 	}
@@ -300,9 +306,9 @@ func (c *Conn) SendEvent(ctx context.Context, ev Event) (seq int64, duplicate bo
 		return 0, false, err
 	}
 	if ok.Seq == nil {
-		return 0, true, nil
+		return 0, false, nil // core discarded the event without recording it
 	}
-	return *ok.Seq, false, nil
+	return *ok.Seq, true, nil
 }
 
 // SourceCheckpoint persists a source cursor after a definitively acked

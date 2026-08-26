@@ -133,8 +133,8 @@ func TestHappyPath(t *testing.T) {
 	}
 	fc.ok(fc.str(ev, "id"), map[string]any{"seq": 42, "binding_id": testBindingA})
 	r := <-res
-	if r.err != nil || r.seq != 42 || r.dup {
-		t.Fatalf("SendEvent = (%d, %v, %v), want (42, false, nil)", r.seq, r.dup, r.err)
+	if r.err != nil || r.seq != 42 || !r.recorded {
+		t.Fatalf("SendEvent = (%d, %v, %v), want (42, true, nil)", r.seq, r.recorded, r.err)
 	}
 
 	// Effect in, delivered out.

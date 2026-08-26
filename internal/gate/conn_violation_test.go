@@ -104,20 +104,50 @@ func TestNeverIssuedResponseIDCloses(t *testing.T) {
 	}
 }
 
-func TestSendEventDuplicateOriginSeqNull(t *testing.T) {
+// TestSendEventDuplicateOriginSameSeq: a re-sent origin is answered by
+// the core with the SAME nonempty seq as the first delivery (platform
+// ruling 2026-08-26); the caller sees recorded=true and the repeated
+// seq, and can use seq equality as an idempotency check.
+func TestSendEventDuplicateOriginSameSeq(t *testing.T) {
+	c, fc := readyConn(t, &testHandler{})
+	defer c.Close()
+	for attempt := 0; attempt < 2; attempt++ {
+		res := sendEventAsync(c, saidEvent(testBindingA, "origin-1"))
+		ev, _ := fc.recv()
+		fc.ok(fc.str(ev, "id"), map[string]any{"seq": 42, "binding_id": testBindingA})
+		r := <-res
+		if r.err != nil || !r.recorded || r.seq != 42 {
+			t.Fatalf("SendEvent attempt %d = (%d, %v, %v), want (42, true, nil)",
+				attempt, r.seq, r.recorded, r.err)
+		}
+	}
+}
+
+// TestSendEventSeqNullMeansDiscarded: seq null in the event ok means
+// the core rejected/discarded the event without recording it — not a
+// transport error, not a duplicate: recorded=false, err nil, and the
+// connection stays alive.
+func TestSendEventSeqNullMeansDiscarded(t *testing.T) {
 	c, fc := readyConn(t, &testHandler{})
 	defer c.Close()
 	res := sendEventAsync(c, saidEvent(testBindingA, "origin-1"))
 	ev, _ := fc.recv()
 	fc.ok(fc.str(ev, "id"), map[string]any{"seq": nil, "binding_id": testBindingA})
 	r := <-res
-	if r.err != nil || !r.dup || r.seq != 0 {
-		t.Fatalf("SendEvent = (%d, %v, %v), want (0, true, nil)", r.seq, r.dup, r.err)
+	if r.err != nil || r.recorded || r.seq != 0 {
+		t.Fatalf("SendEvent = (%d, %v, %v), want (0, false, nil)", r.seq, r.recorded, r.err)
 	}
 	select {
 	case <-c.Closed():
-		t.Fatal("duplicate origin closed the connection")
+		t.Fatal("discarded event closed the connection")
 	default:
+	}
+	// The connection remains usable for the next event.
+	res2 := sendEventAsync(c, saidEvent(testBindingA, "origin-2"))
+	ev2, _ := fc.recv()
+	fc.ok(fc.str(ev2, "id"), map[string]any{"seq": 43, "binding_id": testBindingA})
+	if r2 := <-res2; r2.err != nil || !r2.recorded || r2.seq != 43 {
+		t.Fatalf("follow-up SendEvent = (%d, %v, %v), want (43, true, nil)", r2.seq, r2.recorded, r2.err)
 	}
 }
 

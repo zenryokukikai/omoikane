@@ -297,8 +297,27 @@ func AdminToken(args []string, stdout, stderr io.Writer) int {
 	role := fs.String("role", "admin", "user role when creating the user")
 	email := fs.String("email", "", "set or update user's email (enables Google OAuth login matching)")
 	ttl := fs.Duration("ttl", 0, "token TTL (0 = no expiry)")
+	userless := fs.Bool("userless", false, "mint a user-less infra token (no user row; requires explicit non-admin -scopes)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *userless {
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		if set["user"] || set["role"] || set["email"] {
+			fmt.Fprintln(stderr, "userless: -user, -role and -email do not apply to a user-less token")
+			return 2
+		}
+		if !set["scopes"] {
+			fmt.Fprintln(stderr, "userless: explicit -scopes required (the admin default does not apply to user-less tokens)")
+			return 2
+		}
+		for _, s := range splitCSV(*scopes) {
+			if s == "admin" {
+				fmt.Fprintln(stderr, "userless: refusing to mint a user-less token with the admin scope")
+				return 2
+			}
+		}
 	}
 
 	cfg, err := config.Load()
@@ -314,11 +333,15 @@ func AdminToken(args []string, stdout, stderr io.Writer) int {
 	}
 	defer st.Close()
 
-	return runAdminToken(ctx, st, *user, *name, *role, *scopes, *email, *ttl, stdout, stderr)
+	return runAdminToken(ctx, st, *user, *name, *role, *scopes, *email, *ttl, *userless, stdout, stderr)
 }
 
-func runAdminToken(ctx context.Context, st AdminStorer, user, name, role, scopes, email string, ttl time.Duration, stdout, stderr io.Writer) int {
-	if _, err := st.GetUser(ctx, user); err != nil {
+func runAdminToken(ctx context.Context, st AdminStorer, user, name, role, scopes, email string, ttl time.Duration, userless bool, stdout, stderr io.Writer) int {
+	if userless {
+		// Infra token (e.g. the gateway's): no user row at all —
+		// api_tokens.user_id stays NULL.
+		user = ""
+	} else if _, err := st.GetUser(ctx, user); err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(stderr, "lookup user:", err)
 			return 1
@@ -348,7 +371,11 @@ func runAdminToken(ctx context.Context, st AdminStorer, user, name, role, scopes
 	}
 	fmt.Fprintln(stdout, "# kb-server admin-token")
 	fmt.Fprintln(stdout, "# Store this token securely; it is shown only once.")
-	fmt.Fprintln(stdout, "USER  :", user)
+	if userless {
+		fmt.Fprintln(stdout, "USER  : (userless)")
+	} else {
+		fmt.Fprintln(stdout, "USER  :", user)
+	}
 	fmt.Fprintln(stdout, "NAME  :", name)
 	fmt.Fprintln(stdout, "SCOPES:", scopes)
 	if email != "" {

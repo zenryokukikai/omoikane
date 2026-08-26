@@ -1,0 +1,24 @@
+-- Composite index for space-filtered entry listing (issue #67):
+-- ListEntries (and the / and /entries dashboards behind it) runs
+--   WHERE e.space_id IN (...) ORDER BY e.updated_at DESC|ASC LIMIT ?
+-- (spaceCond → SpaceFilter always emits space_id IN (...); explicit
+-- f.SpaceID narrowing composes the same shape). idx_entries_space
+-- covers only the filter, so restricted-visibility page loads sorted
+-- every visible row via a temp B-tree on each request.
+--
+-- EXPLAIN QUERY PLAN on the full migrated schema (sqlite 3.45.3),
+-- SELECT ... WHERE e.space_id IN (...) ORDER BY e.updated_at DESC:
+--   before (1 space): SEARCH e USING INDEX idx_entries_space (space_id=?)
+--                     + USE TEMP B-TREE FOR ORDER BY
+--   after  (1 space): SEARCH e USING INDEX idx_entries_space_updated
+--                     (space_id=?)                      -- sort gone
+--   after  (N spaces, IN): still TEMP B-TREE — SQLite cannot merge
+--   sorted ranges across multiple IN values, so multi-space visibility
+--   keeps the sort (its input rows are unchanged). Single-space
+--   visibility and explicit space narrowing are fully index-ordered.
+--
+-- updated_at DESC matches the default listing order and the existing
+-- idx_entries_updated convention; SQLite scans it backwards for ASC.
+--
+-- NOTE: shipped migration version numbers are never reusable.
+CREATE INDEX IF NOT EXISTS idx_entries_space_updated ON entries(space_id, updated_at DESC);

@@ -97,6 +97,10 @@ type ChatMessage struct {
 	Metadata       string `json:"metadata,omitempty"`
 }
 
+// relatedEntriesMax caps how many entry ids one thread/message may
+// reference — each id costs one visibility lookup (see the cap check).
+const relatedEntriesMax = 50
+
 // requireVisibleRelatedEntries validates a related_entries payload — a
 // JSON array of entry ids (the skill.md contract) — before it is stored
 // on a thread or message. Every referenced entry must exist AND be
@@ -115,6 +119,12 @@ func (s *Store) requireVisibleRelatedEntries(ctx context.Context, raw string) er
 	var ids []string
 	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
 		return fmt.Errorf("%w: related_entries must be a JSON array of entry ids", ErrInvalidInput)
+	}
+	// Each id costs one visibility lookup; without a cap a single
+	// request could smuggle tens of thousands of ids inside the body
+	// limit and turn a 0-query write into an N-query one.
+	if len(ids) > relatedEntriesMax {
+		return fmt.Errorf("%w: related_entries accepts at most %d ids", ErrInvalidInput, relatedEntriesMax)
 	}
 	for _, id := range ids {
 		if err := requireVisibleEntry(ctx, s.db, id); err != nil {

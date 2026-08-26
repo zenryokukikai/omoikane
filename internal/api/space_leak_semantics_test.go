@@ -7,6 +7,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -366,6 +367,21 @@ func TestThreadRelatedEntriesVisibility(t *testing.T) {
 			"title": "probe", "related_entries": "not-json",
 		}, nil); s != 400 {
 			t.Errorf("member open with junk related_entries: %d %s", s, raw)
+		}
+	})
+
+	// Cap: each id costs a visibility lookup, so the array length is
+	// bounded — an oversized array is rejected before any lookup runs.
+	t.Run("oversized related_entries is rejected", func(t *testing.T) {
+		ids := make([]string, 51)
+		for i := range ids {
+			ids[i] = "T-DEADBEEF"
+		}
+		enc, _ := json.Marshal(ids)
+		if s, raw := doJSON(t, "POST", threadsURL, f.memberTok, map[string]any{
+			"title": "probe", "related_entries": string(enc),
+		}, nil); s != 400 {
+			t.Errorf("member open with 51 related entries: %d %s", s, raw)
 		}
 	})
 }

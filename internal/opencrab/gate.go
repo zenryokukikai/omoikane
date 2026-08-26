@@ -12,7 +12,9 @@ package opencrab
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"sync"
@@ -29,9 +31,27 @@ const (
 	gateSecretSchemaID = "omoikane-talk-secrets"
 )
 
-// threadAddressForm matches omoikane /talk thread ids as binding
+// GateThreadAddressForm matches omoikane /talk thread ids as binding
 // addresses: store.newLibrarianID("thread") = "thread-" + 8 lower hex.
-const threadAddressForm = "^thread-[0-9a-f]{8}$"
+// Exported because the same value is both the kind registration's
+// address_form (here) and the hello frame's address_form (the
+// omoikane-gate binary) — one contract, one constant.
+const GateThreadAddressForm = "^thread-[0-9a-f]{8}$"
+
+// GateOriginScope is the omoikane-talk kind's origin scope: origins
+// (librarian_chat message ids) are unique per instance. Shared by the
+// kind registration and the hello frame for the same reason as
+// GateThreadAddressForm.
+const GateOriginScope = "instance"
+
+// GateInstanceConfigDigest returns the SHA-256 hex digest of the
+// canonical (empty) instance config — the config_digest every
+// omoikane-talk hello must present, since every instance is registered
+// with the same gateInstanceConfig bytes.
+func GateInstanceConfigDigest() string {
+	sum := sha256.Sum256(gateInstanceConfig)
+	return hex.EncodeToString(sum[:])
+}
 
 // Bootstrap documents. Byte-stable literals: PUT gate-schemas is
 // create-or-byte-equivalent, so these must serialize identically on
@@ -124,13 +144,13 @@ func (g *GateProvisioner) EnsureRegistered(ctx context.Context) error {
 		return err
 	}
 
-	addressForm := threadAddressForm
+	addressForm := GateThreadAddressForm
 	configSchema := gateConfigSchemaID
 	secretSchema := gateSecretSchemaID
 	catchUp := "none"
 	if _, _, err := g.Admin.PutKind(ctx, GateKindID, gate.KindPut{
 		ProtocolMajor:           2,
-		OriginScope:             "instance",
+		OriginScope:             GateOriginScope,
 		IngressDiscovery:        "prebound",
 		AddressForm:             &addressForm,
 		ConfigSchemaID:          &configSchema,

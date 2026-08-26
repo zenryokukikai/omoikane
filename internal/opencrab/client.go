@@ -104,6 +104,17 @@ type transientError struct{ err error }
 func (e *transientError) Error() string { return e.err.Error() }
 func (e *transientError) Unwrap() error { return e.err }
 
+// httpError is a non-2xx runtime response. Typed so callers that must
+// branch on the status — RuntimeSubjectResolver maps 404 to "not
+// resolvable yet" — can errors.As for it; the message keeps the
+// historical "HTTP <code>: <body>" shape.
+type httpError struct {
+	status int
+	body   string
+}
+
+func (e *httpError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.status, e.body) }
+
 // ProvisionParams is one provisioning request. All ids are generated
 // server-side by the caller (never taken from a form).
 type ProvisionParams struct {
@@ -282,7 +293,7 @@ func (c *Client) do(ctx context.Context, hc *http.Client, method, path string, b
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 {
-		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		err := &httpError{status: resp.StatusCode, body: strings.TrimSpace(string(raw))}
 		if resp.StatusCode >= 500 {
 			// 5xx = an infra layer failed in front of the handler
 			// (opencrab itself reports failures as 200 + error body) —

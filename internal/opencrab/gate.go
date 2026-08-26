@@ -77,20 +77,23 @@ var (
 )
 
 // ErrSubjectUnresolved is returned by a SubjectResolver that cannot
-// yet map an omoikane agent to a gate subject_id. Instance
-// registration treats it as "skip for now", not a failure.
-var ErrSubjectUnresolved = errors.New("gate subject resolver not implemented: waiting on upstream opencrab#763")
+// (yet) map an omoikane agent to a gate subject_id — the agent row is
+// not on the runtime, or the runtime predates the subject_id field.
+// Instance registration treats it as "skip for now", not a failure.
+var ErrSubjectUnresolved = errors.New("gate subject unresolved")
 
 // SubjectResolver maps an omoikane agent id ("plib-<user_id>") to the
-// gate admin plane's positive-i64 subject_id for that agent.
+// gate admin plane's positive-i64 subject_id for that agent. The
+// production implementation is RuntimeSubjectResolver (subject.go).
 type SubjectResolver interface {
 	Resolve(ctx context.Context, agentID string) (int64, error)
 }
 
-// StubSubjectResolver is the placeholder until the admin plane exposes
-// a subject lookup (upstream opencrab#763). It always answers
-// ErrSubjectUnresolved, which makes instance registration a logged
-// no-op while everything around it stays wired and testable.
+// StubSubjectResolver always answers ErrSubjectUnresolved, which makes
+// instance registration a logged no-op. It was the placeholder until
+// the runtime exposed the subject lookup (upstream opencrab#763, now
+// landed — see RuntimeSubjectResolver); kept for tests that exercise
+// the skip path.
 type StubSubjectResolver struct{}
 
 func (StubSubjectResolver) Resolve(context.Context, string) (int64, error) {
@@ -173,7 +176,8 @@ func (g *GateProvisioner) EnsureRegistered(ctx context.Context) error {
 //
 // When the resolver answers ErrSubjectUnresolved the registration is
 // SKIPPED — logged, ("", nil) returned — so the user-facing save
-// succeeds while the subject lookup is still upstream work.
+// succeeds even while the agent has no subject mapping yet (agent row
+// not on the runtime, or a runtime without the subject_id field).
 func (g *GateProvisioner) EnsureInstance(ctx context.Context, agentID, existingInstanceID string) (string, error) {
 	if existingInstanceID != "" {
 		return existingInstanceID, nil

@@ -176,13 +176,15 @@ running; no e2e possible).
   scripted fake core (`net.Pipe`) and an `httptest` omoikane, but no
   real protocol-2 UDS core exists yet to verify against. Treat first
   contact with the real core as the E2E gate.
-- **Instance registration depends on upstream opencrab#763.** The
-  subject resolver that maps an omoikane agent to a gate `subject_id` is
-  a stub (`StubSubjectResolver` → `ErrSubjectUnresolved`); until #763
-  lands, `EnsureInstance` is a logged no-op, so `gate_instance_id` stays
-  empty and no instance is connectable. This is an omoikane-side / core
-  prerequisite, not something this runbook or the compose fragment can
-  unblock.
+- **Instance registration needs a runtime that exposes `subject_id`.**
+  The production subject resolver (`RuntimeSubjectResolver`) reads
+  `subject_id` from the runtime's `GET /api/agents/{id}` (upstream
+  opencrab#763, landed). Against an older runtime without the field —
+  or before the agent row exists (404) — the resolver answers
+  `ErrSubjectUnresolved` and `EnsureInstance` is a logged no-op, so
+  `gate_instance_id` stays empty and no instance is connectable until
+  the runtime is upgraded. A 409 (multiple subject mappings) or any
+  other runtime error fails the save loudly.
 - **No documentation drift found** between this runbook and the code:
   every env var above matches `internal/gate/runtime/config.go`
   verbatim, and the binary reads no env var not listed here.

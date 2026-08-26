@@ -1,27 +1,22 @@
-// Conn: the protocol 2 connection state machine (external-gate.md §6)
-// on the gateway side. One Conn is one gate instance connection:
+// Conn: the V3 connection state machine (DESIGN-EXTGATE-V3.md §4) from
+// the gateway seat. One Conn is one gate instance connection:
 //
-//	CONNECTED --hello ok--> SYNCHRONIZING --ready ok--> BINDING
-//	BINDING --all bind acks (binding_id byte order)--> ACTIVE
-//	any --fatal | failed | socket close--> CLOSED
+//	PRE_HELLO --hello ok--> RUNNING --fatal | socket close--> CLOSED
 //
-// The BINDING→ACTIVE edge is observable only by the core (the gateway
-// cannot know when the last bind arrived), so locally both map to the
-// single stateReady: SendEvent and friends unlock when Ready is
-// acknowledged, and an early event is answered by the core with
-// instance_not_ready. Bind acks are serialized: core requests are
-// dispatched one at a time in arrival order, and the core sends binds
-// in binding_id byte order one ack at a time (§6), so ack order equals
-// binding_id byte order.
+// Hello success means RUNNING immediately: there is no ready message
+// and no multi-stage readiness. The core then binds every open binding
+// of the instance; the only readiness state is the core's per-binding
+// acknowledged set, which this side observes as OnBind callbacks it
+// acks.
 //
-// Incoming violations follow the §5 table from the client's seat:
-// framing violations (UTF-8/JSON/duplicate member/oversize) and
-// malformed response unions close the socket. Post-ready core frames
-// with unknown message/field/value violations are answered with an err
-// response and the connection is KEPT (pre-ready they close); activity
-// violations drop the frame and keep the connection. A response whose
-// id was abandoned by local context cancellation is ignored; a response
-// whose id was never issued closes the connection (response_invalid).
+// Incoming violations from the gateway seat: framing violations
+// (UTF-8/JSON/duplicate member/oversize) close the socket; a response
+// whose id was never issued, whose m is missing/unknown, or whose shape
+// does not match the pending request's kind closes the socket
+// (response_invalid); an unknown core message m is dropped and the
+// connection kept (write 0); an invalid activity frame is dropped. A
+// response whose id was abandoned by local context cancellation is
+// ignored.
 package gate
 
 import (
@@ -35,45 +30,50 @@ import (
 	"sync"
 )
 
-// Handler receives core→gate traffic. It must be registered with
-// SetHandler before Ready; callbacks run one at a time on a dedicated
-// dispatch goroutine (never on the read loop, so a callback may issue
-// Conn requests without deadlocking).
+// Handler receives core→gate traffic. It is registered with Start;
+// callbacks run one at a time on a dedicated dispatch goroutine (never
+// on the read loop, so a callback may issue Conn requests without
+// deadlocking).
 type Handler interface {
 	// OnBind provisions one binding. A nil return acks the bind; an
-	// error answers err (the core then marks the connection failed).
+	// error answers err(code="bind_failed") — the core then closes the
+	// connection (§3.3).
 	OnBind(Binding) error
-	// OnUnbind releases one binding; same response contract as OnBind.
-	OnUnbind(Binding) error
-	// OnEffect performs one outbound effect and reports the outcome.
-	// Returning the zero EffectResult (unknown outcome) closes the
-	// socket without answering, per the spec's no-fabrication rule.
-	OnEffect(Effect) EffectResult
-	// OnActivity observes a fire-and-forget activity notification.
+	// OnSay performs one outbound delivery and reports the outcome.
+	// Returning the zero SayResult (unknown outcome) closes the socket
+	// without answering, per the spec's no-fabrication rule (§3.4).
+	OnSay(Say) SayResult
+	// OnActivity observes a display-only activity notification
+	// (started/ended). Best-effort; no response exists for it.
 	OnActivity(Activity)
-	// OnCatchUp surfaces a catch_up instruction. A nil return acks it;
-	// an error answers err. Checkpointing is a separate request the
-	// handler issues later via SourceCheckpoint.
-	OnCatchUp(CatchUp) error
 }
 
 type connState int
 
 const (
-	stateHello connState = iota // hello sent, awaiting ok
-	stateSynchronizing
-	stateReadySent
-	stateReady // BINDING/ACTIVE from the core's viewpoint
+	stateRunning connState = iota
 	stateClosed
 )
 
+type pendingKind int
+
+const (
+	pendingHello pendingKind = iota
+	pendingSaid
+)
+
 type pendingResp struct {
-	ok  json.RawMessage
+	seq *int64
 	err *WireError
 }
 
-// Conn is one protocol 2 connection to the core. All methods are safe
-// for concurrent use.
+type pendingReq struct {
+	kind pendingKind
+	ch   chan pendingResp
+}
+
+// Conn is one V3 connection to the core. All methods are safe for
+// concurrent use.
 type Conn struct {
 	rwc io.ReadWriteCloser
 	fw  *frameWriter
@@ -81,26 +81,26 @@ type Conn struct {
 
 	mu      sync.Mutex
 	state   connState
-	epoch   uint64
 	handler Handler
-	pending map[string]chan pendingResp
+	pending map[string]pendingReq
 	// abandoned tombstones request ids the local caller gave up on
 	// (context cancellation): a late core response to one is ignored,
 	// while a response to a never-issued id closes the connection.
-	// Growth bound: one entry per abandoned request, removed when the
-	// matching late response arrives.
 	abandoned map[string]struct{}
 	closeErr  error
 
-	reqID     uint64 // guarded by mu; monotonic
-	dq        *dispatchQueue
-	closed    chan struct{}
-	closeOnce sync.Once
+	reqID      uint64 // guarded by mu; monotonic
+	dq         *dispatchQueue
+	started    chan struct{} // closed by Start; gates the dispatch loop
+	startOnce  sync.Once
+	startedSet bool
+	closed     chan struct{}
+	closeOnce  sync.Once
 }
 
 // Dial connects to the core's Unix socket at socketPath and performs
-// the hello exchange, returning after the core acknowledged it (state
-// SYNCHRONIZING). Register a Handler and call Ready next.
+// the hello exchange, returning in RUNNING state. Call Start next to
+// begin handler dispatch (core binds queue until then).
 func Dial(ctx context.Context, socketPath string, p HelloParams) (*Conn, error) {
 	var d net.Dialer
 	nc, err := d.DialContext(ctx, "unix", socketPath)
@@ -117,7 +117,8 @@ func Dial(ctx context.Context, socketPath string, p HelloParams) (*Conn, error) 
 
 // NewConn performs the hello exchange over an existing byte stream. It
 // is the seam Dial uses and tests reach with net.Pipe. On error the
-// stream is closed.
+// stream is closed. On success the connection is RUNNING; core frames
+// arriving before Start are queued in arrival order.
 func NewConn(ctx context.Context, rwc io.ReadWriteCloser, p HelloParams) (*Conn, error) {
 	if err := p.validate(); err != nil {
 		return nil, err
@@ -126,293 +127,94 @@ func NewConn(ctx context.Context, rwc io.ReadWriteCloser, p HelloParams) (*Conn,
 		rwc:       rwc,
 		fw:        &frameWriter{w: rwc},
 		fr:        newFrameReader(rwc),
-		pending:   make(map[string]chan pendingResp),
+		pending:   make(map[string]pendingReq),
 		abandoned: make(map[string]struct{}),
 		dq:        newDispatchQueue(),
+		started:   make(chan struct{}),
 		closed:    make(chan struct{}),
 	}
 	go c.readLoop()
 	go c.dispatchLoop()
 
 	id := c.nextRequestID()
-	okRaw, err := c.request(ctx, id, helloFrame{
-		ID:               id,
-		M:                "hello",
-		Protocol:         2,
-		KindID:           p.KindID,
-		InstanceID:       p.InstanceID,
-		Revision:         p.Revision,
-		ConfigDigest:     p.ConfigDigest,
-		OriginScope:      p.OriginScope,
-		AddressForm:      p.AddressForm,
-		IngressDiscovery: "prebound",
-		Effects:          []string{"say"},
-		Capabilities:     []string{"open"},
+	resp, err := c.request(ctx, id, pendingHello, helloFrame{
+		ID:           id,
+		M:            "hello",
+		Protocol:     2,
+		InstanceID:   p.InstanceID,
+		Revision:     p.Revision,
+		ConfigDigest: p.ConfigDigest,
 	})
 	if err != nil {
 		c.closeWith(fmt.Errorf("gate: hello failed: %w", err))
 		return nil, err
 	}
-	var hok helloOK
-	if err := decodeStrictBody(okRaw, &hok); err != nil {
-		c.closeWith(err)
-		return nil, err
+	if resp.err != nil {
+		c.closeWith(fmt.Errorf("gate: hello refused: %w", resp.err))
+		return nil, resp.err
 	}
-	if hok.Protocol != 2 {
-		err := fmt.Errorf("gate: hello ok protocol %d, want 2", hok.Protocol)
-		c.closeWith(err)
-		return nil, err
-	}
-	c.mu.Lock()
-	c.epoch = hok.ConnectionEpoch
-	c.state = stateSynchronizing
-	c.mu.Unlock()
 	return c, nil
 }
 
-// SetHandler registers the core-traffic handler. It must run before
-// Ready and cannot change afterwards.
-func (c *Conn) SetHandler(h Handler) error {
+// Start registers the handler and begins dispatching queued core
+// frames. It must be called exactly once, with a non-nil handler.
+func (c *Conn) Start(h Handler) error {
 	if h == nil {
 		return errors.New("gate: handler must not be nil")
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.state == stateReadySent || c.state == stateReady {
-		return errors.New("gate: handler must be registered before Ready")
-	}
 	if c.state == stateClosed {
-		return c.closedErrLocked()
+		err := c.closedErrLocked()
+		c.mu.Unlock()
+		return err
+	}
+	if c.startedSet {
+		c.mu.Unlock()
+		return errors.New("gate: Start is only legal once")
 	}
 	c.handler = h
+	c.startedSet = true
+	c.mu.Unlock()
+	c.startOnce.Do(func() { close(c.started) })
 	return nil
 }
 
-// Ready sends ready and returns after the core acknowledged it. The
-// core then starts sending binds; a Handler must already be registered.
-func (c *Conn) Ready(ctx context.Context) error {
-	c.mu.Lock()
-	if c.state == stateClosed {
-		err := c.closedErrLocked()
-		c.mu.Unlock()
-		return err
-	}
-	if c.handler == nil {
-		c.mu.Unlock()
-		return errors.New("gate: Ready requires a registered Handler")
-	}
-	if c.state != stateSynchronizing {
-		c.mu.Unlock()
-		return errors.New("gate: Ready is only legal once, after hello")
-	}
-	c.state = stateReadySent
-	epoch := c.epoch
-	c.mu.Unlock()
-
-	id := c.nextRequestID()
-	_, err := c.request(ctx, id, readyFrame{ID: id, M: "ready", ConnectionEpoch: epoch})
-	if err != nil {
-		// request only fails after the ready frame was written (or the
-		// connection already died): rolling back to synchronizing would
-		// re-legalize SetHandler and permit a second ready frame while
-		// the first is already on the wire, so a failed Ready is
-		// terminal — close the connection. Errors before the write
-		// (nil handler, wrong state) return above and stay retryable.
-		c.closeWith(fmt.Errorf("gate: ready abandoned after send: %w", err))
-		return err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.state == stateReadySent {
-		c.state = stateReady
-	}
-	return nil
-}
-
-// Failed reports a fatal gateway-side startup failure to the core
-// (message `failed`) and closes the connection. code must be nonempty.
-func (c *Conn) Failed(ctx context.Context, code string) error {
-	if code == "" {
-		return errors.New("gate: failed code must be nonempty")
-	}
-	c.mu.Lock()
-	if c.state == stateClosed {
-		err := c.closedErrLocked()
-		c.mu.Unlock()
-		return err
-	}
-	if c.state == stateHello {
-		c.mu.Unlock()
-		return errors.New("gate: failed is only legal after hello")
-	}
-	epoch := c.epoch
-	c.mu.Unlock()
-
-	id := c.nextRequestID()
-	_, err := c.request(ctx, id, failedFrame{ID: id, M: "failed", ConnectionEpoch: epoch, Code: code})
-	c.closeWith(fmt.Errorf("gate: gateway reported failed(%s)", code))
-	return err
-}
-
-// SendEvent submits one inbound event. On success seq is the
-// core-assigned sequence and duplicate is false; when the core reports
-// seq null (already-known origin) duplicate is true and seq is 0.
-// Grammar violations are refused locally before any bytes are written,
-// and calls before Ready fail with ErrNotReady. The core must echo the
-// request's binding_id in the ok payload; a mismatch is a core protocol
-// violation and closes the connection (response_invalid).
-func (c *Conn) SendEvent(ctx context.Context, ev Event) (seq int64, duplicate bool, err error) {
-	if err := c.requireReady(); err != nil {
+// SendSaid submits one external utterance. When the core records (or
+// has already recorded) it, recorded is true and seq is the
+// core-assigned sequence; a re-sent origin returns the first delivery's
+// seq (§3.5), so callers can use seq equality for idempotency checks.
+// seq null in the ok means the core discarded the said without
+// recording it: recorded is false and seq is 0 — that outcome is NOT a
+// transport error, err is nil and the connection stays open. Grammar
+// violations are refused locally before any bytes are written.
+func (c *Conn) SendSaid(ctx context.Context, s Said) (seq int64, recorded bool, err error) {
+	if err := validateSaid(&s); err != nil {
 		return 0, false, err
 	}
-	if err := validateEvent(&ev); err != nil {
-		return 0, false, err
+	attachments := s.Attachments
+	if attachments == nil {
+		attachments = []Attachment{}
 	}
 	id := c.nextRequestID()
-	okRaw, err := c.request(ctx, id, eventFrame{
+	resp, err := c.request(ctx, id, pendingSaid, saidFrame{
 		ID:          id,
-		M:           "event",
-		Kind:        ev.Kind,
-		Address:     ev.Address,
-		BindingID:   ev.BindingID,
-		Author:      ev.Author,
-		Content:     ev.Content,
-		Mentions:    ev.Mentions,
-		ReplyTo:     ev.ReplyTo,
-		Origin:      ev.Origin,
-		Target:      ev.Target,
-		Symbol:      ev.Symbol,
-		Removed:     ev.Removed,
-		Action:      ev.Action,
-		Attachments: ev.Attachments,
+		M:           "said",
+		BindingID:   s.BindingID,
+		Origin:      s.Origin,
+		AuthorID:    s.AuthorID,
+		Text:        s.Text,
+		Attachments: attachments,
 	})
 	if err != nil {
 		return 0, false, err
 	}
-	var ok eventOK
-	if err := c.decodeResponse(okRaw, &ok); err != nil {
-		return 0, false, err
+	if resp.err != nil {
+		return 0, false, resp.err
 	}
-	if ok.BindingID != ev.BindingID {
-		err := fmt.Errorf("gate: event ok binding_id %q does not echo request binding_id %q (response_invalid)",
-			ok.BindingID, ev.BindingID)
-		c.closeWith(err)
-		return 0, false, err
+	if resp.seq == nil {
+		return 0, false, nil // core discarded the said without recording it
 	}
-	if ok.Seq == nil {
-		return 0, true, nil
-	}
-	return *ok.Seq, false, nil
-}
-
-// SourceCheckpoint persists a source cursor after a definitively acked
-// catch-up page. expectedDigest nil means "no cursor stored yet" (CAS
-// from empty); otherwise it must be the 64-hex digest last returned.
-func (c *Conn) SourceCheckpoint(ctx context.Context, bindingID string, expectedDigest *string, cursorB64 string) (digest string, updatedAt int64, err error) {
-	if err := c.requireReady(); err != nil {
-		return "", 0, err
-	}
-	if !isCanonicalUUID(bindingID) {
-		return "", 0, errors.New("gate: source_checkpoint binding_id must be a canonical lowercase UUID")
-	}
-	if expectedDigest != nil && !isLowerHexDigest(*expectedDigest) {
-		return "", 0, errors.New("gate: source_checkpoint expected_cursor_digest must be 64 lowercase hex")
-	}
-	if !isStdPaddedBase64(cursorB64) {
-		return "", 0, errors.New("gate: source_checkpoint cursor_b64 must be standard padded base64")
-	}
-	id := c.nextRequestID()
-	okRaw, err := c.request(ctx, id, sourceCheckpointFrame{
-		ID:                   id,
-		M:                    "source_checkpoint",
-		BindingID:            bindingID,
-		ExpectedCursorDigest: expectedDigest,
-		CursorB64:            cursorB64,
-	})
-	if err != nil {
-		return "", 0, err
-	}
-	var ok sourceCheckpointOK
-	if err := c.decodeResponse(okRaw, &ok); err != nil {
-		return "", 0, err
-	}
-	return ok.CursorDigest, ok.UpdatedAt, nil
-}
-
-// PlaceClosed reports an authoritative external closure of a place.
-// reason must be one of deleted, archived, left, unavailable; closure
-// must never be inferred from disconnects or fetch failures (spec §7).
-func (c *Conn) PlaceClosed(ctx context.Context, bindingID, address, reason string) error {
-	if err := c.requireReady(); err != nil {
-		return err
-	}
-	if !isCanonicalUUID(bindingID) {
-		return errors.New("gate: place_closed binding_id must be a canonical lowercase UUID")
-	}
-	if address == "" {
-		return errors.New("gate: place_closed address must be nonempty")
-	}
-	switch reason {
-	case "deleted", "archived", "left", "unavailable":
-	default:
-		return fmt.Errorf("gate: place_closed reason %q unknown", reason)
-	}
-	id := c.nextRequestID()
-	okRaw, err := c.request(ctx, id, placeClosedFrame{
-		ID: id, M: "place_closed", BindingID: bindingID, Address: address, Reason: reason,
-	})
-	if err != nil {
-		return err
-	}
-	var ok placeClosedOK
-	if err := c.decodeResponse(okRaw, &ok); err != nil {
-		return err
-	}
-	if !ok.Closed {
-		err := errors.New("gate: place_closed ok reported closed:false")
-		c.closeWith(err)
-		return err
-	}
-	return nil
-}
-
-// ReadEvents fetches recent place history via the read request.
-func (c *Conn) ReadEvents(ctx context.Context, p ReadParams) (ReadResult, error) {
-	if err := c.requireReady(); err != nil {
-		return ReadResult{}, err
-	}
-	if p.Address == "" {
-		return ReadResult{}, errors.New("gate: read address must be nonempty")
-	}
-	if p.From < 0 {
-		return ReadResult{}, errors.New("gate: read from must be positive")
-	}
-	if p.Limit > 1000 {
-		return ReadResult{}, errors.New("gate: read limit must be within 1..1000")
-	}
-	f := readFrame{ID: c.nextRequestID(), M: "read", Address: p.Address}
-	if p.From > 0 {
-		f.From = &p.From
-	}
-	if p.Limit > 0 {
-		f.Limit = &p.Limit
-	}
-	okRaw, err := c.request(ctx, f.ID, f)
-	if err != nil {
-		return ReadResult{}, err
-	}
-	var ok readOK
-	if err := c.decodeResponse(okRaw, &ok); err != nil {
-		return ReadResult{}, err
-	}
-	return ReadResult{Events: ok.Events, Next: ok.Next}, nil
-}
-
-// Epoch returns the connection_epoch assigned by the hello ok.
-func (c *Conn) Epoch() uint64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.epoch
+	return *resp.seq, true, nil
 }
 
 // Closed is closed when the connection dies for any reason.
@@ -436,19 +238,6 @@ func (c *Conn) Close() error {
 
 // ---- internals ------------------------------------------------------
 
-func (c *Conn) requireReady() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	switch c.state {
-	case stateReady:
-		return nil
-	case stateClosed:
-		return c.closedErrLocked()
-	default:
-		return ErrNotReady
-	}
-}
-
 func (c *Conn) closedErrLocked() error {
 	if c.closeErr != nil && c.closeErr != ErrClosed {
 		return fmt.Errorf("%w: %w", ErrClosed, c.closeErr)
@@ -470,36 +259,33 @@ func (c *Conn) nextRequestID() string {
 // response. Context cancellation abandons the wait and tombstones the
 // id so the read loop ignores the core's late response instead of
 // treating it as never-issued.
-func (c *Conn) request(ctx context.Context, id string, frame any) (json.RawMessage, error) {
+func (c *Conn) request(ctx context.Context, id string, kind pendingKind, frame any) (pendingResp, error) {
 	ch := make(chan pendingResp, 1)
 	c.mu.Lock()
 	if c.state == stateClosed {
 		err := c.closedErrLocked()
 		c.mu.Unlock()
-		return nil, err
+		return pendingResp{}, err
 	}
-	c.pending[id] = ch
+	c.pending[id] = pendingReq{kind: kind, ch: ch}
 	c.mu.Unlock()
 
 	if err := c.fw.writeFrame(frame); err != nil {
 		c.forget(id)
 		c.closeWith(err)
-		return nil, err
+		return pendingResp{}, err
 	}
 	select {
 	case r := <-ch:
-		if r.err != nil {
-			return nil, r.err
-		}
-		return r.ok, nil
+		return r, nil
 	case <-ctx.Done():
 		c.abandon(id)
-		return nil, ctx.Err()
+		return pendingResp{}, ctx.Err()
 	case <-c.closed:
 		c.mu.Lock()
 		err := c.closedErrLocked()
 		c.mu.Unlock()
-		return nil, err
+		return pendingResp{}, err
 	}
 }
 
@@ -520,17 +306,6 @@ func (c *Conn) abandon(id string) {
 	c.mu.Unlock()
 }
 
-// decodeResponse strict-decodes a response ok payload; a payload that
-// does not match the spec shape is a malformed frame and closes the
-// connection.
-func (c *Conn) decodeResponse(okRaw json.RawMessage, v any) error {
-	if err := decodeStrictBody(okRaw, v); err != nil {
-		c.closeWith(err)
-		return err
-	}
-	return nil
-}
-
 // closeWith closes the connection exactly once, recording err as the
 // reason, waking Closed(), all pending waiters, and the dispatch loop.
 func (c *Conn) closeWith(err error) {
@@ -545,10 +320,10 @@ func (c *Conn) closeWith(err error) {
 	})
 }
 
-// readLoop pumps frames: responses resolve pending requests inline;
-// core requests are validated and queued for the dispatch goroutine.
-// Any framing violation or malformed core frame (activity excepted)
-// closes the connection.
+// readLoop pumps frames: responses (m:"ok"|"err") resolve pending
+// requests inline; core requests are validated and queued for the
+// dispatch goroutine. Framing violations and malformed responses close
+// the connection.
 func (c *Conn) readLoop() {
 	for {
 		data, err := c.fr.next()
@@ -568,31 +343,39 @@ func (c *Conn) readLoop() {
 			return
 		}
 		if env.M == nil {
-			if err := c.handleResponse(data); err != nil {
+			c.closeWith(errors.New("gate: frame without m member"))
+			return
+		}
+		switch *env.M {
+		case "ok", "err":
+			if err := c.handleResponse(*env.M, data); err != nil {
 				c.closeWith(err)
 				return
 			}
-			continue
-		}
-		if err := c.handleCoreMessage(*env.M, data); err != nil {
-			c.closeWith(err)
-			return
+		default:
+			if err := c.handleCoreMessage(*env.M, data); err != nil {
+				c.closeWith(err)
+				return
+			}
 		}
 	}
 }
 
-// handleResponse resolves one {id,ok} xor {id,err} frame. An id the
-// client abandoned (local context cancellation) is ignored; an id that
-// was never issued is a core protocol violation and closes the
-// connection (violation table: response_invalid). A malformed response
-// union also closes the connection.
-func (c *Conn) handleResponse(data []byte) error {
+// handleResponse resolves one ok/err response frame against its pending
+// request, checking the shape against the pending request's kind: a
+// said ok must carry the seq member (value may be null), a hello ok
+// must not be an err… any mismatch, unknown id, or consumed id is a
+// core protocol violation and closes the connection (response_invalid).
+// An id the client abandoned (local context cancellation) is ignored.
+func (c *Conn) handleResponse(m string, data []byte) error {
 	var rf struct {
-		ID  *string         `json:"id"`
-		Ok  json.RawMessage `json:"ok"`
-		Err json.RawMessage `json:"err"`
+		ID     *string         `json:"id"`
+		Seq    json.RawMessage `json:"seq"`
+		Code   *string         `json:"code"`
+		Detail *string         `json:"detail"`
 	}
-	if err := decodeStrictBody(data, &rf); err != nil {
+	members, err := decodeFrame(data, &rf)
+	if err != nil {
 		return err
 	}
 	if rf.ID == nil {
@@ -601,35 +384,50 @@ func (c *Conn) handleResponse(data []byte) error {
 	if err := validateRequestID(*rf.ID); err != nil {
 		return err
 	}
-	if (rf.Ok == nil) == (rf.Err == nil) {
-		return errors.New("gate: response frame must carry exactly one of ok/err")
-	}
-	resp := pendingResp{ok: rf.Ok}
-	if rf.Err != nil {
-		var we WireError
-		if err := decodeStrictBody(rf.Err, &we); err != nil {
-			return err
-		}
-		if we.Code == "" {
-			return errors.New("gate: response err.code must be nonempty")
-		}
-		resp.err = &we
-	}
+
 	c.mu.Lock()
-	ch, found := c.pending[*rf.ID]
+	req, found := c.pending[*rf.ID]
 	if found {
 		delete(c.pending, *rf.ID)
-		c.mu.Unlock()
-		ch <- resp
-		return nil
 	}
-	if _, wasAbandoned := c.abandoned[*rf.ID]; wasAbandoned {
+	_, wasAbandoned := c.abandoned[*rf.ID]
+	if !found && wasAbandoned {
 		delete(c.abandoned, *rf.ID)
-		c.mu.Unlock()
-		return nil // late response to a locally abandoned request
 	}
 	c.mu.Unlock()
-	return fmt.Errorf("gate: response to never-issued request id %q (response_invalid)", *rf.ID)
+	if !found {
+		if wasAbandoned {
+			return nil // late response to a locally abandoned request
+		}
+		return fmt.Errorf("gate: response to never-issued request id %q (response_invalid)", *rf.ID)
+	}
+
+	var resp pendingResp
+	if m == "err" {
+		if rf.Code == nil || *rf.Code == "" {
+			return errors.New("gate: err response without a nonempty code (response_invalid)")
+		}
+		resp.err = &WireError{Code: *rf.Code, Detail: rf.Detail}
+		req.ch <- resp
+		return nil
+	}
+	// m == "ok": shape per pending kind (§3.3 — hello ok is {id,m},
+	// said ok is {id,m,seq} with seq positive-i64|null).
+	if req.kind == pendingSaid {
+		seqRaw, present := members["seq"]
+		if !present {
+			return errors.New("gate: said ok without the seq member (response_invalid)")
+		}
+		if string(seqRaw) != "null" {
+			var seq int64
+			if err := json.Unmarshal(seqRaw, &seq); err != nil || seq <= 0 {
+				return fmt.Errorf("gate: said ok seq %s is not a positive integer or null (response_invalid)", seqRaw)
+			}
+			resp.seq = &seq
+		}
+	}
+	req.ch <- resp
+	return nil
 }
 
 // handleCoreMessage and the dispatch queue live in conn_dispatch.go.

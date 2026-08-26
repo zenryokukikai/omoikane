@@ -136,10 +136,18 @@ var sseRevisibility = 5 * time.Minute
 // progress into someone else's talk thread — the same exception as
 // POST /librarian/chat). Anyone else gets 404, indistinguishable from
 // a missing thread (no existence oracle).
+//
+// Gateway attribution (issue #104 G3a C案): under the literal
+// "gateway" scope the request's author_user_id is accepted and the
+// thread gate above runs AS that user — the gateway posts status for a
+// thread owned by its stamped user, and only for such threads (the
+// fail-closed 404 shape is unchanged for every other caller; the field
+// is ignored outside the gateway scope).
 func (h *Handler) broadcastEvent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Type string         `json:"type"`
-		Data map[string]any `json:"data"`
+		Type         string         `json:"type"`
+		Data         map[string]any `json:"data"`
+		AuthorUserID string         `json:"author_user_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadJSON, err.Error(), nil)
@@ -156,7 +164,7 @@ func (h *Handler) broadcastEvent(w http.ResponseWriter, r *http.Request) {
 			"data.thread_id required (chat.status is scoped to its thread)", nil)
 		return
 	}
-	th := h.requireUsableThread(w, r, threadID, true)
+	th := h.requireUsableThread(w, r, threadID, true, gatewayStampedAuthor(r, req.AuthorUserID))
 	if th == nil {
 		return
 	}

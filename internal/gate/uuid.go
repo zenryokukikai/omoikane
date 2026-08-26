@@ -1,9 +1,9 @@
 package gate
 
-// UUIDv7 generation for new admin-plane ids (spec §3.2: instance and
-// binding PUT paths are UUIDv7). Implemented locally per RFC 9562 §5.7
-// rather than adding a dependency — the repo has no uuid module and the
-// admin plane only needs generation + canonical-form checks.
+// UUIDv7 generation for new admin-plane ids. The V3 contract only
+// requires canonical lowercase UUID text (version unrestricted, §2);
+// v7 is used for its time-ordering. Implemented locally per RFC 9562
+// §5.7 rather than adding a dependency.
 
 import (
 	"crypto/rand"
@@ -42,20 +42,4 @@ func NewUUIDv7() string {
 	s[23] = '-'
 	hex.Encode(s[24:36], b[10:16])
 	return string(s[:])
-}
-
-// isUUIDv7 reports a canonical lowercase UUID whose version nibble is 7
-// and whose variant is the IETF 10xx form.
-func isUUIDv7(s string) bool {
-	if !isCanonicalUUID(s) {
-		return false
-	}
-	if s[14] != '7' {
-		return false
-	}
-	switch s[19] {
-	case '8', '9', 'a', 'b':
-		return true
-	}
-	return false
 }

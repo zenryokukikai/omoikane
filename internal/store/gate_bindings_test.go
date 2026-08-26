@@ -117,3 +117,60 @@ func TestSetUserLibrarianGateInstance(t *testing.T) {
 		t.Errorf("empty instance id: err = %v, want ErrInvalidInput", err)
 	}
 }
+
+// TestTalkGateBindingCursor pins the reconnect catch-up cursor (issue
+// #104 G3a): round-trip, missing-row ErrNotFound, input validation, and
+// the "rebinding keeps the cursor" semantics (the cursor tracks the
+// THREAD's delivery progress, not the binding generation — a fresh
+// binding resumes where delivery left off, at-least-once either way).
+func TestTalkGateBindingCursor(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Cursor on a thread without a binding row → ErrNotFound.
+	if err := s.SetTalkGateBindingCursor(ctx, "thread-ffffffff", "msg-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cursor without binding: err = %v, want ErrNotFound", err)
+	}
+
+	if err := s.PutTalkGateBinding(ctx, "thread-0a1b2c3d", "b-1", "i-1"); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	b, err := s.GetTalkGateBinding(ctx, "thread-0a1b2c3d")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if b.LastSentMessageID != "" {
+		t.Errorf("fresh binding cursor = %q, want empty", b.LastSentMessageID)
+	}
+
+	if err := s.SetTalkGateBindingCursor(ctx, "thread-0a1b2c3d", "msg-1"); err != nil {
+		t.Fatalf("set cursor: %v", err)
+	}
+	if b, err = s.GetTalkGateBinding(ctx, "thread-0a1b2c3d"); err != nil || b.LastSentMessageID != "msg-1" {
+		t.Fatalf("cursor = %q (err %v), want msg-1", b.LastSentMessageID, err)
+	}
+	// Advancing overwrites.
+	if err := s.SetTalkGateBindingCursor(ctx, "thread-0a1b2c3d", "msg-2"); err != nil {
+		t.Fatalf("advance cursor: %v", err)
+	}
+	if b, err = s.GetTalkGateBinding(ctx, "thread-0a1b2c3d"); err != nil || b.LastSentMessageID != "msg-2" {
+		t.Fatalf("cursor = %q (err %v), want msg-2", b.LastSentMessageID, err)
+	}
+
+	// Rebinding (address reuse → fresh binding id) keeps the cursor.
+	if err := s.PutTalkGateBinding(ctx, "thread-0a1b2c3d", "b-2", "i-1"); err != nil {
+		t.Fatalf("rebind: %v", err)
+	}
+	if b, err = s.GetTalkGateBinding(ctx, "thread-0a1b2c3d"); err != nil ||
+		b.BindingID != "b-2" || b.LastSentMessageID != "msg-2" {
+		t.Fatalf("after rebind: %+v (err %v), want binding b-2 with cursor msg-2", b, err)
+	}
+
+	// Input validation.
+	if err := s.SetTalkGateBindingCursor(ctx, "", "m"); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("empty thread: err = %v, want ErrInvalidInput", err)
+	}
+	if err := s.SetTalkGateBindingCursor(ctx, "t", ""); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("empty message: err = %v, want ErrInvalidInput", err)
+	}
+}

@@ -1,8 +1,8 @@
-// Violation-table semantics tests (external-gate.md §5): post-ready
-// core-frame violations answer err and KEEP the connection, pre-ready
-// they close; response-correlation edges (abandoned vs never-issued
-// ids, binding_id echo); ready-rollback and dispatch-liveness
-// regressions.
+// Violation-semantics tests (V3 §3.1, §3.3): framing violations close;
+// response-correlation violations (never-issued id, missing m, shape
+// not matching the pending kind) close; malformed core requests from
+// the trusted peer close; unknown core message m keeps; and the
+// dispatch-liveness regression.
 package gate
 
 import (
@@ -13,37 +13,18 @@ import (
 	"time"
 )
 
-// expectErrFrame reads one frame and asserts it is {id, err:{code}}.
-func expectErrFrame(t *testing.T, fc *fakeCore, id, code string) {
+// expectStillServesSay proves the connection stayed usable: a valid say
+// must reach the handler and be answered.
+func expectStillServesSay(t *testing.T, fc *fakeCore, c *Conn) {
 	t.Helper()
-	m, _ := fc.recv()
-	if got := fc.str(m, "id"); got != id {
-		t.Fatalf("err frame id = %q, want %q", got, id)
-	}
-	if m["err"] == nil {
-		t.Fatalf("frame %v carries no err member", m)
-	}
-	var we WireError
-	if err := decodeStrictBody(m["err"], &we); err != nil {
-		t.Fatalf("err member: %v", err)
-	}
-	if we.Code != code {
-		t.Fatalf("err code = %q, want %q", we.Code, code)
-	}
-}
-
-// expectEffectStillDispatches proves the connection stayed usable: a
-// valid effect must reach the handler and be answered.
-func expectEffectStillDispatches(t *testing.T, fc *fakeCore, c *Conn) {
-	t.Helper()
-	fc.send(map[string]any{"id": testEffectID, "m": "effect", "binding_id": testBindingA,
-		"address": "place-aa", "kind": "say", "payload": map[string]any{}})
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+		"payload": map[string]any{"text": "still alive?"}})
 	resp, _ := fc.recv()
-	if got := fc.str(resp, "id"); got != testEffectID {
-		t.Fatalf("effect response id = %q", got)
+	if got := fc.str(resp, "id"); got != testDeliveryID {
+		t.Fatalf("say response id = %q", got)
 	}
-	if string(resp["ok"]) != `{"delivered":false}` {
-		t.Fatalf("effect ok = %s", resp["ok"])
+	if got := fc.str(resp, "m"); got != "err" || fc.str(resp, "code") != "external_rejected" {
+		t.Fatalf("say response = %v (default handler rejects)", resp)
 	}
 	select {
 	case <-c.Closed():
@@ -52,174 +33,191 @@ func expectEffectStillDispatches(t *testing.T, fc *fakeCore, c *Conn) {
 	}
 }
 
-func TestPostReadyUnknownCoreMessageAnsweredAndKept(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	defer c.Close()
-	// The violation table names core→gate `tool` explicitly: post-ready
-	// it is answered unknown_message (write 0) and the connection kept.
+// TestUnknownCoreMessageDroppedAndKept: an unknown m from the core is
+// dropped (effect 0) and the connection kept — V3 has no gateway-side
+// unknown_message answer.
+func TestUnknownCoreMessageDroppedAndKept(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
 	fc.sendRaw(`{"id":"t-1","m":"tool"}`)
-	expectErrFrame(t, fc, "t-1", "unknown_message")
-	expectEffectStillDispatches(t, fc, c)
+	expectStillServesSay(t, fc, c)
 }
 
-func TestPostReadyFieldViolationsAnsweredAndKept(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	defer c.Close()
-	cases := []struct {
-		name, raw, id, code string
-	}{
-		{"bind unknown member", `{"id":"v-1","m":"bind","binding_id":"` + testBindingA + `","address":"place-a","extra":1}`, "v-1", "unknown_field"},
-		{"bind missing address", `{"id":"v-2","m":"bind","binding_id":"` + testBindingA + `"}`, "v-2", "missing_field"},
-		{"bind bad binding uuid", `{"id":"v-3","m":"bind","binding_id":"NOT-A-UUID","address":"place-a"}`, "v-3", "invalid_field"},
-		{"effect unknown kind", `{"id":"` + testEffectID + `","m":"effect","binding_id":"` + testBindingA + `","address":"place-a","kind":"shout","payload":{}}`, testEffectID, "unknown_enum"},
-		{"catch_up unknown mode", `{"id":"v-5","m":"catch_up","binding_id":"` + testBindingA + `","address":"place-a","start":{"mode":"weird"}}`, "v-5", "unknown_enum"},
-		{"unbind wrong type", `{"id":"v-6","m":"unbind","binding_id":7,"address":"place-a"}`, "v-6", "invalid_field"},
+// TestMalformedCoreRequestCloses: a structurally invalid bind/say from
+// the trusted core is a contract violation — the connection closes
+// (pending deliveries go indeterminate core-side).
+func TestMalformedCoreRequestCloses(t *testing.T) {
+	cases := []struct{ name, raw string }{
+		{"bind missing address", `{"id":"bind:x","m":"bind","binding_id":"` + testBindingA + `"}`},
+		{"bind bad binding uuid", `{"id":"b","m":"bind","binding_id":"NOT-A-UUID","address":"a"}`},
+		{"bind wrong type", `{"id":"b","m":"bind","binding_id":7,"address":"a"}`},
+		{"say missing payload", `{"id":"` + testDeliveryID + `","m":"say","binding_id":"` + testBindingA + `"}`},
+		{"say non-uuid delivery id", `{"id":"free-form","m":"say","binding_id":"` + testBindingA + `","payload":{"text":"x"}}`},
 	}
 	for _, tc := range cases {
-		fc.sendRaw(tc.raw)
-		expectErrFrame(t, fc, tc.id, tc.code)
+		t.Run(tc.name, func(t *testing.T) {
+			c, fc := runningConn(t, &testHandler{})
+			fc.sendRaw(tc.raw)
+			waitClosed(t, c)
+			if err := c.Err(); err == nil {
+				t.Fatal("close reason missing")
+			}
+		})
 	}
-	expectEffectStillDispatches(t, fc, c)
 }
 
-func TestPreReadyCoreViolationCloses(t *testing.T) {
-	c, fc := startConn(t) // hello done, ready never sent
-	fc.sendRaw(`{"id":"t-1","m":"tool"}`)
+func TestFrameWithoutMCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	fc.sendRaw(`{"id":"1","seq":5}`)
 	waitClosed(t, c)
-	if err := c.Err(); err == nil {
-		t.Fatal("close reason missing")
-	}
-	// No err response may have been written before the close.
-	if _, err := fc.br.ReadByte(); err == nil {
-		t.Fatal("pre-ready violation was answered instead of closing")
+	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "without m") {
+		t.Fatalf("close reason = %v, want frame-without-m", err)
 	}
 }
 
 func TestNeverIssuedResponseIDCloses(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	fc.ok("no-such-request", map[string]any{"seq": 1, "binding_id": testBindingA})
+	c, fc := runningConn(t, &testHandler{})
+	fc.ok("no-such-request")
 	waitClosed(t, c)
 	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "response_invalid") {
 		t.Fatalf("close reason = %v, want response_invalid", err)
 	}
 }
 
-func TestSendEventDuplicateOriginSeqNull(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	defer c.Close()
-	res := sendEventAsync(c, saidEvent(testBindingA, "origin-1"))
+// TestSaidOkWithoutSeqCloses: the said ok shape is {id,m,seq} (§3.3);
+// an ok missing the seq member does not match the pending request's
+// kind and closes the connection.
+func TestSaidOkWithoutSeqCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
 	ev, _ := fc.recv()
-	fc.ok(fc.str(ev, "id"), map[string]any{"seq": nil, "binding_id": testBindingA})
-	r := <-res
-	if r.err != nil || !r.dup || r.seq != 0 {
-		t.Fatalf("SendEvent = (%d, %v, %v), want (0, true, nil)", r.seq, r.dup, r.err)
+	fc.ok(fc.str(ev, "id")) // plain ok: legal for hello/bind/say, not for said
+	waitClosed(t, c)
+	if r := <-res; r.err == nil {
+		t.Fatal("SendSaid succeeded over a seq-less ok")
 	}
-	select {
-	case <-c.Closed():
-		t.Fatal("duplicate origin closed the connection")
-	default:
+	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "response_invalid") {
+		t.Fatalf("close reason = %v, want response_invalid", err)
 	}
 }
 
-func TestSendEventBindingIDMismatchCloses(t *testing.T) {
-	c, fc := readyConn(t, &testHandler{})
-	res := sendEventAsync(c, saidEvent(testBindingA, "origin-1"))
+func TestSaidOkNonPositiveSeqCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
 	ev, _ := fc.recv()
-	fc.ok(fc.str(ev, "id"), map[string]any{"seq": 47, "binding_id": testBindingB})
-	r := <-res
-	if r.err == nil || !strings.Contains(r.err.Error(), "response_invalid") {
-		t.Fatalf("SendEvent error = %v, want response_invalid", r.err)
-	}
+	fc.okSeq(fc.str(ev, "id"), 0)
 	waitClosed(t, c)
+	if r := <-res; r.err == nil {
+		t.Fatal("SendSaid succeeded over seq 0")
+	}
 }
 
-func TestReadyFailureAfterSendClosesConn(t *testing.T) {
-	c, fc := startConn(t)
-	if err := c.SetHandler(&testHandler{}); err != nil {
-		t.Fatalf("SetHandler: %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	errCh := make(chan error, 1)
-	go func() { errCh <- c.Ready(ctx) }()
-	fc.recv() // the ready frame is on the wire now
-	cancel()
-	if err := <-errCh; !errors.Is(err, context.Canceled) {
-		t.Fatalf("Ready error = %v, want context.Canceled", err)
-	}
-	// The frame was written: no rollback to synchronizing. The conn
-	// must be terminally closed, so a second ready frame and a late
-	// SetHandler are both impossible.
+func TestErrResponseWithoutCodeCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	ev, _ := fc.recv()
+	fc.send(map[string]any{"id": fc.str(ev, "id"), "m": "err", "detail": nil})
 	waitClosed(t, c)
-	if err := c.Ready(context.Background()); !errors.Is(err, ErrClosed) {
-		t.Fatalf("second Ready error = %v, want ErrClosed", err)
-	}
-	if err := c.SetHandler(&testHandler{}); !errors.Is(err, ErrClosed) {
-		t.Fatalf("SetHandler error = %v, want ErrClosed", err)
+	if r := <-res; r.err == nil {
+		t.Fatal("SendSaid succeeded over a code-less err")
 	}
 }
 
-func TestReadyPreWriteFailureRetryable(t *testing.T) {
-	c, fc := startConn(t)
-	// Pre-write failure (no handler yet): nothing reached the wire, so
-	// the connection stays retryable.
-	if err := c.Ready(context.Background()); err == nil {
-		t.Fatal("Ready without handler accepted")
+func TestConsumedResponseIDCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	ev, _ := fc.recv()
+	id := fc.str(ev, "id")
+	fc.okSeq(id, 1)
+	if r := <-res; r.err != nil || r.seq != 1 {
+		t.Fatalf("SendSaid = %+v", r)
 	}
-	if err := c.SetHandler(&testHandler{}); err != nil {
-		t.Fatalf("SetHandler after pre-write Ready failure: %v", err)
-	}
-	errCh := make(chan error, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	go func() { errCh <- c.Ready(ctx) }()
-	m, _ := fc.recv()
-	if got := fc.str(m, "m"); got != "ready" {
-		t.Fatalf("frame m = %q, want ready", got)
-	}
-	fc.ok(fc.str(m, "id"), map[string]any{})
-	if err := <-errCh; err != nil {
-		t.Fatalf("retried Ready: %v", err)
+	fc.okSeq(id, 1) // second response to a consumed id
+	waitClosed(t, c)
+	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "response_invalid") {
+		t.Fatalf("close reason = %v, want response_invalid", err)
 	}
 }
 
+func TestDuplicateMemberInIncomingFrameCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	ev, _ := fc.recv()
+	id := fc.str(ev, "id")
+	fc.sendRaw(`{"id":"` + id + `","m":"ok","seq":1,"seq":2}`)
+	waitClosed(t, c)
+	if r := <-res; r.err == nil {
+		t.Fatal("SendSaid succeeded over a duplicate-member response")
+	}
+}
+
+func TestDuplicateMemberInsidePayloadCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	fc.sendRaw(`{"id":"` + testDeliveryID + `","m":"say","binding_id":"` + testBindingA + `","payload":{"text":"a","text":"b"}}`)
+	waitClosed(t, c)
+	if !errors.Is(c.Err(), errDuplicateMember) {
+		t.Fatalf("close reason = %v, want duplicate member", c.Err())
+	}
+}
+
+func TestOversizedIncomingFrameCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	line := append([]byte(`{"pad":"`), []byte(strings.Repeat("x", MaxFrameBytes))...)
+	line = append(line, []byte(`"}`)...)
+	// Write may error midway once the client closes; that is the point.
+	fc.c.Write(append(line, '\n'))
+	waitClosed(t, c)
+	if !errors.Is(c.Err(), ErrFrameTooLarge) {
+		t.Fatalf("close reason = %v, want ErrFrameTooLarge", c.Err())
+	}
+}
+
+func TestInvalidJSONCloses(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	fc.sendRaw(`[1,2,3]`)
+	waitClosed(t, c)
+	if !errors.Is(c.Err(), errNotObject) {
+		t.Fatalf("close reason = %v, want not-an-object", c.Err())
+	}
+}
+
+// TestDispatchQueueUnboundedKeepsReadLoopLive: regression for the
+// backpressure deadlock — OnSay waits on SendSaid while the core
+// pipelines far more frames than a bounded queue would hold. The read
+// loop must keep draining so the said response still gets through.
 func TestDispatchQueueUnboundedKeepsReadLoopLive(t *testing.T) {
-	// Regression for the backpressure deadlock: OnEffect waits on
-	// SendEvent while the core pipelines far more frames than the old
-	// bounded queue (64) held. The read loop must keep draining so the
-	// event response still gets through.
 	const pipelined = 70
 	holder := make(chan *Conn, 1)
-	h := &testHandler{onEffect: func(Effect) EffectResult {
+	h := &testHandler{onSay: func(Say) SayResult {
 		c := <-holder
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, _, err := c.SendEvent(ctx, saidEvent(testBindingA, "origin-nested")); err != nil {
-			return EffectRejected()
+		if _, _, err := c.SendSaid(ctx, said(testBindingA, "origin-nested")); err != nil {
+			detail := err.Error()
+			return SayRejected(&detail)
 		}
-		return EffectDelivered("origin-eff")
+		return SayDelivered()
 	}}
-	c, fc := readyConn(t, h)
-	defer c.Close()
+	c, fc := runningConn(t, h)
 	holder <- c
 
-	fc.send(map[string]any{"id": testEffectID, "m": "effect", "binding_id": testBindingA,
-		"address": "place-aa", "kind": "say", "payload": map[string]any{}})
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+		"payload": map[string]any{"text": "x"}})
 	for i := 0; i < pipelined; i++ {
-		fc.send(map[string]any{"m": "activity", "address": "place-aa",
+		fc.send(map[string]any{"m": "activity", "binding_id": testBindingA,
 			"activity_id": "act", "state": "ended"})
 	}
-	// Only now does the core read: the nested event frame first…
+	// Only now does the core read: the nested said frame first…
 	ev, _ := fc.recv()
-	if got := fc.str(ev, "m"); got != "event" {
-		t.Fatalf("frame m = %q, want event", got)
+	if got := fc.str(ev, "m"); got != "said" {
+		t.Fatalf("frame m = %q, want said", got)
 	}
-	fc.ok(fc.str(ev, "id"), map[string]any{"seq": 50, "binding_id": testBindingA})
-	// …then the effect response the handler produced after SendEvent.
-	resp, _ := fc.recv()
-	if got := fc.str(resp, "id"); got != testEffectID {
-		t.Fatalf("effect response id = %q", got)
+	fc.okSeq(fc.str(ev, "id"), 50)
+	// …then the say response the handler produced after SendSaid.
+	resp, raw := fc.recv()
+	if got := fc.str(resp, "id"); got != testDeliveryID {
+		t.Fatalf("say response id = %q", got)
 	}
-	if string(resp["ok"]) != `{"delivered":true,"origin":"origin-eff"}` {
-		t.Fatalf("effect ok = %s", resp["ok"])
+	if string(raw) != `{"id":"`+testDeliveryID+`","m":"ok"}` {
+		t.Fatalf("say ok = %s", raw)
 	}
 }

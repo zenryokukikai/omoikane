@@ -1,9 +1,10 @@
 package opencrab
 
-// External-gate provisioning for personal librarians (issue #104 slice
-// G2). This file owns the omoikane-talk kind/schema bootstrap payloads
-// and the per-user instance registration that extends the /my/librarian
-// save flow. Binding creation (per /talk thread) is slice G3.
+// External-gate provisioning for personal librarians (issue #104, V3
+// contract). The V3 admin surface has no kind/schema registration —
+// kind_id is an opaque per-instance value — so provisioning is exactly
+// two PUTs: the per-user instance (extends the /my/librarian save
+// flow) and the per-/talk-thread binding.
 //
 // It lives next to the opencrab provisioning client because the two run
 // as one pipeline: Provision puts the agent on the runtime, then the
@@ -12,79 +13,61 @@ package opencrab
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"log/slog"
-	"sync"
 
 	"github.com/zenryokukikai/omoikane/internal/gate"
 )
 
-// GateKindID is omoikane's external gate kind. One instance per
-// personal librarian, one binding per /talk thread.
+// GateKindID is omoikane's opaque kind_id on gate instances (V3 §2:
+// kind_id references no registry). One instance per personal librarian,
+// one binding per /talk thread.
 const GateKindID = "omoikane-talk"
 
-const (
-	gateConfigSchemaID = "omoikane-talk-config"
-	gateSecretSchemaID = "omoikane-talk-secrets"
-)
+// gateInstanceConfig is the canonical (empty) per-instance config: all
+// agent identity/config stays omoikane-side. Byte-stable — Instance PUT
+// is create-or-byte-equivalent on the decoded config bytes.
+var gateInstanceConfig = []byte(`{}`)
 
-// threadAddressForm matches omoikane /talk thread ids as binding
-// addresses: store.newLibrarianID("thread") = "thread-" + 8 lower hex.
-const threadAddressForm = "^thread-[0-9a-f]{8}$"
-
-// Bootstrap documents. Byte-stable literals: PUT gate-schemas is
-// create-or-byte-equivalent, so these must serialize identically on
-// every process start.
-//
-//   - config schema: the omoikane-talk instance config is the empty
-//     object (all agent identity/config stays omoikane-side), expressed
-//     as a minimal JSON Schema 2020-12.
-//   - secret manifest: no gate-held secrets (issue #104 裁定A — the kb
-//     token is fetched omoikane-internally, never deposited with the
-//     gate), so required and optional are both empty.
-var (
-	gateConfigSchemaDoc = []byte(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false}`)
-	gateSecretSchemaDoc = []byte(`{"required":[],"optional":[]}`)
-
-	// gateInstanceConfig is the canonical (empty) per-instance config.
-	gateInstanceConfig = []byte(`{}`)
-)
+// GateInstanceConfigDigest returns the SHA-256 lower-hex digest of the
+// canonical instance config bytes — the config_digest every
+// omoikane-talk hello must present.
+func GateInstanceConfigDigest() string {
+	sum := sha256.Sum256(gateInstanceConfig)
+	return hex.EncodeToString(sum[:])
+}
 
 // ErrSubjectUnresolved is returned by a SubjectResolver that cannot
-// yet map an omoikane agent to a gate subject_id. Instance
-// registration treats it as "skip for now", not a failure.
-var ErrSubjectUnresolved = errors.New("gate subject resolver not implemented: waiting on upstream opencrab#763")
+// (yet) map an omoikane agent to a gate subject_id — the agent row is
+// not on the runtime, or the runtime predates the subject_id field.
+// Instance registration treats it as "skip for now", not a failure.
+var ErrSubjectUnresolved = errors.New("gate subject unresolved")
 
 // SubjectResolver maps an omoikane agent id ("plib-<user_id>") to the
-// gate admin plane's positive-i64 subject_id for that agent.
+// gate admin plane's positive-i64 subject_id for that agent. The
+// production implementation is RuntimeSubjectResolver (subject.go).
 type SubjectResolver interface {
 	Resolve(ctx context.Context, agentID string) (int64, error)
 }
 
-// StubSubjectResolver is the placeholder until the admin plane exposes
-// a subject lookup (upstream opencrab#763). It always answers
-// ErrSubjectUnresolved, which makes instance registration a logged
-// no-op while everything around it stays wired and testable.
+// StubSubjectResolver always answers ErrSubjectUnresolved, which makes
+// instance registration a logged no-op. Kept for tests that exercise
+// the skip path.
 type StubSubjectResolver struct{}
 
 func (StubSubjectResolver) Resolve(context.Context, string) (int64, error) {
 	return 0, ErrSubjectUnresolved
 }
 
-// GateProvisioner registers omoikane's kind/schemas and per-librarian
-// instances on the gate admin plane. One value per process.
+// GateProvisioner registers per-librarian instances and per-thread
+// bindings on the gate admin plane. One value per process.
 type GateProvisioner struct {
 	Admin    *gate.AdminClient
 	Resolver SubjectResolver
 	Log      *slog.Logger // nil → slog.Default()
-
-	// Registration latch: once-per-process AFTER a success. A plain
-	// sync.Once would also latch a failure (one admin-plane blip at
-	// first save would disable registration until restart), so this is
-	// a mutex + success flag instead.
-	mu         sync.Mutex
-	registered bool
 }
 
 func (g *GateProvisioner) log() *slog.Logger {
@@ -94,61 +77,15 @@ func (g *GateProvisioner) log() *slog.Logger {
 	return slog.Default()
 }
 
-// EnsureRegistered PUTs the omoikane-talk schemas then the kind.
-// Idempotent per the admin contract (PUT is create-or-equivalent) and
-// latched process-wide after the first success.
-func (g *GateProvisioner) EnsureRegistered(ctx context.Context) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.registered {
-		return nil
-	}
-
-	if _, _, err := g.Admin.PutSchema(ctx, gateConfigSchemaID, gate.SchemaPut{
-		Role:        "instance_config",
-		Format:      "json-schema-2020-12",
-		DocumentB64: base64.StdEncoding.EncodeToString(gateConfigSchemaDoc),
-	}); err != nil {
-		return err
-	}
-	if _, _, err := g.Admin.PutSchema(ctx, gateSecretSchemaID, gate.SchemaPut{
-		Role:        "secret_manifest",
-		Format:      "secret-manifest-v1",
-		DocumentB64: base64.StdEncoding.EncodeToString(gateSecretSchemaDoc),
-	}); err != nil {
-		return err
-	}
-
-	addressForm := threadAddressForm
-	configSchema := gateConfigSchemaID
-	secretSchema := gateSecretSchemaID
-	catchUp := "none"
-	if _, _, err := g.Admin.PutKind(ctx, GateKindID, gate.KindPut{
-		ProtocolMajor:           2,
-		OriginScope:             "instance",
-		IngressDiscovery:        "prebound",
-		AddressForm:             &addressForm,
-		ConfigSchemaID:          &configSchema,
-		BindingMetadataSchemaID: nil,
-		SecretManifestSchemaID:  &secretSchema,
-		CatchUpMode:             &catchUp,
-		CursorSchemaID:          nil,
-	}); err != nil {
-		return err
-	}
-
-	g.registered = true
-	return nil
-}
-
 // EnsureInstance makes sure agentID has a gate instance and returns
 // its id. existingInstanceID non-empty means a previous save already
-// registered one — it is returned as-is (the aggregate is immutable
-// for our purposes; config revisions are not part of this flow).
+// registered one — it is returned as-is (config revisions are not part
+// of this flow).
 //
 // When the resolver answers ErrSubjectUnresolved the registration is
 // SKIPPED — logged, ("", nil) returned — so the user-facing save
-// succeeds while the subject lookup is still upstream work.
+// succeeds even while the agent has no subject mapping yet (agent row
+// not on the runtime, or a runtime without the subject_id field).
 func (g *GateProvisioner) EnsureInstance(ctx context.Context, agentID, existingInstanceID string) (string, error) {
 	if existingInstanceID != "" {
 		return existingInstanceID, nil
@@ -166,7 +103,6 @@ func (g *GateProvisioner) EnsureInstance(ctx context.Context, agentID, existingI
 	instanceID := gate.NewUUIDv7()
 	if _, _, err := g.Admin.PutInstance(ctx, instanceID, gate.InstancePut{
 		KindID:    GateKindID,
-		Label:     agentID,
 		SubjectID: subjectID,
 		Enabled:   true,
 		ConfigB64: base64.StdEncoding.EncodeToString(gateInstanceConfig),
@@ -174,4 +110,22 @@ func (g *GateProvisioner) EnsureInstance(ctx context.Context, agentID, existingI
 		return "", err
 	}
 	return instanceID, nil
+}
+
+// EnsureThreadBinding registers threadID as a gate binding on
+// instanceID: a fresh UUIDv7 binding id, address = the thread id (V3
+// §5.3: the binding PUT is exactly {instance_id, address}). Dynamic PUT
+// is legal while the instance is live (§5.5). Returns the new binding
+// id. Callers own the thread-side bookkeeping
+// (store.PutTalkGateBinding) and the best-effort policy — this method
+// just performs the PUT.
+func (g *GateProvisioner) EnsureThreadBinding(ctx context.Context, instanceID, threadID string) (string, error) {
+	bindingID := gate.NewUUIDv7()
+	if _, _, err := g.Admin.PutBinding(ctx, bindingID, gate.BindingPut{
+		InstanceID: instanceID,
+		Address:    threadID,
+	}); err != nil {
+		return "", err
+	}
+	return bindingID, nil
 }

@@ -1,9 +1,11 @@
 package dashboard
 
-// /my/librarian save flow × external gate registration (issue #104 G2).
-// The gate leg runs the REAL opencrab.GateProvisioner and gate.AdminClient
-// against a fake admin HTTP server — only the runtime provisioner and
-// the subject resolver are faked.
+// /my/librarian save flow × external gate registration (issue #104, V3
+// contract). The gate leg runs the REAL opencrab.GateProvisioner and
+// gate.AdminClient against a fake admin HTTP server — only the runtime
+// provisioner and the subject resolver are faked. V3 has no kind/schema
+// registration: the only admin call the save flow may make is the
+// instance PUT.
 
 import (
 	"context"
@@ -22,8 +24,8 @@ import (
 	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
-// fakeGateAdmin is a minimal admin plane: every PUT answers 201 with a
-// body the client can decode, and records method+path+body.
+// fakeGateAdmin is a minimal V3 admin plane: every instance PUT answers
+// 201 with a decodable Instance body, and records method+path+body.
 type fakeGateAdmin struct {
 	mu    sync.Mutex
 	calls []adminHit
@@ -43,13 +45,12 @@ func (f *fakeGateAdmin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
 	switch {
-	case strings.HasPrefix(r.URL.Path, "/api/gate-schemas/"):
-		_, _ = io.WriteString(w, `{"schema_id":"x","role":"instance_config","format":"json-schema-2020-12","document_b64":"e30=","document_digest":"`+strings.Repeat("a", 64)+`","created_at":1}`)
-	case strings.HasPrefix(r.URL.Path, "/api/gate-kinds/"):
-		_, _ = io.WriteString(w, `{"kind_id":"omoikane-talk"}`)
 	case strings.HasPrefix(r.URL.Path, "/api/gate-instances/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/gate-instances/")
-		_, _ = io.WriteString(w, `{"instance_id":"`+id+`"}`)
+		_, _ = io.WriteString(w, `{"instance_id":"`+id+`","kind_id":"omoikane-talk","subject_id":42,`+
+			`"revision":1,"enabled":true,"config_b64":"e30=",`+
+			`"config_digest":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",`+
+			`"created_at":1,"updated_at":1,"deleted_at":null}`)
 	default:
 		_, _ = io.WriteString(w, `{}`)
 	}
@@ -143,9 +144,10 @@ func TestMyLibrarianSaveGateOff(t *testing.T) {
 	}
 }
 
-// Gate on + stub resolver: kind/schemas register, instance is SKIPPED
-// (subject lookup is upstream work), the save still succeeds and
-// gate_instance_id stays empty.
+// Gate on + stub resolver: the instance PUT is SKIPPED (no subject
+// mapping yet), the save still succeeds, gate_instance_id stays empty,
+// and NO admin call happens at all (V3: there is nothing else to
+// register).
 func TestMyLibrarianSaveGateStubResolverSkips(t *testing.T) {
 	srv, s, tok, admin := mountLibrarianGate(t, nil)
 	code, body := postFormBody(t, srv, "/my/librarian", tok,
@@ -160,25 +162,15 @@ func TestMyLibrarianSaveGateStubResolverSkips(t *testing.T) {
 	if ul.GateInstanceID != "" {
 		t.Errorf("gate_instance_id = %q, want empty (skip path)", ul.GateInstanceID)
 	}
-	paths := admin.paths()
-	wantPrefix := []string{
-		"PUT /api/gate-schemas/omoikane-talk-config",
-		"PUT /api/gate-schemas/omoikane-talk-secrets",
-		"PUT /api/gate-kinds/omoikane-talk",
-	}
-	if len(paths) != len(wantPrefix) {
-		t.Fatalf("admin calls = %v, want exactly %v", paths, wantPrefix)
-	}
-	for i := range wantPrefix {
-		if paths[i] != wantPrefix[i] {
-			t.Errorf("admin call %d = %q, want %q", i, paths[i], wantPrefix[i])
-		}
+	if paths := admin.paths(); len(paths) != 0 {
+		t.Fatalf("admin calls = %v, want none (skip path makes zero admin calls)", paths)
 	}
 }
 
 // Gate on + working resolver: the instance PUT reaches the admin plane
-// with the resolved subject_id, the id persists, and a second save
-// neither re-registers the kind nor mints a second instance.
+// with the V3 exact member set {kind_id, subject_id, enabled,
+// config_b64} (no label), the id persists, and a second save does not
+// mint a second instance.
 func TestMyLibrarianSaveGateRegistersInstance(t *testing.T) {
 	srv, s, tok, admin := mountLibrarianGate(t, fixedResolver(42))
 	code, body := postFormBody(t, srv, "/my/librarian", tok,
@@ -188,12 +180,23 @@ func TestMyLibrarianSaveGateRegistersInstance(t *testing.T) {
 	}
 
 	puts := admin.instancePuts()
-	if len(puts) != 1 {
-		t.Fatalf("instance PUTs = %d, want 1 (%v)", len(puts), admin.paths())
+	if len(puts) != 1 || len(admin.paths()) != 1 {
+		t.Fatalf("admin calls = %v, want exactly one instance PUT", admin.paths())
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(puts[0].Body), &members); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"kind_id", "subject_id", "enabled", "config_b64"} {
+		if _, ok := members[want]; !ok {
+			t.Errorf("instance PUT body missing %q: %s", want, puts[0].Body)
+		}
+	}
+	if len(members) != 4 {
+		t.Errorf("instance PUT body has extra members (want exactly 4): %s", puts[0].Body)
 	}
 	var req struct {
 		KindID    string `json:"kind_id"`
-		Label     string `json:"label"`
 		SubjectID int64  `json:"subject_id"`
 		Enabled   bool   `json:"enabled"`
 		ConfigB64 string `json:"config_b64"`
@@ -201,8 +204,7 @@ func TestMyLibrarianSaveGateRegistersInstance(t *testing.T) {
 	if err := json.Unmarshal([]byte(puts[0].Body), &req); err != nil {
 		t.Fatal(err)
 	}
-	if req.KindID != "omoikane-talk" || req.Label != "plib-alice" ||
-		req.SubjectID != 42 || !req.Enabled || req.ConfigB64 != "e30=" {
+	if req.KindID != "omoikane-talk" || req.SubjectID != 42 || !req.Enabled || req.ConfigB64 != "e30=" {
 		t.Errorf("instance PUT body: %s", puts[0].Body)
 	}
 
@@ -215,8 +217,8 @@ func TestMyLibrarianSaveGateRegistersInstance(t *testing.T) {
 		t.Errorf("gate_instance_id = %q, want %q (the PUT path id)", ul.GateInstanceID, wantID)
 	}
 
-	// Second save: registration is latched, the existing instance id is
-	// reused — zero further admin calls.
+	// Second save: the existing instance id is reused — zero further
+	// admin calls.
 	before := len(admin.paths())
 	code, body = postFormBody(t, srv, "/my/librarian", tok,
 		map[string]string{"name": "Lib renamed"})
@@ -236,11 +238,14 @@ func TestMyLibrarianSaveGateRegistersInstance(t *testing.T) {
 }
 
 // Gate admin unreachable: the save fails visibly (502-style banner),
-// and the librarian row is not written half-way.
+// and the librarian row is not written half-way. Needs a working
+// resolver — with no subject mapping the V3 flow never touches the
+// admin plane.
 func TestMyLibrarianSaveGateAdminDown(t *testing.T) {
 	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, `{"error":{"code":"store_error","at":null,"detail":null}}`)
+		_, _ = io.WriteString(w, `{"error":{"code":"store_error","detail":null}}`)
 	}))
 	t.Cleanup(admin.Close)
 
@@ -263,7 +268,7 @@ func TestMyLibrarianSaveGateAdminDown(t *testing.T) {
 	h.Librarian = &fakeProvisioner{}
 	h.Gate = &opencrab.GateProvisioner{
 		Admin:    gate.NewAdminClient(admin.URL, "op-token"),
-		Resolver: opencrab.StubSubjectResolver{},
+		Resolver: fixedResolver(42),
 	}
 	r := chi.NewRouter()
 	h.Mount(r)

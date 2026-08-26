@@ -20,6 +20,12 @@ import (
 // visible-space list:
 //
 //   - a token with the "admin" scope sees every space (nil = unrestricted)
+//   - a token with the "gateway" scope sees every space too — it is
+//     omoikane's own infra token (issue #104 G3a): the gate process
+//     relays SSE traffic for EVERY personal librarian, the same trust
+//     level as the in-process webhook dispatcher (which subscribes
+//     unfiltered); per-thread write authority is still gated per
+//     request (mayUseThread with the stamped owner)
 //   - a user-bound token sees store.VisibleSpaces(user)
 //   - a user-less token without admin (bootstrap/CLI) sees only
 //     'internal' (fail-closed)
@@ -27,12 +33,16 @@ import (
 //     the auth middleware)
 //
 // The result feeds store.WithVisibleSpaces — tokens can never widen a
-// user's view, only the admin scope can lift the restriction.
+// user's view, only the admin/gateway scopes can lift the restriction.
 func ResolveVisibleSpaces(ctx context.Context, s *store.Store, tok *store.APIToken) ([]string, error) {
 	if tok == nil {
 		return []string{}, nil
 	}
 	if store.HasScope(tok.Scopes, "admin") {
+		return nil, nil
+	}
+	if store.HasScope(tok.Scopes, "gateway") {
+		// Mirrors the admin contract above — see the doc comment.
 		return nil, nil
 	}
 	if tok.UserID == "" {

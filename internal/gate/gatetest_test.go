@@ -1,6 +1,5 @@
 // Test support: a scripted fake core on the far side of a net.Pipe.
-// All identifiers in these tests are synthetic (spec rule: examples use
-// synthetic identifiers only).
+// All identifiers in these tests are synthetic.
 package gate
 
 import (
@@ -9,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"sort"
 	"testing"
 	"time"
 )
@@ -17,19 +17,16 @@ const (
 	testInstanceID = "0190a1b2-c3d4-7e5f-8a6b-000000000001"
 	testDigest     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	// bindingA < bindingB in byte order.
-	testBindingA = "0190a1b2-c3d4-7e5f-8a6b-0000000000aa"
-	testBindingB = "0190a1b2-c3d4-7e5f-8a6b-0000000000bb"
-	testEffectID = "0190a1b2-c3d4-7e5f-8a6b-0000000000ee"
+	testBindingA   = "0190a1b2-c3d4-7e5f-8a6b-0000000000aa"
+	testBindingB   = "0190a1b2-c3d4-7e5f-8a6b-0000000000bb"
+	testDeliveryID = "0190a1b2-c3d4-7e5f-8a6b-0000000000ee"
 )
 
 func testHelloParams() HelloParams {
 	return HelloParams{
-		KindID:       "test-kind",
 		InstanceID:   testInstanceID,
 		Revision:     1,
 		ConfigDigest: testDigest,
-		OriginScope:  "instance",
-		AddressForm:  "test-address",
 	}
 }
 
@@ -98,13 +95,26 @@ func (f *fakeCore) sendRaw(s string) {
 	}
 }
 
-// ok answers request id with an ok payload.
-func (f *fakeCore) ok(id string, payload any) {
-	f.send(map[string]any{"id": id, "ok": payload})
+// ok answers request id with a plain ok (hello/bind/say form).
+func (f *fakeCore) ok(id string) {
+	f.send(map[string]any{"id": id, "m": "ok"})
+}
+
+// okSeq answers a said request with {id, m:"ok", seq}. seq may be nil
+// (explicit null: core did not record the said).
+func (f *fakeCore) okSeq(id string, seq any) {
+	f.send(map[string]any{"id": id, "m": "ok", "seq": seq})
+}
+
+// errResp answers request id with {id, m:"err", code, detail}.
+func (f *fakeCore) errResp(id, code string, detail any) {
+	f.send(map[string]any{"id": id, "m": "err", "code": code, "detail": detail})
 }
 
 // startConn runs NewConn against a fresh pipe and serves the hello
-// exchange (epoch 7). It returns the connected Conn and the fake core.
+// exchange (V3: hello ok ⇒ RUNNING; no ready stage). It returns the
+// running Conn and the fake core. Handler dispatch is still held —
+// call Start (or use runningConn).
 func startConn(t *testing.T) (*Conn, *fakeCore) {
 	t.Helper()
 	client, server := net.Pipe()
@@ -124,7 +134,7 @@ func startConn(t *testing.T) (*Conn, *fakeCore) {
 	if got := fc.str(m, "m"); got != "hello" {
 		t.Fatalf("first frame m = %q, want hello", got)
 	}
-	fc.ok(fc.str(m, "id"), map[string]any{"protocol": 2, "connection_epoch": 7})
+	fc.ok(fc.str(m, "id"))
 	r := <-ch
 	if r.err != nil {
 		t.Fatalf("NewConn: %v", r.err)
@@ -134,13 +144,11 @@ func startConn(t *testing.T) (*Conn, *fakeCore) {
 }
 
 // testHandler is a Handler with overridable callbacks; nil callbacks
-// succeed silently (bind/unbind/catch_up ack, effect rejected).
+// default to bind ack and say rejected.
 type testHandler struct {
 	onBind     func(Binding) error
-	onUnbind   func(Binding) error
-	onEffect   func(Effect) EffectResult
+	onSay      func(Say) SayResult
 	onActivity func(Activity)
-	onCatchUp  func(CatchUp) error
 }
 
 func (h *testHandler) OnBind(b Binding) error {
@@ -150,18 +158,11 @@ func (h *testHandler) OnBind(b Binding) error {
 	return nil
 }
 
-func (h *testHandler) OnUnbind(b Binding) error {
-	if h.onUnbind != nil {
-		return h.onUnbind(b)
+func (h *testHandler) OnSay(s Say) SayResult {
+	if h.onSay != nil {
+		return h.onSay(s)
 	}
-	return nil
-}
-
-func (h *testHandler) OnEffect(e Effect) EffectResult {
-	if h.onEffect != nil {
-		return h.onEffect(e)
-	}
-	return EffectRejected()
+	return SayRejected(nil)
 }
 
 func (h *testHandler) OnActivity(a Activity) {
@@ -170,34 +171,13 @@ func (h *testHandler) OnActivity(a Activity) {
 	}
 }
 
-func (h *testHandler) OnCatchUp(cu CatchUp) error {
-	if h.onCatchUp != nil {
-		return h.onCatchUp(cu)
-	}
-	return nil
-}
-
-// readyConn returns a Conn that has completed hello and ready with the
-// given handler installed.
-func readyConn(t *testing.T, h Handler) (*Conn, *fakeCore) {
+// runningConn returns a Conn that has completed hello with the given
+// handler dispatching.
+func runningConn(t *testing.T, h Handler) (*Conn, *fakeCore) {
 	t.Helper()
 	c, fc := startConn(t)
-	if err := c.SetHandler(h); err != nil {
-		t.Fatalf("SetHandler: %v", err)
-	}
-	errCh := make(chan error, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	go func() {
-		defer cancel()
-		errCh <- c.Ready(ctx)
-	}()
-	m, _ := fc.recv()
-	if got := fc.str(m, "m"); got != "ready" {
-		t.Fatalf("frame m = %q, want ready", got)
-	}
-	fc.ok(fc.str(m, "id"), map[string]any{})
-	if err := <-errCh; err != nil {
-		t.Fatalf("Ready: %v", err)
+	if err := c.Start(h); err != nil {
+		t.Fatalf("Start: %v", err)
 	}
 	return c, fc
 }
@@ -212,57 +192,70 @@ func waitClosed(t *testing.T, c *Conn) {
 	}
 }
 
-// eventResult carries one SendEvent outcome across goroutines.
-type eventResult struct {
-	seq int64
-	dup bool
-	err error
+// saidResult carries one SendSaid outcome across goroutines.
+type saidResult struct {
+	seq      int64
+	recorded bool
+	err      error
 }
 
-// sendEventAsync runs SendEvent on a goroutine so the test goroutine
-// can serve the synchronous pipe.
-func sendEventAsync(c *Conn, ev Event) chan eventResult {
-	ch := make(chan eventResult, 1)
+// sendSaidAsync runs SendSaid on a goroutine so the test goroutine can
+// serve the synchronous pipe.
+func sendSaidAsync(c *Conn, s Said) chan saidResult {
+	ch := make(chan saidResult, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		seq, dup, err := c.SendEvent(ctx, ev)
-		ch <- eventResult{seq, dup, err}
+		seq, recorded, err := c.SendSaid(ctx, s)
+		ch <- saidResult{seq, recorded, err}
 	}()
 	return ch
 }
 
-// saidEvent builds a minimal valid said event on binding b.
-func saidEvent(b, origin string) Event {
-	return Event{
-		Kind:      "said",
-		Address:   "place-1",
+// said builds a minimal valid said on binding b.
+func said(b, origin string) Said {
+	return Said{
 		BindingID: b,
-		Author:    Author{ID: "author-1"},
-		Content:   Text("hello world"),
 		Origin:    origin,
+		AuthorID:  "author-1",
+		Text:      "hello world",
 	}
 }
 
-// keyOrder returns the top-level member names of a JSON object in
-// document order.
-func keyOrder(t *testing.T, data []byte) []string {
+// memberSet returns the sorted top-level member names of a JSON object.
+func memberSet(t *testing.T, data []byte) []string {
 	t.Helper()
 	dec := json.NewDecoder(bytes.NewReader(data))
 	tok, err := dec.Token()
 	if err != nil || tok != json.Delim('{') {
-		t.Fatalf("keyOrder: not an object: %v", err)
+		t.Fatalf("memberSet: not an object: %v", err)
 	}
 	var keys []string
 	for dec.More() {
 		kt, err := dec.Token()
 		if err != nil {
-			t.Fatalf("keyOrder: %v", err)
+			t.Fatalf("memberSet: %v", err)
 		}
 		keys = append(keys, kt.(string))
 		skipJSONValue(t, dec)
 	}
+	sort.Strings(keys)
 	return keys
+}
+
+// sameMembers asserts got carries exactly the wanted member names.
+func sameMembers(t *testing.T, raw []byte, want ...string) {
+	t.Helper()
+	got := memberSet(t, raw)
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("members = %v, want exactly %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("members = %v, want exactly %v", got, want)
+		}
+	}
 }
 
 func skipJSONValue(t *testing.T, dec *json.Decoder) {

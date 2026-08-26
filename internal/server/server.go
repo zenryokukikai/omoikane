@@ -230,15 +230,22 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 
 		// External gate admin registration (issue #104 G2) — extends
 		// the librarian save flow, so it only exists inside the
-		// opencrab feature. The subject resolver is still a stub
-		// (upstream opencrab#763); instance registration skips until
-		// it lands.
+		// opencrab feature. Subject ids resolve through the runtime's
+		// agents API (GET /api/agents/{id} carries subject_id); on a
+		// runtime without the field the resolver answers
+		// ErrSubjectUnresolved and instance registration stays a
+		// logged skip.
 		if cfg.GateAdminURL != "" {
-			dashH.Gate = &opencrab.GateProvisioner{
+			gp := &opencrab.GateProvisioner{
 				Admin:    gate.NewAdminClient(cfg.GateAdminURL, cfg.GateOperatorToken),
-				Resolver: opencrab.StubSubjectResolver{},
+				Resolver: &opencrab.RuntimeSubjectResolver{Client: oc},
 				Log:      logger,
 			}
+			dashH.Gate = gp
+			// Same provisioner, second consumer (issue #104 G3a): the
+			// API registers each fresh /talk thread as a gate binding.
+			// Must be set before apiH.Mount below.
+			apiH.GateBinder = gp
 			logger.Info("gate admin registration enabled", "gate_admin_url", cfg.GateAdminURL)
 		}
 	}

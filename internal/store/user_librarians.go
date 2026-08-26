@@ -51,6 +51,33 @@ func (s *Store) GetUserLibrarian(ctx context.Context, userID string) (*UserLibra
 	return &ul, nil
 }
 
+// ListActiveUserLibrarians returns every ACTIVE personal librarian —
+// the gate binary's connection roster (issue #104 G3a, served via
+// GET /v1/gateway/librarians). Rows whose gate_instance_id is still
+// empty are included: whether an instance is connectable is the
+// caller's call, not a hidden filter here. Ordered by user_id for
+// stable output. Icon blobs are not fetched.
+func (s *Store) ListActiveUserLibrarians(ctx context.Context) ([]*UserLibrarian, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id, agent_id, name, status, gate_instance_id
+		  FROM user_librarians WHERE status = 'active'
+		 ORDER BY user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*UserLibrarian
+	for rows.Next() {
+		var ul UserLibrarian
+		if err := rows.Scan(&ul.UserID, &ul.AgentID, &ul.Name, &ul.Status,
+			&ul.GateInstanceID); err != nil {
+			return nil, err
+		}
+		out = append(out, &ul)
+	}
+	return out, rows.Err()
+}
+
 // UpsertUserLibrarian creates or updates the user's personal librarian
 // row. Idempotent — re-saving keeps the original created_at.
 func (s *Store) UpsertUserLibrarian(ctx context.Context, ul *UserLibrarian) error {

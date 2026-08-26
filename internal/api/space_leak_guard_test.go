@@ -118,9 +118,11 @@ var leakNotCovered = []leakLedgerEntry{
 	{"POST", "/v1/events/broadcast", "covered elsewhere: broadcast thread-gating asserted in space_leak_slice4_test.go"},
 	{"POST", "/v1/attachments", "covered elsewhere: multipart upload contract pinned by TestAttachmentSpaceUpload"},
 
-	// ---- flagged at guard introduction ----
-	{"POST", "/v1/librarian/threads", "TODO(#99): 未分類 — ガード導入時点の既存未カバー (opens a caller-owned thread; related_entries visibility unaudited)"},
-	{"POST", "/v1/librarian/tasks", "TODO(#99): 未分類 — ガード導入時点の既存未カバー (enqueue ignores space_id; space is stamped only via open-work claim)"},
+	// ---- audited at #103: no entry/space reference in the payload ----
+	// (POST /v1/librarian/threads left this list at #103: related_entries
+	// ids are now validated as entry references and the route has matrix
+	// rows in space_leak_threads_test.go.)
+	{"POST", "/v1/librarian/tasks", "enqueue carries caller-authored free text only (role/title/description/priority); no entry or space id is resolved from the payload — space is forced 'internal' (real spaces are stamped by open-work claims, migration 033) and read-back rides the space-filtered tasks rows (#103)"},
 }
 
 // normalizeLeakPattern strips a query string and collapses every

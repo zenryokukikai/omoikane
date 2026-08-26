@@ -97,7 +97,47 @@ type ChatMessage struct {
 	Metadata       string `json:"metadata,omitempty"`
 }
 
+// relatedEntriesMax caps how many entry ids one thread/message may
+// reference — each id costs one visibility lookup (see the cap check).
+const relatedEntriesMax = 50
+
+// requireVisibleRelatedEntries validates a related_entries payload — a
+// JSON array of entry ids (the skill.md contract) — before it is stored
+// on a thread or message. Every referenced entry must exist AND be
+// visible under ctx: an invisible entry is indistinguishable from a
+// missing one (ErrNotFound → uniform 404), the same contract
+// CreateEntry applies to space_id. Without this check the field was an
+// unvalidated reference channel (issue #103): an outsider could store a
+// hidden entry's id on their own thread and any elevated-visibility
+// consumer of the linkage would resolve it on their behalf. Empty means
+// "no linkage"; anything unparseable is rejected rather than stored as
+// free bytes that dodge the reference check.
+func (s *Store) requireVisibleRelatedEntries(ctx context.Context, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return fmt.Errorf("%w: related_entries must be a JSON array of entry ids", ErrInvalidInput)
+	}
+	// Each id costs one visibility lookup; without a cap a single
+	// request could smuggle tens of thousands of ids inside the body
+	// limit and turn a 0-query write into an N-query one.
+	if len(ids) > relatedEntriesMax {
+		return fmt.Errorf("%w: related_entries accepts at most %d ids", ErrInvalidInput, relatedEntriesMax)
+	}
+	for _, id := range ids {
+		if err := requireVisibleEntry(ctx, s.db, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) OpenThread(ctx context.Context, t *ChatThread) (string, error) {
+	if err := s.requireVisibleRelatedEntries(ctx, t.RelatedEntries); err != nil {
+		return "", err
+	}
 	if t.ThreadID == "" {
 		t.ThreadID = newLibrarianID("thread")
 	}
@@ -221,6 +261,11 @@ func (s *Store) PostChatMessage(ctx context.Context, m *ChatMessage) (string, er
 	}
 	if strings.TrimSpace(m.Content) == "" {
 		return "", fmt.Errorf("%w: content required", ErrInvalidInput)
+	}
+	// Same contract as OpenThread: every related_entries id must be a
+	// visible entry (invisible == nonexistent, issue #103).
+	if err := s.requireVisibleRelatedEntries(ctx, m.RelatedEntries); err != nil {
+		return "", err
 	}
 	if m.ID == "" {
 		m.ID = newLibrarianID("msg")

@@ -23,6 +23,22 @@ var leakCasesThreads = []leakRow{
 			"content": "outsider message"},
 		outsiderStatus: 404},
 
+	// ---- related_entries references (issue #103): an entry id in
+	// related_entries is validated like any entry reference — an
+	// invisible entry is indistinguishable from a nonexistent one
+	// (uniform 404; the positive/uniformity pairs live in
+	// TestThreadRelatedEntriesVisibility) ----
+	{name: "thread open with invisible related entry", method: "POST",
+		path: "/v1/librarian/threads",
+		body: map[string]any{"title": "probe thread",
+			"related_entries": `["{secretid}"]`},
+		outsiderStatus: 404},
+	{name: "chat post with invisible related entry", method: "POST",
+		path: "/v1/librarian/chat",
+		body: map[string]any{"thread_id": "{coordthreadid}", "author_role": "human",
+			"content": "probe message", "related_entries": `["{secretid}"]`},
+		outsiderStatus: 404},
+
 	// ---- search with include_chat (chat_results field) ----
 	{name: "search include_chat", method: "POST", path: "/v1/search",
 		body:           map[string]any{"query": leakMarker, "include_chat": true},

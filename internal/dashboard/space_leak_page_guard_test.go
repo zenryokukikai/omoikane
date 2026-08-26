@@ -62,11 +62,11 @@ var dashNotCovered = []dashLedgerEntry{
 	{"POST", "/chat/{id}/post", "covered elsewhere: talk-thread write gate pinned by TestDashboardChatWriteRefusesTalkThreads"},
 	{"POST", "/chat/{id}/close", "covered elsewhere: talk-thread write gate pinned by TestDashboardChatWriteRefusesTalkThreads"},
 
-	// ---- flagged at guard introduction ----
-	{"GET", "/my/librarian", "TODO(#99): 未分類 — ガード導入時点の既存未カバー (viewer's own librarian settings page, #73)"},
-	{"POST", "/my/librarian", "TODO(#99): 未分類 — ガード導入時点の既存未カバー (viewer's own librarian settings save, #73)"},
-	{"GET", "/librarian-icon/{userID}", "TODO(#99): 未分類 — ガード導入時点の既存未カバー (librarian avatar image, #73)"},
-	{"POST", "/chat/new", "TODO(#99): 未分類 — ガード導入時点の既存未カバー (opens a caller-owned coordination thread)"},
+	// ---- session-derived write surfaces (audited at #103; the GET
+	// twins — /my/librarian and /librarian-icon/{userID} — are matrix
+	// rows in space_leak_page_test.go) ----
+	{"POST", "/my/librarian", "operated agent is always the session user's own (user_id from auth ctx, agent id derived server-side); cross-user isolation pinned by TestMyLibrarianSaveTouchesOnlyOwnConfig"},
+	{"POST", "/chat/new", "opens a shared coordination thread from form title/intent only — no caller-supplied ids are resolved and the response is a redirect with no entry content (chat_test.go)"},
 }
 
 // normalizeDashPattern strips a query string and collapses every

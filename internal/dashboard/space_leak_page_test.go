@@ -49,6 +49,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
@@ -277,7 +279,34 @@ func newDashLeakFixture(t *testing.T) (*dashLeakFixture, *httptest.Server) {
 		t.Fatal(err)
 	}
 
-	srv := mount(t, st, false)
+	// u-member's personal librarian (#73): config text and the uploaded
+	// icon bytes are private to their user — the settings page must only
+	// ever render the VIEWER's own config, and the icon route is
+	// owner/admin-only with the uniform 404 (issue #103 rows).
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "u-member", AgentID: "plib-u-member",
+		Name:    dashLeakMarker + " librarian name",
+		Persona: dashLeakMarker + " librarian persona",
+		Status:  "active",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserLibrarianIconImage(ctx, "u-member",
+		[]byte(dashLeakMarker+" icon image bytes"), "image/png"); err != nil {
+		t.Fatal(err)
+	}
+
+	// mount + an injected librarian runtime so /my/librarian is live
+	// (nil Librarian would 404 the page for everyone and prove nothing).
+	h, err := New(st, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Librarian = &fakeProvisioner{}
+	rt := chi.NewRouter()
+	h.Mount(rt)
+	srv := httptest.NewServer(rt)
+	t.Cleanup(srv.Close)
 	return &dashLeakFixture{
 		st: st, memberTok: memberTok, outsiderTok: outsiderTok, adminTok: adminTok,
 		spaceID: sp.ID, secretID: secretID, internalID: internalID,
@@ -367,12 +396,22 @@ func dashLeakRows() []dashLeakRow {
 		{name: "talk thread frag tail", path: "/talk/{talkthread}?frag=tail",
 			outsiderStatus: 404, memberSees: true},
 		{name: "bookmarks (row planted for both users)", path: "/bookmarks", outsiderStatus: 200, memberSees: true},
+		// Personal librarian (#73, audited at #103): the settings page
+		// renders only the SESSION user's config — the outsider gets
+		// their own (empty) form, never u-member's marker-carrying one.
+		{name: "my librarian page (viewer's own config only)", path: "/my/librarian",
+			outsiderStatus: 200, memberSees: true},
+		// The icon route is owner/admin-only with the uniform 404; the
+		// member IS the owner and gets the marker-carrying image bytes.
+		{name: "librarian icon (owner-only, uniform 404)", path: "/librarian-icon/{member}",
+			outsiderStatus: 404, memberSees: true},
 	}
 }
 
 func (f *dashLeakFixture) expand(p string) string {
 	return strings.NewReplacer(
 		"{project}", "p-leak",
+		"{member}", "u-member",
 		"{space}", f.spaceID,
 		"{secret}", f.secretID,
 		"{internal}", f.internalID,

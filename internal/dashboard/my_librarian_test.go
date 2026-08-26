@@ -387,3 +387,48 @@ func TestMyLibrarianIcon(t *testing.T) {
 		t.Fatalf("clear failed: %+v", ul)
 	}
 }
+
+// TestMyLibrarianSaveTouchesOnlyOwnConfig (issue #103): the operated
+// agent is ALWAYS the session user's own — user_id comes from the auth
+// context and the agent id is derived server-side — so one user's save
+// can neither read nor overwrite another user's librarian config, even
+// when the form smuggles user_id / agent_id fields.
+func TestMyLibrarianSaveTouchesOnlyOwnConfig(t *testing.T) {
+	fake := &fakeProvisioner{}
+	srv, s, aliceTok := mountLibrarian(t, fake)
+	ctx := context.Background()
+
+	// Victim: bob already has a configured librarian.
+	if err := s.CreateUser(ctx, &store.User{ID: "bob", Name: "Bob", Email: "bob@x.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "bob", AgentID: "plib-bob",
+		Name: "bobs librarian", Persona: "bob persona", Status: "active",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attacker: alice saves, smuggling bob's identifiers into the form.
+	code, _ := postFormBody(t, srv, "/my/librarian", aliceTok, map[string]string{
+		"name": "alice librarian", "persona": "alice persona",
+		"user_id": "bob", "agent_id": "plib-bob",
+	})
+	if code != http.StatusSeeOther {
+		t.Fatalf("save: want 303, got %d", code)
+	}
+	if len(fake.calls) != 1 || fake.calls[0].AgentID != "plib-alice" {
+		t.Fatalf("provision must target the session user's agent, got %+v", fake.calls)
+	}
+
+	// Bob's config is untouched; alice got her own row.
+	bob, err := s.GetUserLibrarian(ctx, "bob")
+	if err != nil || bob.Name != "bobs librarian" || bob.Persona != "bob persona" ||
+		bob.AgentID != "plib-bob" {
+		t.Fatalf("victim config changed: %+v err=%v", bob, err)
+	}
+	alice, err := s.GetUserLibrarian(ctx, "alice")
+	if err != nil || alice.AgentID != "plib-alice" || alice.Name != "alice librarian" {
+		t.Fatalf("attacker's own row wrong: %+v err=%v", alice, err)
+	}
+}

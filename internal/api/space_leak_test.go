@@ -488,6 +488,7 @@ func (f *leakFixture) expandBody(body any) any {
 		"{spaceid}", f.spaceID,
 		"{usecaseid}", f.useCaseID,
 		"{talkthreadid}", f.talkThreadID,
+		"{coordthreadid}", f.coordThreadID,
 	)
 	for k, v := range m {
 		switch vv := v.(type) {

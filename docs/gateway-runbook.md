@@ -75,6 +75,7 @@ Names are read verbatim by `internal/gate/runtime/config.go`
 | `GATE_RECONNECT_MIN` | no | `1s` | Lower bound of the per-instance / SSE reconnect backoff (exponential, doubling from min to max). Positive Go duration. |
 | `GATE_RECONNECT_MAX` | no | `60s` | Upper bound of the reconnect backoff. Positive Go duration; must be `>= GATE_RECONNECT_MIN`. |
 | `GATE_HELLO_REVISION` | no | `1` | Active config revision presented in the hello frame. Positive integer. The core rejects a hello whose revision does not match the instance's active revision (`revision_mismatch` → close), so after any revision POST this value must be raised to match. Instances register at revision `1`; leave at `1` until a revision flow is used. |
+| `GATE_STATIC_INSTANCES` | no | — | **Conformance static mode** (see the dedicated section below): comma-separated canonical lowercase instance UUIDs. Non-empty ⇒ no KB — `KB_BASE_URL`/`GATEWAY_TOKEN` become optional (the socket path stays required), roster discovery and the SSE loop are skipped, and every `say` answers `err(external_rejected)`. Leave unset in every real deployment. |
 
 Misconfiguration is reported **all at once** at startup (all missing
 required values in one error), and the process exits `2` without
@@ -150,6 +151,36 @@ and exits `0`. Restart is safe and stateless — the gate holds no local
 state; it re-discovers the roster and re-binds from scratch (reconnect
 replay is origin-idempotent, so re-sent history dedupes core-side).
 `restart: unless-stopped` in compose is appropriate.
+
+## conformance 静的モード (GATE_STATIC_INSTANCES)
+
+ワイヤ適合試験 (issue #104 QC E2E) 用の特別モード。プラットフォーム側の
+テストハーネスが **core 側** を演じ、この gate が**被験体**になる。
+
+- `GATE_STATIC_INSTANCES` に instance UUID (canonical 小文字) をカンマ
+  区切りで並べると有効になる。roster 発見は**一切行わず**、列挙された
+  instance をそのまま dial / hello する。
+- このモードでは **KB が存在しない**: `KB_BASE_URL` / `GATEWAY_TOKEN`
+  は不要になる (`OPENCRAB_GATE_SOCKET` は引き続き必須)。SSE 受信ループ
+  も replay も走らない。
+- 挙動の対応表:
+
+  | wire | 挙動 |
+  | --- | --- |
+  | `hello` | 通常どおり (revision は `GATE_HELLO_REVISION`) |
+  | `bind` | ack して in-memory に記録 (replay なし) |
+  | `say` | **常に** `err(code="external_rejected")` |
+  | `activity` | no-op (表示先の KB がない) |
+  | `said` | 送出されない (人間側の入力経路がない) |
+
+- `say` が常に `external_rejected` なのは**正直な回答**であって
+  スタブではない: KB がない以上 gateway は外部 I/O をゼロしか行わず、
+  配送は「確実に受理されていない」— V3 の信頼原則 (fabrication 禁止)
+  と、承認済み disposition #3 (unknown binding → external_rejected,
+  zero I/O = 確実に未配送) に一致する。ハーネスはこれで err 経路を
+  決定的に検証できる。
+- **実運用では必ず未設定にする。** 静的モードの gate は /talk を一切
+  配送しない。
 
 ## revision 更新 / instance 削除の手順
 

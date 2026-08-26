@@ -173,7 +173,9 @@ func (r *instanceRunner) OnBind(b gate.Binding) error {
 	r.addresses[b.BindingID] = b.Address
 	conn := r.conn
 	r.mu.Unlock()
-	if conn != nil {
+	// Static conformance mode: the bind is acked and recorded, but
+	// there is no KB to replay history from.
+	if conn != nil && !r.rt.static {
 		go r.replay(conn, b)
 	}
 	return nil
@@ -194,6 +196,16 @@ type sayPayload struct {
 //	4xx (not stored)    → err external_rejected
 //	5xx/timeout/other   → unknown (socket closes without answering)
 func (r *instanceRunner) OnSay(s gate.Say) gate.SayResult {
+	if r.rt.static {
+		// Static conformance mode: there is no KB, so no say can ever
+		// be delivered. external_rejected is the honest answer, not a
+		// stub — the gateway performs ZERO external I/O here, so the
+		// delivery is definitively not accepted (V3 trust principle;
+		// same disposition as an unknown binding). This also gives a
+		// conformance harness a deterministic err path to exercise.
+		detail := "static conformance mode: no KB backend, say is never deliverable (zero external I/O)"
+		return gate.SayRejected(&detail)
+	}
 	var p sayPayload
 	if err := json.Unmarshal(s.Payload, &p); err != nil {
 		detail := "say payload must be a JSON object: " + err.Error()
@@ -235,6 +247,9 @@ func (r *instanceRunner) OnSay(s gate.Say) gate.SayResult {
 // It runs inline on the dispatch loop ON PURPOSE: the "考え中…" status
 // must reach the UI before the reply that OnSay posts next.
 func (r *instanceRunner) OnActivity(a gate.Activity) {
+	if r.rt.static {
+		return // static conformance mode: no KB to broadcast to
+	}
 	address := r.addressOf(a.BindingID)
 	if address == "" {
 		return // unknown binding: nothing to display

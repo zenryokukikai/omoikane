@@ -30,9 +30,14 @@ func unixDial(ctx context.Context, socketPath string) (io.ReadWriteCloser, error
 // Runtime holds the process state of omoikane-gate.
 type Runtime struct {
 	cfg     Config
-	kb      KB
+	kb      KB // nil in static conformance mode (no KB exists)
 	cursors CursorStore
 	log     *slog.Logger
+	// static marks wire-conformance static mode
+	// (Config.StaticInstances): fixed instance set, no KB, no roster
+	// polling, no SSE inbound, no replay; every say answers
+	// external_rejected. See Config.StaticInstances.
+	static bool
 
 	mu      sync.Mutex
 	runners map[string]*instanceRunner // gate_instance_id → runner
@@ -45,10 +50,11 @@ func New(cfg Config, logger *slog.Logger) (*Runtime, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	static := len(cfg.StaticInstances) > 0
 	if cfg.Dial == nil {
 		cfg.Dial = unixDial
 	}
-	if cfg.KB == nil {
+	if cfg.KB == nil && !static {
 		cfg.KB = newHTTPKB(cfg.KBBaseURL, cfg.Token)
 	}
 	if cfg.Cursors == nil {
@@ -66,14 +72,22 @@ func New(cfg Config, logger *slog.Logger) (*Runtime, error) {
 	}
 	return &Runtime{
 		cfg: cfg, kb: cfg.KB, cursors: cfg.Cursors, log: logger,
+		static:  static,
 		runners: map[string]*instanceRunner{},
 	}, nil
 }
 
 // Run serves until ctx is done: an immediate roster sync, the periodic
 // discovery loop, and the inbound SSE loop. On return every runner is
-// stopped.
+// stopped. In static conformance mode there is no KB, so only the fixed
+// instance runners exist — no roster loop, no SSE loop.
 func (rt *Runtime) Run(ctx context.Context) error {
+	if rt.static {
+		rt.startStatic(ctx)
+		<-ctx.Done()
+		rt.stopAll()
+		return nil
+	}
 	rt.syncRoster(ctx)
 
 	var wg sync.WaitGroup
@@ -139,6 +153,21 @@ func (rt *Runtime) syncRoster(ctx context.Context) {
 		rt.log.Info("stopping gate instance (left roster)",
 			"instance_id", r.lib.GateInstanceID, "user_id", r.lib.UserID)
 		r.stop()
+	}
+}
+
+// startStatic starts one runner per configured static instance id
+// (validate() guarantees the ids are unique canonical UUIDs). The
+// Librarian rows are synthetic — instance id only; there is no owner
+// because there is no KB.
+func (rt *Runtime) startStatic(ctx context.Context) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for _, id := range rt.cfg.StaticInstances {
+		r := rt.newInstanceRunner(ctx, Librarian{GateInstanceID: id})
+		rt.runners[id] = r
+		go r.run()
+		rt.log.Info("serving static gate instance (conformance mode)", "instance_id", id)
 	}
 }
 

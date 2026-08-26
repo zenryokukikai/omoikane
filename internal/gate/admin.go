@@ -159,7 +159,7 @@ func clientErr(format string, a ...any) error {
 // GetInstance fetches one instance (deleted rows answer
 // instance_unknown).
 func (c *AdminClient) GetInstance(ctx context.Context, instanceID string) (*Instance, error) {
-	if !isCanonicalUUID(instanceID) {
+	if !IsCanonicalUUID(instanceID) {
 		return nil, clientErr("instance id must be a canonical lowercase UUID")
 	}
 	out := &Instance{}
@@ -172,7 +172,7 @@ func (c *AdminClient) GetInstance(ctx context.Context, instanceID string) (*Inst
 // PutInstance creates (201) or matches byte-equivalent existing (200)
 // an instance at revision 1. created reports which.
 func (c *AdminClient) PutInstance(ctx context.Context, instanceID string, req InstancePut) (out *Instance, created bool, err error) {
-	if !isCanonicalUUID(instanceID) {
+	if !IsCanonicalUUID(instanceID) {
 		return nil, false, clientErr("instance id must be a canonical lowercase UUID")
 	}
 	if req.KindID == "" {
@@ -195,7 +195,7 @@ func (c *AdminClient) PutInstance(ctx context.Context, instanceID string, req In
 // DeleteInstance deletes an instance (closing its open bindings in the
 // same transaction). A live instance answers 409 instance_active.
 func (c *AdminClient) DeleteInstance(ctx context.Context, instanceID string) (*InstanceDeleted, error) {
-	if !isCanonicalUUID(instanceID) {
+	if !IsCanonicalUUID(instanceID) {
 		return nil, clientErr("instance id must be a canonical lowercase UUID")
 	}
 	out := &InstanceDeleted{}
@@ -208,7 +208,7 @@ func (c *AdminClient) DeleteInstance(ctx context.Context, instanceID string) (*I
 // PostRevision bumps the active revision by exactly one (CAS on
 // expected_revision). A live instance answers 409 instance_active.
 func (c *AdminClient) PostRevision(ctx context.Context, instanceID string, req RevisionPost) (*RevisionCreated, error) {
-	if !isCanonicalUUID(instanceID) {
+	if !IsCanonicalUUID(instanceID) {
 		return nil, clientErr("instance id must be a canonical lowercase UUID")
 	}
 	if req.ExpectedRevision == 0 {
@@ -227,10 +227,10 @@ func (c *AdminClient) PostRevision(ctx context.Context, instanceID string, req R
 // PutBinding creates (201) or matches byte-equivalent open row (200) a
 // binding. Legal while the instance is live (§5.5).
 func (c *AdminClient) PutBinding(ctx context.Context, bindingID string, req BindingPut) (out *AdminBinding, created bool, err error) {
-	if !isCanonicalUUID(bindingID) {
+	if !IsCanonicalUUID(bindingID) {
 		return nil, false, clientErr("binding id must be a canonical lowercase UUID")
 	}
-	if !isCanonicalUUID(req.InstanceID) {
+	if !IsCanonicalUUID(req.InstanceID) {
 		return nil, false, clientErr("instance_id must be a canonical lowercase UUID")
 	}
 	if req.Address == "" {
@@ -247,7 +247,7 @@ func (c *AdminClient) PutBinding(ctx context.Context, bindingID string, req Bind
 // DeleteBinding closes a binding. Already-closed answers the same
 // write-zero response. Legal while the instance is live (§5.5).
 func (c *AdminClient) DeleteBinding(ctx context.Context, bindingID string) (*BindingClosed, error) {
-	if !isCanonicalUUID(bindingID) {
+	if !IsCanonicalUUID(bindingID) {
 		return nil, clientErr("binding id must be a canonical lowercase UUID")
 	}
 	out := &BindingClosed{}

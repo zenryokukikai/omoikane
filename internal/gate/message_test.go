@@ -107,12 +107,12 @@ func TestValidateRequestID(t *testing.T) {
 }
 
 func TestGrammarHelpers(t *testing.T) {
-	if !isCanonicalUUID(testBindingA) || isCanonicalUUID(strings.ToUpper(testBindingA)) ||
-		isCanonicalUUID("0190a1b2c3d47e5f8a6b0000000000aa") {
-		t.Fatal("isCanonicalUUID misbehaves")
+	if !IsCanonicalUUID(testBindingA) || IsCanonicalUUID(strings.ToUpper(testBindingA)) ||
+		IsCanonicalUUID("0190a1b2c3d47e5f8a6b0000000000aa") {
+		t.Fatal("IsCanonicalUUID misbehaves")
 	}
 	// V3 §2: UUID version is unrestricted — a v4 id is canonical too.
-	if !isCanonicalUUID("123e4567-e89b-42d3-a456-426614174000") {
+	if !IsCanonicalUUID("123e4567-e89b-42d3-a456-426614174000") {
 		t.Fatal("v4 UUID rejected")
 	}
 	if !isLowerHexDigest(testDigest) || isLowerHexDigest(testDigest[:63]) ||

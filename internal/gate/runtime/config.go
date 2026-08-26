@@ -23,7 +23,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/zenryokukikai/omoikane/internal/gate"
 )
 
 // Env variable names. OPENCRAB_GATE_SOCKET and GATEWAY_TOKEN are fixed
@@ -37,6 +40,7 @@ const (
 	EnvReconnectMin      = "GATE_RECONNECT_MIN"
 	EnvReconnectMax      = "GATE_RECONNECT_MAX"
 	EnvHelloRevision     = "GATE_HELLO_REVISION"
+	EnvStaticInstances   = "GATE_STATIC_INSTANCES"
 )
 
 // Config parameterizes one Runtime.
@@ -49,9 +53,25 @@ type Config struct {
 
 	// KBBaseURL is the omoikane API base (scheme://host, no trailing
 	// slash needed) and Token the gateway-scoped bearer token. Both
-	// required.
+	// required — except in static conformance mode (StaticInstances
+	// non-empty), where no KB exists.
 	KBBaseURL string
 	Token     string
+
+	// StaticInstances switches the runtime into wire-conformance
+	// static mode when non-empty (env GATE_STATIC_INSTANCES,
+	// comma-separated canonical lowercase instance UUIDs). In this
+	// mode the runtime has NO omoikane KB: roster discovery and the
+	// inbound SSE loop are skipped, each listed instance is dialed
+	// and helloed directly, binds are acked (in-memory only, no
+	// replay), activity is a no-op, and EVERY say answers
+	// err(code="external_rejected") — honest under the V3 trust
+	// principle, because with no KB the gateway performs zero external
+	// I/O and the delivery is definitively not accepted. Static mode
+	// exists so a platform-side test harness can drive the core side
+	// of the wire with this gate as the subject
+	// (hello/bind/activity/said + the say err path).
+	StaticInstances []string
 
 	// DiscoveryInterval is how often the librarian roster is re-polled
 	// to pick up newly provisioned librarians. Default 60s.
@@ -91,6 +111,7 @@ func FromEnv() (Config, error) {
 		SocketPath:        os.Getenv(EnvSocket),
 		KBBaseURL:         os.Getenv(EnvKBBaseURL),
 		Token:             os.Getenv(EnvToken),
+		StaticInstances:   splitInstanceList(os.Getenv(EnvStaticInstances)),
 		DiscoveryInterval: 60 * time.Second,
 		ReconnectMin:      time.Second,
 		ReconnectMax:      60 * time.Second,
@@ -126,6 +147,20 @@ func FromEnv() (Config, error) {
 	return cfg, errors.Join(errs...)
 }
 
+// splitInstanceList splits a comma-separated instance list, trimming
+// whitespace and dropping empty items. Grammar (canonical lowercase
+// UUID, no duplicates) is checked in validate() — one contract, one
+// place.
+func splitInstanceList(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func envDuration(name string) (time.Duration, error) {
 	v := os.Getenv(name)
 	if v == "" {
@@ -139,19 +174,32 @@ func envDuration(name string) (time.Duration, error) {
 }
 
 // validate reports every hard misconfiguration. KBBaseURL/Token are
-// checked only when no injected KB replaces the HTTP client.
+// checked only when no injected KB replaces the HTTP client AND the
+// runtime is not in static conformance mode (StaticInstances set) —
+// static mode is the ONLY mode that runs KB-less; the socket path stays
+// required in every mode.
 func (c *Config) validate() error {
 	var errs []error
 	if c.SocketPath == "" {
 		errs = append(errs, fmt.Errorf("%s is required: the core's Unix socket path", EnvSocket))
 	}
-	if c.KB == nil {
+	if c.KB == nil && len(c.StaticInstances) == 0 {
 		if c.KBBaseURL == "" {
 			errs = append(errs, fmt.Errorf("%s is required: the omoikane API base URL", EnvKBBaseURL))
 		}
 		if c.Token == "" {
 			errs = append(errs, fmt.Errorf("%s is required: a gateway-scoped omoikane API token", EnvToken))
 		}
+	}
+	seen := make(map[string]bool, len(c.StaticInstances))
+	for _, id := range c.StaticInstances {
+		switch {
+		case !gate.IsCanonicalUUID(id):
+			errs = append(errs, fmt.Errorf("%s: %q is not a canonical lowercase UUID", EnvStaticInstances, id))
+		case seen[id]:
+			errs = append(errs, fmt.Errorf("%s: duplicate instance id %q", EnvStaticInstances, id))
+		}
+		seen[id] = true
 	}
 	if c.DiscoveryInterval <= 0 || c.ReconnectMin <= 0 || c.ReconnectMax < c.ReconnectMin {
 		errs = append(errs, errors.New("intervals must be positive and reconnect max >= min"))

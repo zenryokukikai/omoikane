@@ -20,7 +20,7 @@ func TestNewUUIDv7(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 64; i++ {
 		id := NewUUIDv7()
-		if !isCanonicalUUID(id) {
+		if !IsCanonicalUUID(id) {
 			t.Fatalf("NewUUIDv7() = %q, not canonical", id)
 		}
 		if id[14] != '7' {

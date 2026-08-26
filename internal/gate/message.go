@@ -53,7 +53,7 @@ type Said struct {
 }
 
 func validateSaid(s *Said) error {
-	if !isCanonicalUUID(s.BindingID) {
+	if !IsCanonicalUUID(s.BindingID) {
 		return errors.New("gate: said binding_id must be a canonical lowercase UUID")
 	}
 	if s.Origin == "" {
@@ -143,7 +143,7 @@ type HelloParams struct {
 }
 
 func (p *HelloParams) validate() error {
-	if !isCanonicalUUID(p.InstanceID) {
+	if !IsCanonicalUUID(p.InstanceID) {
 		return errors.New("gate: hello instance_id must be a canonical lowercase UUID")
 	}
 	if p.Revision == 0 {
@@ -227,7 +227,7 @@ func validateBind(f *bindFrame) error {
 	if err := validateRequestID(f.ID); err != nil {
 		return err
 	}
-	if !isCanonicalUUID(f.BindingID) {
+	if !IsCanonicalUUID(f.BindingID) {
 		return errors.New("gate: bind binding_id must be a canonical lowercase UUID")
 	}
 	if f.Address == "" {
@@ -239,10 +239,10 @@ func validateBind(f *bindFrame) error {
 // validateSay checks an incoming say frame after decode. Its id is the
 // delivery_id (canonical lowercase UUID text).
 func validateSay(f *sayFrame) error {
-	if !isCanonicalUUID(f.ID) {
+	if !IsCanonicalUUID(f.ID) {
 		return errors.New("gate: say id must be a canonical lowercase UUID (delivery_id)")
 	}
-	if !isCanonicalUUID(f.BindingID) {
+	if !IsCanonicalUUID(f.BindingID) {
 		return errors.New("gate: say binding_id must be a canonical lowercase UUID")
 	}
 	if f.Payload == nil {
@@ -255,7 +255,7 @@ func validateSay(f *sayFrame) error {
 // close the connection: activity is best-effort and the caller drops
 // the frame.
 func validateActivity(f *activityFrame) error {
-	if !isCanonicalUUID(f.BindingID) {
+	if !IsCanonicalUUID(f.BindingID) {
 		return errors.New("gate: activity binding_id must be a canonical lowercase UUID")
 	}
 	if f.ActivityID == "" {
@@ -269,9 +269,11 @@ func validateActivity(f *activityFrame) error {
 
 // ---- shared field grammar helpers -----------------------------------
 
-// isCanonicalUUID reports canonical lowercase 8-4-4-4-12 hex form (UUID
-// version unrestricted, §2).
-func isCanonicalUUID(s string) bool {
+// IsCanonicalUUID reports canonical lowercase 8-4-4-4-12 hex form (UUID
+// version unrestricted, §2). Exported: it is the single UUID-grammar
+// contract for every gate-adjacent id (runtime static-instance config
+// included).
+func IsCanonicalUUID(s string) bool {
 	if len(s) != 36 {
 		return false
 	}

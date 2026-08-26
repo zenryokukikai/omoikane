@@ -234,11 +234,16 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 		// (upstream opencrab#763); instance registration skips until
 		// it lands.
 		if cfg.GateAdminURL != "" {
-			dashH.Gate = &opencrab.GateProvisioner{
+			gp := &opencrab.GateProvisioner{
 				Admin:    gate.NewAdminClient(cfg.GateAdminURL, cfg.GateOperatorToken),
 				Resolver: opencrab.StubSubjectResolver{},
 				Log:      logger,
 			}
+			dashH.Gate = gp
+			// Same provisioner, second consumer (issue #104 G3a): the
+			// API registers each fresh /talk thread as a gate binding.
+			// Must be set before apiH.Mount below.
+			apiH.GateBinder = gp
 			logger.Info("gate admin registration enabled", "gate_admin_url", cfg.GateAdminURL)
 		}
 	}

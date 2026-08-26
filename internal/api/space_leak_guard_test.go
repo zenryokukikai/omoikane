@@ -111,6 +111,7 @@ var leakNotCovered = []leakLedgerEntry{
 	{"DELETE", "/v1/admin/groups/{id}/members/{userID}", "admin ops: space/group management"},
 	{"POST", "/v1/clusters/rebuild", "admin ops: admin-only; clusters the internal space exclusively (store-enforced)"},
 	{"POST", "/v1/librarian/emergency_stop", "admin ops: kill switch, no entry content"},
+	{"GET", "/v1/gateway/librarians", "gateway ops: infra-scope-gated librarian roster (user/agent metadata, no entry content); RequireScope's uniform 403 for every other token is pinned in gateway_test.go"},
 
 	// ---- covered by dedicated leak tests outside the row tables ----
 	{"GET", "/v1/events", "covered elsewhere: SSE space_scope asserted event-by-event in space_leak_slice4_test.go"},

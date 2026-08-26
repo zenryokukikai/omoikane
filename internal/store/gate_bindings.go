@@ -15,6 +15,10 @@ type TalkGateBinding struct {
 	BindingID  string    `json:"binding_id"`
 	InstanceID string    `json:"instance_id"`
 	CreatedAt  time.Time `json:"created_at"`
+	// LastSentMessageID is the reconnect catch-up cursor (issue #104
+	// G3a): the newest librarian_chat message id the gateway confirmed
+	// dispatching for this thread. "" = nothing dispatched yet.
+	LastSentMessageID string `json:"last_sent_message_id"`
 }
 
 // SetUserLibrarianGateInstance records the gate instance registered for
@@ -41,13 +45,34 @@ func (s *Store) SetUserLibrarianGateInstance(ctx context.Context, userID, instan
 // or ErrNotFound.
 func (s *Store) GetTalkGateBinding(ctx context.Context, threadID string) (*TalkGateBinding, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT thread_id, binding_id, instance_id, created_at
+		SELECT thread_id, binding_id, instance_id, created_at, last_sent_message_id
 		  FROM talk_gate_bindings WHERE thread_id = ?`, threadID)
 	var b TalkGateBinding
-	if err := row.Scan(&b.ThreadID, &b.BindingID, &b.InstanceID, &b.CreatedAt); err != nil {
+	if err := row.Scan(&b.ThreadID, &b.BindingID, &b.InstanceID, &b.CreatedAt,
+		&b.LastSentMessageID); err != nil {
 		return nil, translateErr(err)
 	}
 	return &b, nil
+}
+
+// SetTalkGateBindingCursor records the newest message id the gateway
+// dispatched for threadID (the reconnect catch-up cursor, issue #104
+// G3a). ErrNotFound when the thread has no binding row — the cursor
+// only ever trails an existing binding.
+func (s *Store) SetTalkGateBindingCursor(ctx context.Context, threadID, messageID string) error {
+	if threadID == "" || messageID == "" {
+		return ErrInvalidInput
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE talk_gate_bindings SET last_sent_message_id = ?
+		 WHERE thread_id = ?`, messageID, threadID)
+	if err != nil {
+		return translateErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // PutTalkGateBinding records (or replaces) the gate binding for a

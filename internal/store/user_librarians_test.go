@@ -119,3 +119,60 @@ func TestHasAPIToken(t *testing.T) {
 		t.Fatal("revoked token must not satisfy HasAPIToken")
 	}
 }
+
+// TestListActiveUserLibrarians pins the gateway roster (issue #104
+// G3a): only status='active' rows, empty gate_instance_id included,
+// ordered by user_id.
+func TestListActiveUserLibrarians(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	list, err := s.ListActiveUserLibrarians(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("empty store roster = %+v, want none", list)
+	}
+
+	for _, u := range []string{"alice", "bob", "carol"} {
+		if err := s.CreateUser(ctx, &User{ID: u, Name: u, Role: "member", Email: u + "@x.com"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.UpsertUserLibrarian(ctx, &UserLibrarian{
+		UserID: "bob", AgentID: "plib-bob", Name: "BobLib", // active, no gate instance
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertUserLibrarian(ctx, &UserLibrarian{
+		UserID: "alice", AgentID: "plib-alice", Name: "AliceLib",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserLibrarianGateInstance(ctx, "alice", "0192aaaa-bbbb-7ccc-8ddd-eeeeffff0000"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertUserLibrarian(ctx, &UserLibrarian{
+		UserID: "carol", AgentID: "plib-carol", Name: "CarolLib", Status: "disabled",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err = s.ListActiveUserLibrarians(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].UserID != "alice" || list[1].UserID != "bob" {
+		t.Fatalf("roster = %+v, want [alice bob]", list)
+	}
+	if list[0].GateInstanceID != "0192aaaa-bbbb-7ccc-8ddd-eeeeffff0000" {
+		t.Errorf("alice gate_instance_id = %q", list[0].GateInstanceID)
+	}
+	if list[1].GateInstanceID != "" {
+		t.Errorf("bob gate_instance_id = %q, want empty (included, not filtered)", list[1].GateInstanceID)
+	}
+	if list[0].AgentID != "plib-alice" || list[0].Name != "AliceLib" {
+		t.Errorf("alice row = %+v", list[0])
+	}
+}

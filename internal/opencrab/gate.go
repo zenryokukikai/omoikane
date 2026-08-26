@@ -49,6 +49,11 @@ var (
 
 	// gateInstanceConfig is the canonical (empty) per-instance config.
 	gateInstanceConfig = []byte(`{}`)
+
+	// gateBindingMetadata is the canonical (empty) per-binding
+	// metadata: the omoikane-talk kind declares no binding metadata
+	// schema, so every binding carries the empty object.
+	gateBindingMetadata = []byte(`{}`)
 )
 
 // ErrSubjectUnresolved is returned by a SubjectResolver that cannot
@@ -174,4 +179,25 @@ func (g *GateProvisioner) EnsureInstance(ctx context.Context, agentID, existingI
 		return "", err
 	}
 	return instanceID, nil
+}
+
+// EnsureThreadBinding registers threadID as a gate binding on
+// instanceID (issue #104 G3a): a fresh UUIDv7 binding id, address =
+// the thread id, no catch-up start (the kind's catch_up_mode is
+// "none") and the empty metadata object (the kind declares no binding
+// metadata schema). Returns the new binding id. Callers own the
+// thread-side bookkeeping (store.PutTalkGateBinding) and the
+// best-effort policy — this method just performs the PUT.
+func (g *GateProvisioner) EnsureThreadBinding(ctx context.Context, instanceID, threadID string) (string, error) {
+	bindingID := gate.NewUUIDv7()
+	if _, _, err := g.Admin.PutBinding(ctx, bindingID, gate.BindingPut{
+		InstanceID:         instanceID,
+		Address:            threadID,
+		Label:              nil,
+		BindingMetadataB64: base64.StdEncoding.EncodeToString(gateBindingMetadata),
+		CatchUpStart:       nil,
+	}); err != nil {
+		return "", err
+	}
+	return bindingID, nil
 }

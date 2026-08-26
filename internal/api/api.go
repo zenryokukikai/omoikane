@@ -59,6 +59,12 @@ type Handler struct {
 	// disabled (OPENCRAB_URL unset): every talk message keeps flowing to
 	// the webhook-subscribed default responder as before.
 	TalkDispatch TalkDispatcher
+
+	// GateBinder registers each fresh /talk thread as a gate binding on
+	// the external admin plane (issue #104 G3a). nil = gate feature off
+	// (GATE_ADMIN_URL unset); thread creation proceeds without a
+	// binding either way — the gate leg is best-effort.
+	GateBinder ThreadGateBinder
 }
 
 // Mount registers the Phase 1 surface on r under /v1. Process-wide middleware
@@ -280,6 +286,12 @@ func (h *Handler) Mount(r chi.Router) {
 				r.With(auth.RequireScope("read")).Get("/coordinator/triage", h.coordinatorTriage)
 				r.With(auth.RequireScope("write")).Post("/coordinator/propose_quartet", h.coordinatorProposeQuartet)
 			})
+
+			// External gateway control surface (issue #104 G3a): the gate
+			// binary's connection roster. "gateway" is an infra scope —
+			// one service token, webhook-dispatcher trust level (see
+			// gateway.go).
+			r.With(auth.RequireScope("gateway")).Get("/gateway/librarians", h.gatewayListLibrarians)
 
 			// Phase 6 — tier listing
 			r.With(auth.RequireScope("read")).Get("/tiers", h.tierList)

@@ -41,9 +41,18 @@ import (
 //     space-scoped agent tokens will narrow this to designated
 //     responders; today every agent user is trusted infrastructure.
 //
+// actor, when non-empty, is the gateway-stamped author the ownership
+// check runs AS (issue #104 G3a): the caller holds the literal
+// "gateway" scope (validated by gatewayStampedAuthor — the only
+// producer of a non-empty actor) and relays on behalf of that user, so
+// a thread the stamped user cannot use stays a 404 exactly as if the
+// user had called directly. The agent exception below still judges the
+// CALLER's role, never the stamped user's — otherwise the stamp could
+// mint agent authority out of thin air.
+//
 // Callers translate false into 404 — for outsiders a foreign talk
 // thread must be indistinguishable from a missing one.
-func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bool) bool {
+func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bool, actor string) bool {
 	if th.Intent != "talk" {
 		return true
 	}
@@ -54,10 +63,14 @@ func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bo
 	if store.HasScope(tok.Scopes, "admin") {
 		return true
 	}
-	if tok.UserID == "" {
+	userID := tok.UserID
+	if actor != "" {
+		userID = actor
+	}
+	if userID == "" {
 		return false
 	}
-	if tok.UserID == th.CreatedBy {
+	if userID == th.CreatedBy {
 		return true
 	}
 	if !agentOK {
@@ -76,13 +89,13 @@ func (h *Handler) mayUseThread(r *http.Request, th *store.ChatThread, agentOK bo
 // existence oracle. Every thread-addressed route (messages / close /
 // chat post / broadcast) must come through here, never through its own
 // GetThread+writeStoreError pair.
-func (h *Handler) requireUsableThread(w http.ResponseWriter, r *http.Request, threadID string, agentOK bool) *store.ChatThread {
+func (h *Handler) requireUsableThread(w http.ResponseWriter, r *http.Request, threadID string, agentOK bool, actor string) *store.ChatThread {
 	th, err := h.Store.GetThread(httpCtx(r), threadID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeStoreError(w, err)
 		return nil
 	}
-	if err != nil || !h.mayUseThread(r, th, agentOK) {
+	if err != nil || !h.mayUseThread(r, th, agentOK, actor) {
 		writeError(w, http.StatusNotFound, CodeNotFound, "thread not found", nil)
 		return nil
 	}
@@ -122,6 +135,13 @@ func (h *Handler) chatOpenThread(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	// Gate binding (issue #104 G3a): a fresh /talk thread is registered
+	// on the external gate plane before we respond, so the binding
+	// exists by the time the first message dispatch fires. Best-effort —
+	// see bindTalkThreadGate.
+	if req.Intent == "talk" {
+		h.bindTalkThreadGate(httpCtx(r), createdBy, id)
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"thread_id": id})
 }
 
@@ -145,7 +165,7 @@ func (h *Handler) chatCloseThread(w http.ResponseWriter, r *http.Request) {
 	// else's talk thread is a write into their private conversation and
 	// the responder never needs it (owner and admin only; 404, no
 	// oracle).
-	if h.requireUsableThread(w, r, id, false) == nil {
+	if h.requireUsableThread(w, r, id, false, "") == nil {
 		return
 	}
 	if err := h.Store.CloseThread(httpCtx(r), id, req.Summary); err != nil {
@@ -175,8 +195,13 @@ func (h *Handler) chatListThreads(w http.ResponseWriter, r *http.Request) {
 }
 
 type chatPostRequest struct {
-	ThreadID         string `json:"thread_id,omitempty"`
-	AuthorRole       string `json:"author_role"`
+	ThreadID   string `json:"thread_id,omitempty"`
+	AuthorRole string `json:"author_role"`
+	// AuthorUserID is honoured ONLY under the literal "gateway" scope
+	// (issue #104 G3a C案) — the infra token relaying for personal
+	// librarians and their owners. Every other caller: ignored, the
+	// author stays the token's own user (server-side authority).
+	AuthorUserID     string `json:"author_user_id,omitempty"`
 	AuthorInstanceID string `json:"author_instance_id,omitempty"`
 	ReplyTo          string `json:"reply_to,omitempty"`
 	Mentions         string `json:"mentions,omitempty"`
@@ -199,10 +224,18 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	// author_user_id is server-side authority: we pull it from the
 	// auth context, never from the request body. This means a reader
 	// can trust the link from "this message" → "this profile" — no
-	// way for a client to impersonate someone else here.
+	// way for a client to impersonate someone else here. The ONE
+	// exception is the gateway infra token (issue #104 G3a): under the
+	// literal "gateway" scope the requested author_user_id is accepted
+	// AND the thread check below runs as that user, so the gateway can
+	// only reach threads its stamped owner could reach (fail-closed).
 	var authorUserID string
 	if tok := auth.FromContext(r.Context()); tok != nil {
 		authorUserID = tok.UserID
+	}
+	actor := gatewayStampedAuthor(r, req.AuthorUserID)
+	if actor != "" {
+		authorUserID = actor
 	}
 	// Resolve the target thread up front (slice 4): posting into
 	// someone else's talk thread — or a thread that does not exist —
@@ -211,7 +244,7 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 	// dangling ids, so requiring the row here changes no working flow.)
 	var thread *store.ChatThread
 	if req.ThreadID != "" {
-		if thread = h.requireUsableThread(w, r, req.ThreadID, true); thread == nil {
+		if thread = h.requireUsableThread(w, r, req.ThreadID, true, actor); thread == nil {
 			return
 		}
 	}
@@ -278,7 +311,7 @@ func (h *Handler) chatList(w http.ResponseWriter, r *http.Request) {
 	// indistinguishable 404. (Previously an unknown thread returned an
 	// empty 200 — that would have become an existence oracle next to
 	// the 404 for hidden threads.)
-	if h.requireUsableThread(w, r, threadID, true) == nil {
+	if h.requireUsableThread(w, r, threadID, true, "") == nil {
 		return
 	}
 

@@ -224,9 +224,28 @@ opencrab core exists and the compose is confirmed with the platform:
    filled at the same confirmation step. Keep it out of the repo; supply
    it via `gateway.env` (git-ignored) or a secret store.
 
-Until both are real, this stack stays on the `feat/gateway-integration`
-branch and is **not** merged to main (platform counterpart not yet
-running; no e2e possible).
+(Historical note: this stack was developed on `feat/gateway-integration`
+and merged to main after the mutual E2E passed. The envs above stay
+unset in production until cutover.)
+
+## Verified core facts (2026-08-27, opencrab integration/transplant fb9a4127)
+
+Measured against a locally built core with our gate connected — treat
+these as operational facts, re-verify on major platform updates:
+
+- The platform's canonical contract file is
+  `docs/design/external-gate.md` in the opencrab repo (V3 content).
+- Core-side operator Bearer env: `OPENCRAB_GATE_OPERATOR_TOKEN`
+  (read once at startup, then scrubbed from the process env).
+- The core's `[gate] listen_socket` must be an **absolute path shorter
+  than SUN_LEN (~104 bytes)** — long scratch/volume paths fail loudly at
+  startup. Pick short mount paths (e.g. `/run/gate/gate.sock`).
+- Offline/dev builds: `cargo build -p opencrab-server
+  --no-default-features` compiles Discord/Nostr out entirely — the
+  recommended shape for any isolated verification run.
+- Agent GET returns `200` with JSON `null` for an absent agent (not
+  404) and carries `subject_id` when present — matches our
+  RuntimeSubjectResolver's handling.
 
 ## Known gaps
 

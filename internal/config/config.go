@@ -67,6 +67,14 @@ type Config struct {
 	GateAdminURL      string // GATE_ADMIN_URL (empty = gate registration disabled)
 	GateOperatorToken string // GATE_OPERATOR_TOKEN
 
+	// GateTalkRESTForce is the gateway-cutover kill switch (issue
+	// #104): GATE_TALK_REST_FORCE non-empty forces every /talk message
+	// back onto the REST dispatch path, ignoring gate bindings. Set it
+	// to revert the cutover instantly (env change + restart of THIS
+	// process only — no opencrab restart, no DB surgery); unset it to
+	// resume gateway delivery.
+	GateTalkRESTForce bool // GATE_TALK_REST_FORCE (non-empty = force REST dispatch)
+
 	// Expiring signed attachment URLs (issue #104 slice G4). HMAC key
 	// for presigning /v1/attachments/{id}/content; empty disables the
 	// feature (issuance errors, signatures never grant). Never logged.
@@ -165,6 +173,7 @@ func Load() (*Config, error) {
 
 	c.GateAdminURL = strings.TrimRight(os.Getenv("GATE_ADMIN_URL"), "/")
 	c.GateOperatorToken = strings.TrimSpace(os.Getenv("GATE_OPERATOR_TOKEN"))
+	c.GateTalkRESTForce = strings.TrimSpace(os.Getenv("GATE_TALK_REST_FORCE")) != ""
 
 	c.URLSigningKey = strings.TrimSpace(os.Getenv("KB_URL_SIGNING_KEY"))
 

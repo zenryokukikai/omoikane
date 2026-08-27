@@ -200,6 +200,41 @@ func (h *Handler) routeTalkToPersonalLibrarian(data any) bool {
 	if ul.Status != "active" || ul.AgentID == "" {
 		return false
 	}
+	// Gateway-path claim (issue #104 cutover). This is the SINGLE
+	// contract point that selects the delivery path for a /talk
+	// message; scoping is per-user AND per-thread, which gives a
+	// gradual cutover:
+	//
+	//   - per-user: gate_instance_id set on the librarian row = this
+	//     librarian runs behind the external gate;
+	//   - per-thread: a talk_gate_bindings row = the gateway carries
+	//     this thread's messages (SSE → said). Pre-cutover threads
+	//     have no binding row and keep REST dispatch; threads created
+	//     after the instance registered go through the gateway.
+	//
+	// Claimed = return true: neither the REST dispatch below nor the
+	// webhook default responder may fire — either would answer on top
+	// of the gateway's own delivery (the double-reply this guard
+	// exists to prevent; returning false would hand the message to
+	// the default responder, which is still a second answer). The
+	// gate-down case is safe: the message stays in librarian_chat and
+	// the gate's on-bind replay (internal/gate/runtime/instance.go,
+	// OnBind → replay from the stored cursor) delivers it once the
+	// binding reconnects — late, never dropped. GATE_TALK_REST_FORCE
+	// (h.GateTalkRESTForce) is the emergency kill switch: it skips
+	// this claim entirely, reverting every thread to REST dispatch
+	// without touching the DB or restarting opencrab.
+	if !h.GateTalkRESTForce && ul.GateInstanceID != "" {
+		if _, err := h.Store.GetTalkGateBinding(context.Background(), threadID); err == nil {
+			h.Logger.Info("talk claimed by gateway path",
+				"thread", threadID, "agent_id", ul.AgentID,
+				"gate_instance_id", ul.GateInstanceID)
+			return true
+		}
+		// Any lookup error — ErrNotFound (unbound/pre-cutover thread)
+		// included — falls through to REST dispatch: the safe
+		// direction, the user still gets exactly one answer.
+	}
 	content, _ := m["content"].(string)
 	title, _ := m["thread_title"].(string)
 	go func() {

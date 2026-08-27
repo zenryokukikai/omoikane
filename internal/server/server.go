@@ -248,6 +248,13 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 			apiH.GateBinder = gp
 			logger.Info("gate admin registration enabled", "gate_admin_url", cfg.GateAdminURL)
 		}
+		// Gateway-cutover kill switch (issue #104): forces every /talk
+		// message back onto the REST dispatch path. Must be set before
+		// apiH.Mount (the dispatcher goroutine reads it).
+		apiH.GateTalkRESTForce = cfg.GateTalkRESTForce
+		if cfg.GateTalkRESTForce {
+			logger.Warn("GATE_TALK_REST_FORCE set: gateway talk delivery suppressed, all /talk messages REST-dispatch")
+		}
 	}
 
 	root := chi.NewRouter()

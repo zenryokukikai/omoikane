@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,6 +26,13 @@ import (
 // testServerWithTalkDispatch is testServer plus a TalkDispatcher wired
 // into the webhook dispatcher (issue #73 slice B).
 func testServerWithTalkDispatch(t *testing.T, td TalkDispatcher) (base, tok string, st *store.Store) {
+	t.Helper()
+	return testServerWithTalkDispatchOpts(t, td, nil)
+}
+
+// testServerWithTalkDispatchOpts additionally lets the caller adjust
+// the Handler before Mount (e.g. the GATE_TALK_REST_FORCE kill switch).
+func testServerWithTalkDispatchOpts(t *testing.T, td TalkDispatcher, mutate func(*Handler)) (base, tok string, st *store.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"))
@@ -47,6 +55,9 @@ func testServerWithTalkDispatch(t *testing.T, td TalkDispatcher) (base, tok stri
 		SecretsMode:  config.SecretsEnforce,
 		Logger:       logger,
 		TalkDispatch: td,
+	}
+	if mutate != nil {
+		mutate(h)
 	}
 	r := chi.NewRouter()
 	r.Use(RequestID)
@@ -228,6 +239,196 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 	waitFor("webhook delivery (disabled librarian)", func() bool { return hookCalls.Load() >= 2 })
 	if crabCalls.Load() != 1 {
 		t.Fatalf("runtime called for a disabled librarian")
+	}
+}
+
+// fakeTalkDispatcher records every DispatchTalk call (issue #104
+// cutover guard tests): the REST dispatch leg as a pure recorder.
+type fakeTalkDispatcher struct {
+	mu    sync.Mutex
+	calls []string // agent ids, in dispatch order
+}
+
+func (f *fakeTalkDispatcher) DispatchTalk(_ context.Context, agentID, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, agentID)
+	return nil
+}
+
+func (f *fakeTalkDispatcher) snapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+// Gateway-cutover guard (issue #104): a /talk message on a thread that
+// the gateway carries (librarian has gate_instance_id AND the thread
+// has a binding row) is claimed — no REST dispatch, no webhook default
+// responder. Everything else keeps the pre-cutover behaviour: unbound
+// threads and gate-less librarians REST-dispatch, librarian-less owners
+// fall through to the webhook.
+func TestTalkGatewayCutoverGuard(t *testing.T) {
+	fake := &fakeTalkDispatcher{}
+	base, adminTok, st := testServerWithTalkDispatch(t, fake)
+	ctx := context.Background()
+
+	// Webhook mock: the default responder's inbox.
+	var hookCalls atomic.Int32
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hookCalls.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer hook.Close()
+	if code, out := doJSONMap(t, "POST", base+"/v1/admin/webhooks", adminTok,
+		map[string]any{"url": hook.URL, "event_types": []string{"chat.message"}}); code != http.StatusCreated {
+		t.Fatalf("create webhook: %d %v", code, out)
+	}
+
+	// u1: active librarian behind the gate; u2: active librarian, no gate.
+	for _, u := range []string{"u1", "u2"} {
+		if err := st.CreateUser(ctx, &store.User{ID: u, Name: u, Role: "member"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "u1", AgentID: "plib-u1", Name: "アイ", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserLibrarianGateInstance(ctx, "u1", "inst-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "u2", AgentID: "plib-u2", Name: "ロク", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	u1Tok, err := st.CreateToken(ctx, "u1", "t", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2Tok, err := st.CreateToken(ctx, "u2", "t", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	openTalk := func(tok, title string) string {
+		t.Helper()
+		code, th := doJSONMap(t, "POST", base+"/v1/librarian/threads", tok,
+			map[string]string{"title": title, "intent": "talk"})
+		if code != http.StatusCreated {
+			t.Fatalf("open thread: %d %v", code, th)
+		}
+		tid, _ := th["thread_id"].(string)
+		return tid
+	}
+	post := func(tok, tid, text string) {
+		t.Helper()
+		if code, out := doJSONMap(t, "POST", base+"/v1/librarian/chat", tok, map[string]string{
+			"thread_id": tid, "author_role": "human", "content": text}); code != http.StatusCreated {
+			t.Fatalf("human post: %d %v", code, out)
+		}
+	}
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timeout waiting for %s", what)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+
+	// 1. Gate instance + binding row → claimed by the gateway path.
+	tidBound := openTalk(u1Tok, "gateway 経路")
+	if err := st.PutTalkGateBinding(ctx, tidBound, "b-1", "inst-1"); err != nil {
+		t.Fatal(err)
+	}
+	post(u1Tok, tidBound, "gateway に乗るはず")
+
+	// 2. Gate instance, NO binding row (pre-cutover thread) → REST.
+	tidUnbound := openTalk(u1Tok, "cutover 前スレッド")
+	post(u1Tok, tidUnbound, "RESTのまま")
+
+	// 3. Binding row but NO gate instance → REST (a stray binding row
+	// alone must never claim).
+	tidNoGate := openTalk(u2Tok, "gateなし司書")
+	if err := st.PutTalkGateBinding(ctx, tidNoGate, "b-2", "inst-x"); err != nil {
+		t.Fatal(err)
+	}
+	post(u2Tok, tidNoGate, "こちらもREST")
+
+	// 4. No librarian at all → webhook fall-through unchanged.
+	tidNone := openTalk(adminTok, "既定応答者")
+	post(adminTok, tidNone, "セバスチャンへ")
+
+	// The dispatcher consumes events serially, so once the LAST
+	// message's webhook delivery is observed, every earlier message
+	// has been routed.
+	waitFor("webhook delivery (no librarian)", func() bool { return hookCalls.Load() >= 1 })
+	waitFor("REST dispatches", func() bool { return len(fake.snapshot()) >= 2 })
+	time.Sleep(300 * time.Millisecond) // settle: catch any extra call
+
+	calls := fake.snapshot()
+	if len(calls) != 2 {
+		t.Fatalf("REST dispatch calls = %v, want exactly [plib-u1 plib-u2] in some order", calls)
+	}
+	seen := map[string]bool{calls[0]: true, calls[1]: true}
+	if !seen["plib-u1"] || !seen["plib-u2"] {
+		t.Fatalf("REST dispatch went to %v, want one call each for plib-u1 (unbound thread) and plib-u2 (no gate instance)", calls)
+	}
+	if hookCalls.Load() != 1 {
+		t.Fatalf("webhook calls = %d, want exactly 1 (the librarian-less thread only)", hookCalls.Load())
+	}
+}
+
+// GATE_TALK_REST_FORCE wins over an existing binding: with the kill
+// switch on, a fully gateway-bound thread still REST-dispatches.
+func TestTalkGatewayCutoverKillSwitch(t *testing.T) {
+	fake := &fakeTalkDispatcher{}
+	base, _, st := testServerWithTalkDispatchOpts(t, fake, func(h *Handler) {
+		h.GateTalkRESTForce = true
+	})
+	ctx := context.Background()
+
+	if err := st.CreateUser(ctx, &store.User{ID: "u1", Name: "u1", Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "u1", AgentID: "plib-u1", Name: "アイ", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserLibrarianGateInstance(ctx, "u1", "inst-1"); err != nil {
+		t.Fatal(err)
+	}
+	u1Tok, err := st.CreateToken(ctx, "u1", "t", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, th := doJSONMap(t, "POST", base+"/v1/librarian/threads", u1Tok,
+		map[string]string{"title": "kill switch", "intent": "talk"})
+	if code != http.StatusCreated {
+		t.Fatalf("open thread: %d %v", code, th)
+	}
+	tid, _ := th["thread_id"].(string)
+	if err := st.PutTalkGateBinding(ctx, tid, "b-1", "inst-1"); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := doJSONMap(t, "POST", base+"/v1/librarian/chat", u1Tok, map[string]string{
+		"thread_id": tid, "author_role": "human", "content": "強制REST"}); code != http.StatusCreated {
+		t.Fatalf("human post: %d %v", code, out)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for len(fake.snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timeout: kill switch did not force REST dispatch")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if calls := fake.snapshot(); len(calls) != 1 || calls[0] != "plib-u1" {
+		t.Fatalf("REST dispatch calls = %v, want [plib-u1]", calls)
 	}
 }
 

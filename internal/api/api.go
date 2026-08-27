@@ -65,6 +65,12 @@ type Handler struct {
 	// (GATE_ADMIN_URL unset); thread creation proceeds without a
 	// binding either way — the gate leg is best-effort.
 	GateBinder ThreadGateBinder
+
+	// GateTalkRESTForce (GATE_TALK_REST_FORCE) is the gateway-cutover
+	// kill switch: true disables the gateway-path claim in
+	// routeTalkToPersonalLibrarian, so every /talk message REST-
+	// dispatches as before the cutover regardless of gate bindings.
+	GateTalkRESTForce bool
 }
 
 // Mount registers the Phase 1 surface on r under /v1. Process-wide middleware

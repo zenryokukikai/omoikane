@@ -86,6 +86,36 @@ func TestOpencrabConfig(t *testing.T) {
 	}
 }
 
+func TestGateTalkRESTForce(t *testing.T) {
+	// Default: unset → suppression active (gateway path claims).
+	t.Setenv("GATE_TALK_REST_FORCE", "")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.GateTalkRESTForce {
+		t.Fatal("unset → false")
+	}
+	// Whitespace-only counts as unset.
+	t.Setenv("GATE_TALK_REST_FORCE", "  ")
+	c, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.GateTalkRESTForce {
+		t.Fatal("whitespace → false")
+	}
+	// Any non-empty value forces REST dispatch (kill switch on).
+	t.Setenv("GATE_TALK_REST_FORCE", "1")
+	c, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.GateTalkRESTForce {
+		t.Fatal("non-empty → true")
+	}
+}
+
 func TestEnvBoolBranches(t *testing.T) {
 	t.Setenv("KB_DASHBOARD_OPEN", "1")
 	c, _ := Load()

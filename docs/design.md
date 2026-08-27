@@ -2215,6 +2215,7 @@ API はブラウザに一切露出しない。スライス A は設定ページ+
 | `OPENCRAB_OWNER_ID` | 基盤 REST の信頼 caller id。敷設時に各エージェントの trust 行(owner_discord_id)へ書く |
 | `GATE_ADMIN_URL` | 外部 gate 管理面(admin API)の base URL(issue #104 G2)。**未設定なら gate 登録は無効**(保存フローは gate をスキップ)。`OPENCRAB_URL` と同じゲート方式 |
 | `GATE_OPERATOR_TOKEN` | gate 管理面の operator 資格情報。全 admin 呼び出しに bearer token として付与 |
+| `GATE_TALK_REST_FORCE` | gateway cutover の kill switch(issue #104)。**非空なら** gateway 経路の claim を全面停止し、全 /talk メッセージを従来の REST dispatch に戻す(opencrab 再起動・DB 操作不要)。通常は未設定 |
 | `KB_URL_SIGNING_KEY` | 添付ファイル署名付き URL の HMAC 鍵(issue #104 G4)。`/v1/attachments/{id}/content?exp=&sig=` の期限付き無認証配信(gateway が Authorization なしで fetch する契約)に使う。**未設定なら機能ごと無効**(発行はエラー、署名は決して許可しない)。署名は追加の許可であり制限ではない — sig なしアクセスは従来どおり認証必須。既定 TTL 15 分。鍵はログに出さない |
 
 エージェントの instructions に埋める omoikane 側 base URL は `KB_OAUTH_REDIRECT_BASE` を再利用する。

@@ -206,6 +206,45 @@ gate が保持している間**、プラットフォームはその instance へ
 そのまま実行できる (スレッドの binding 追加/close に gate の停止は
 不要。新規 PUT は live 接続へ binding 単位で bind される — V3 §5.5)。
 
+## /talk 配送経路の cutover(REST → gateway)
+
+gateway 稼働後、人間の /talk メッセージには 2 本の配送経路がありうる:
+
+1. **REST dispatch** — omoikane の webhook dispatcher が opencrab の
+   messages API を直接叩く従来経路(`routeTalkToPersonalLibrarian`)。
+2. **gateway 経路** — gate が SSE で拾い、core への `said` として配送
+   する経路。
+
+何も抑止しなければ 1 通のメッセージが両方を通り、司書が二重に答える
+(issue #104)。omoikane 側の webhook dispatcher が**唯一の経路選択点**
+であり、次の条件が**両方**成立するときだけ gateway 経路が claim して
+REST dispatch(と既定応答者への webhook fall-through)を抑止する
+(ログ 1 行: `talk claimed by gateway path`):
+
+- その司書の `user_librarians.gate_instance_id` が登録済み(per-user)
+- そのスレッドに `talk_gate_bindings` 行がある(per-thread)
+
+### per-thread の段階的 cutover
+
+binding 行はスレッド作成時に書かれる(G3a)。したがって:
+
+- **cutover 前に作られたスレッド**は binding 行を持たないので REST の
+  まま — 既存会話の挙動は変わらない。
+- **instance 登録後の新規スレッド**は binding 行を持ち、gateway 経路
+  に乗る。
+
+gate が落ちている間も安全: claim されたメッセージは librarian_chat に
+保存済みで、binding 再接続時の on-bind replay
+(`internal/gate/runtime/instance.go`)が cursor から追い付き配送する。
+遅れることはあっても落ちることはない。
+
+### 緊急切り戻し: GATE_TALK_REST_FORCE
+
+omoikane 本体に `GATE_TALK_REST_FORCE=1`(非空なら値は何でもよい)を
+設定して omoikane を再起動すると、binding 行の有無に関係なく**全スレ
+ッドが REST dispatch に戻る**。opencrab の再起動も DB 操作も不要。
+解除は env を外して omoikane を再起動(gateway 経路が再開する)。
+
 ## Filling in the two platform-provided values
 
 Everything above is final **except** two values, deferred until the

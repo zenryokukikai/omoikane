@@ -448,15 +448,15 @@ func TestAuthLogoutRevokesSession(t *testing.T) {
 
 func TestIsSafeRedirect(t *testing.T) {
 	cases := map[string]bool{
-		"":                  false,
-		"/":                 true,
-		"/entries/T-X":      true,
-		"//evil.com":        false,
-		"https://evil.com":  false,
-		"http://evil.com":   false,
-		"javascript:alert":  false,
-		"//":                false,
-		"relative/path":     false,
+		"":                 false,
+		"/":                true,
+		"/entries/T-X":     true,
+		"//evil.com":       false,
+		"https://evil.com": false,
+		"http://evil.com":  false,
+		"javascript:alert": false,
+		"//":               false,
+		"relative/path":    false,
 	}
 	for path, want := range cases {
 		if got := isSafeRedirect(path); got != want {
@@ -467,11 +467,11 @@ func TestIsSafeRedirect(t *testing.T) {
 
 func TestCanonicalHostFromBase(t *testing.T) {
 	cases := map[string]string{
-		"":                            "",
-		"http://localhost:8095":       "localhost:8095",
-		"https://kb.example.com":      "kb.example.com",
-		"http://localhost:8095/":      "localhost:8095",
-		"http://localhost:8095/path":  "localhost:8095",
+		"":                           "",
+		"http://localhost:8095":      "localhost:8095",
+		"https://kb.example.com":     "kb.example.com",
+		"http://localhost:8095/":     "localhost:8095",
+		"http://localhost:8095/path": "localhost:8095",
 	}
 	for in, want := range cases {
 		if got := canonicalHostFromBase(in); got != want {
@@ -546,7 +546,7 @@ func canonicalRedirectFixture(t *testing.T, redirectBase string) (*store.Store, 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &Handler{
 		Store: st, Enricher: enrich.New("", "", "", "", logger),
-		SecretsMode:       config.SecretsOff, Logger: logger,
+		SecretsMode: config.SecretsOff, Logger: logger,
 		OAuthRedirectBase: redirectBase,
 	}
 	h.OAuthGoogle = &fakeGoogleOAuth{

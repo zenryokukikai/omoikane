@@ -27,10 +27,11 @@ import (
 // ----------------------------------------------------------------------
 
 // postAttachment handles multipart upload. Form fields:
-//   project_id (text)   required, must exist
-//   role       (text)   required, must be in standard vocab
-//   caption    (text)   required, non-blank after trim
-//   file       (file)   required, non-empty, ≤ AttachmentMaxBytes
+//
+//	project_id (text)   required, must exist
+//	role       (text)   required, must be in standard vocab
+//	caption    (text)   required, non-blank after trim
+//	file       (file)   required, non-empty, ≤ AttachmentMaxBytes
 //
 // The Content-Type of the file part is propagated as the attachment's
 // mime. If absent, defaults to application/octet-stream.

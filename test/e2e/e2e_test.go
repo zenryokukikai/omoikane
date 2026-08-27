@@ -40,13 +40,13 @@ import (
 // e2eRig is the harness for a single e2e test: kb-server + token +
 // configured kb CLI.
 type e2eRig struct {
-	t        *testing.T
-	server   *httptest.Server
-	dbPath   string
-	dataDir  string
-	token    string
-	url      string
-	store    *store.Store
+	t       *testing.T
+	server  *httptest.Server
+	dbPath  string
+	dataDir string
+	token   string
+	url     string
+	store   *store.Store
 }
 
 func setupRig(t *testing.T) *e2eRig {

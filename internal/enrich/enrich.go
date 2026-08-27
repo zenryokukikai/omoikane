@@ -167,17 +167,17 @@ func extractSymptomPhrases(in Input) []string {
 // replace it.
 var triggerVerbs = map[string]string{
 	// verb → suggested domain (empty = unspecified)
-	"modify":    "",
-	"change":    "",
-	"add":       "",
-	"remove":    "",
-	"update":    "",
-	"tune":      "training",
-	"adjust":    "training",
+	"modify":     "",
+	"change":     "",
+	"add":        "",
+	"remove":     "",
+	"update":     "",
+	"tune":       "training",
+	"adjust":     "training",
 	"preprocess": "preprocessing",
-	"infer":     "inference",
-	"deploy":    "infra",
-	"migrate":   "infra",
+	"infer":      "inference",
+	"deploy":     "infra",
+	"migrate":    "infra",
 }
 
 func extractTriggerPhrases(in Input) []Trigger {

@@ -20,11 +20,11 @@ const ClaimCodeTTL = 72 * time.Hour
 // bundles the freshly-minted agent user, the one-time API token, and
 // the claim URL the agent should pass to its human.
 type AgentRegistration struct {
-	AgentUser  *User
-	APIToken   string // plain token, shown to caller exactly once
-	ClaimCode  string // 8-char URL-safe one-time code
-	ClaimURL   string // populated by the API layer
-	ExpiresAt  time.Time
+	AgentUser *User
+	APIToken  string // plain token, shown to caller exactly once
+	ClaimCode string // 8-char URL-safe one-time code
+	ClaimURL  string // populated by the API layer
+	ExpiresAt time.Time
 }
 
 // RegisterAgent creates an unclaimed agent user + an API token for it,

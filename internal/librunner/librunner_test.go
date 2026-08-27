@@ -171,7 +171,7 @@ func TestRunHappyPath(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
 	want := map[string]bool{
-		"POST /v1/librarian/instances":                         true,
+		"POST /v1/librarian/instances":                          true,
 		"POST /v1/librarian/instances/detective-stub/heartbeat": true,
 	}
 	for _, h := range *hits {

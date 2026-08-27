@@ -113,11 +113,11 @@ func TestEmptyFTSQuery(t *testing.T) {
 
 func TestSourceFromRole(t *testing.T) {
 	cases := map[string]string{
-		"":              "human",
-		"human":         "human",
-		"token:cli":     "human",
+		"":                    "human",
+		"human":               "human",
+		"token:cli":           "human",
 		"librarian:cataloger": "librarian",
-		"agent":         "agent",
+		"agent":               "agent",
 	}
 	for in, want := range cases {
 		if got := sourceFromRole(in); got != want {

@@ -97,7 +97,7 @@ func TestCreateAttachmentRejectsBlankCaption(t *testing.T) {
 		_, err := s.CreateAttachment(context.Background(), CreateAttachmentParams{
 			ProjectID: projectID, Mime: "image/png", Role: "chart",
 			Caption: caption, UploadedBy: userID,
-			Content:  bytes.NewReader([]byte("x")), MaxBytes: 1024,
+			Content: bytes.NewReader([]byte("x")), MaxBytes: 1024,
 		})
 		if !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("caption=%q expected ErrInvalidInput, got %v", caption, err)

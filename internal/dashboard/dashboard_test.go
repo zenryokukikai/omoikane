@@ -366,7 +366,6 @@ func TestTrunc(t *testing.T) {
 	}
 }
 
-
 // ---- auth-gated paths ----
 
 func TestAuthRequiredWhenOpenFalse(t *testing.T) {

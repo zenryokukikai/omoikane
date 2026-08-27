@@ -17,12 +17,12 @@ import (
 // not_helpful/misleading/unknown) which assumed the only flow was
 // "pre-flight check → action".
 const (
-	FeedbackSignalHelpful      = "helpful"       // applied / directly used
-	FeedbackSignalConfirmed    = "confirmed"     // reinforced existing knowledge
-	FeedbackSignalOutdated     = "outdated"      // factually correct in the past, no longer current
-	FeedbackSignalWrong        = "wrong"         // factually incorrect
-	FeedbackSignalIncomplete   = "incomplete"    // correct but missing important context
-	FeedbackSignalSurfacedGap  = "surfaced_gap"  // reading revealed a gap in MY (reader's) model
+	FeedbackSignalHelpful     = "helpful"      // applied / directly used
+	FeedbackSignalConfirmed   = "confirmed"    // reinforced existing knowledge
+	FeedbackSignalOutdated    = "outdated"     // factually correct in the past, no longer current
+	FeedbackSignalWrong       = "wrong"        // factually incorrect
+	FeedbackSignalIncomplete  = "incomplete"   // correct but missing important context
+	FeedbackSignalSurfacedGap = "surfaced_gap" // reading revealed a gap in MY (reader's) model
 )
 
 var validFeedbackSignals = map[string]bool{
@@ -118,16 +118,16 @@ func (s *Store) RecordFeedback(ctx context.Context, fb *EntryFeedback) error {
 // EntryEngagement aggregates passive access + explicit feedback signals.
 // Mirrors the entry_engagement view defined in migration 016.
 type EntryEngagement struct {
-	EntryID             string  `json:"entry_id"`
-	ProjectID           string  `json:"project_id"`
-	ReferenceCount30d   int     `json:"reference_count_30d"`
-	ReferenceCountTotal int     `json:"reference_count_total"`
-	FeedbackHelpful     int     `json:"feedback_helpful"`
-	FeedbackConfirmed   int     `json:"feedback_confirmed"`
-	FeedbackOutdated    int     `json:"feedback_outdated"`
-	FeedbackWrong       int     `json:"feedback_wrong"`
-	FeedbackIncomplete  int     `json:"feedback_incomplete"`
-	FeedbackSurfacedGap int     `json:"feedback_surfaced_gap"`
+	EntryID             string `json:"entry_id"`
+	ProjectID           string `json:"project_id"`
+	ReferenceCount30d   int    `json:"reference_count_30d"`
+	ReferenceCountTotal int    `json:"reference_count_total"`
+	FeedbackHelpful     int    `json:"feedback_helpful"`
+	FeedbackConfirmed   int    `json:"feedback_confirmed"`
+	FeedbackOutdated    int    `json:"feedback_outdated"`
+	FeedbackWrong       int    `json:"feedback_wrong"`
+	FeedbackIncomplete  int    `json:"feedback_incomplete"`
+	FeedbackSurfacedGap int    `json:"feedback_surfaced_gap"`
 	// EngagementScore is roughly in [-1, +1] with smoothing toward 0 for
 	// low-feedback entries. See migration 016 for the formula.
 	EngagementScore float64 `json:"engagement_score"`

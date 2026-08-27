@@ -10,10 +10,10 @@ import (
 )
 
 // 'note' (issue #71) end to end through the ONE write path:
-//   1. POST /v1/entries type=note → 201, N- prefixed id
-//   2. it appears in GET /v1/entries?type=note and in POST /v1/search
-//   3. it never enters the cataloger's backlog (a human memo needs no
-//      summary) — neither backlog/next nor backlog_size see it.
+//  1. POST /v1/entries type=note → 201, N- prefixed id
+//  2. it appears in GET /v1/entries?type=note and in POST /v1/search
+//  3. it never enters the cataloger's backlog (a human memo needs no
+//     summary) — neither backlog/next nor backlog_size see it.
 func TestNoteEntryFlow(t *testing.T) {
 	base, tok, st := testServer(t)
 	if err := st.CreateProject(t.Context(), &store.Project{ID: "p", Name: "P"}); err != nil {

@@ -157,7 +157,7 @@ func TestSearchHitsAndFilters(t *testing.T) {
 	}, nil)
 
 	s, raw := doJSON(t, http.MethodPost, base+"/v1/search", tok, map[string]any{
-		"query": `"mask"*`,
+		"query":   `"mask"*`,
 		"filters": map[string]any{"type": "trap"},
 	}, nil)
 	if s != 200 {

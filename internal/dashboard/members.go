@@ -185,4 +185,3 @@ func (h *Handler) memberClaimPage(w http.ResponseWriter, r *http.Request) {
 	}
 	h.render(w, "member_claim", pc)
 }
-

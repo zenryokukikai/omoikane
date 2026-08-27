@@ -187,4 +187,3 @@ func TestSearchModeDefault(t *testing.T) {
 		t.Fatalf("default mode: %v", out["mode"])
 	}
 }
-

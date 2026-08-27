@@ -207,10 +207,10 @@ func (h *Handler) reflect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{
-		"prompt":   req.Prompt,
-		"entries":  []map[string]string{},
-		"summary":  "",
-		"engine":   "heuristic",
+		"prompt":  req.Prompt,
+		"entries": []map[string]string{},
+		"summary": "",
+		"engine":  "heuristic",
 	}
 	bullets := make([]string, 0, len(req.EntryIDs))
 	entries := make([]map[string]string, 0, len(req.EntryIDs))

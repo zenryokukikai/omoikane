@@ -205,9 +205,9 @@ func TestCmdConfigSetURLAndToken(t *testing.T) {
 func TestCmdConfigErrors(t *testing.T) {
 	testHarness(t)
 	cases := [][]string{
-		{},                       // usage
-		{"unknown"},              // unknown verb
-		{"set"},                  // wrong arity
+		{},                        // usage
+		{"unknown"},               // unknown verb
+		{"set"},                   // wrong arity
 		{"set", "weird", "value"}, // unknown key
 	}
 	for _, c := range cases {

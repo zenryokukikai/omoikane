@@ -14,18 +14,18 @@ const InviteCodeTTL = 24 * time.Hour
 
 // AgentInvitation is one row of agent_invitations.
 type AgentInvitation struct {
-	Code           string
-	InviterUserID  string
-	Note           string
-	CreatedAt      time.Time
-	ExpiresAt      time.Time
-	UsedAt         *time.Time
-	UsedByAgent    string
+	Code          string
+	InviterUserID string
+	Note          string
+	CreatedAt     time.Time
+	ExpiresAt     time.Time
+	UsedAt        *time.Time
+	UsedByAgent   string
 	// LibrarianRole, when non-empty, marks this invite as creating a
 	// librarian-side agent (cataloger, curator, ...). At redemption the
 	// agent user gets this role and its token receives the `librarian`
 	// scope. Empty = ordinary agent invite.
-	LibrarianRole  string
+	LibrarianRole string
 }
 
 // CreateAgentInvitation mints a fresh invitation under the supplied
@@ -119,10 +119,10 @@ func (s *Store) ListAgentInvitations(ctx context.Context, inviterUserID string) 
 }
 
 // RedeemAgentInvitation atomically:
-//   1. Verifies the code is still valid (exists, not used, not expired)
-//   2. Creates the agent user with parent_user_id = inviter
-//   3. Mints an api_token for the agent
-//   4. Marks the code used
+//  1. Verifies the code is still valid (exists, not used, not expired)
+//  2. Creates the agent user with parent_user_id = inviter
+//  3. Mints an api_token for the agent
+//  4. Marks the code used
 //
 // Returns the same AgentRegistration shape as RegisterAgent — but no
 // claim_code, because adoption is implicit (the inviter is already the
@@ -139,10 +139,10 @@ func (s *Store) RedeemAgentInvitation(ctx context.Context, code, name, descripti
 	defer tx.Rollback()
 
 	var (
-		inviterUserID  string
-		expiresAt      time.Time
-		usedAt         nullTimeBox
-		librarianRole  string
+		inviterUserID string
+		expiresAt     time.Time
+		usedAt        nullTimeBox
+		librarianRole string
 	)
 	err = tx.QueryRowContext(ctx, `
 		SELECT inviter_user_id, expires_at, used_at, COALESCE(librarian_role,'')

@@ -10,12 +10,12 @@ import (
 )
 
 // End-to-end of the new librarian-role flow:
-//   1. admin POSTs /v1/admin/agent-invites with librarian_role=cataloger
-//   2. an agent POSTs /v1/agents/register with the returned code
-//   3. the redeemed token's user has librarian_role set
-//   4. that token successfully registers a librarian instance with
-//      role=cataloger
-//   5. that token CANNOT register a librarian instance with role=curator
+//  1. admin POSTs /v1/admin/agent-invites with librarian_role=cataloger
+//  2. an agent POSTs /v1/agents/register with the returned code
+//  3. the redeemed token's user has librarian_role set
+//  4. that token successfully registers a librarian instance with
+//     role=cataloger
+//  5. that token CANNOT register a librarian instance with role=curator
 func TestIssueAgentInviteWithLibrarianRoleE2E(t *testing.T) {
 	base, adminTok, _ := testServer(t)
 
@@ -44,8 +44,8 @@ func TestIssueAgentInviteWithLibrarianRoleE2E(t *testing.T) {
 		t.Fatalf("register: %d %s", s, raw)
 	}
 	var reg struct {
-		APIKey   string `json:"api_key"`
-		AgentID  string `json:"agent_id"`
+		APIKey  string `json:"api_key"`
+		AgentID string `json:"agent_id"`
 	}
 	_ = json.Unmarshal(raw, &reg)
 	agentTok := reg.APIKey

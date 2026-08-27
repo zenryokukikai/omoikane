@@ -241,9 +241,9 @@ func (s *Store) EntrySignal(ctx context.Context, entryID string) (*EntrySignals,
 		       last_retrieved_at, helpfulness_score
 		FROM entry_signals WHERE id = ?`, entryID)
 	var (
-		es              EntrySignals
-		lastRetrieved   nullTimeBox
-		helpfulness     nullFloat
+		es            EntrySignals
+		lastRetrieved nullTimeBox
+		helpfulness   nullFloat
 	)
 	if err := row.Scan(&es.ID, &es.ProjectID, &es.Title, &es.Type, &es.Status,
 		&es.TotalUses, &es.HelpfulCount, &es.PartialCount, &es.NotHelpfulCount,

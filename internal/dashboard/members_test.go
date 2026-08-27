@@ -162,9 +162,9 @@ func TestMemberClaimPagePublic(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	for _, want := range []string{
 		"newcomer@example.com",
-		"admin",   // role badge
+		"admin", // role badge
 		"Sign in with Google",
-		"Alice",   // inviter
+		"Alice",    // inviter
 		"ops lead", // note
 	} {
 		if !strings.Contains(string(body), want) {

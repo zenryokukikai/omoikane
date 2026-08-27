@@ -10,11 +10,11 @@ import (
 )
 
 // End-to-end of the FIFO backlog flow:
-//   1. seed 3 entries
-//   2. GET /v1/librarian/backlog/next?role=cataloger → returns oldest
-//   3. POST /v1/librarian/progress → marks it processed
-//   4. GET backlog/next again → returns the second-oldest
-//   5. drain remaining; final GET returns 404
+//  1. seed 3 entries
+//  2. GET /v1/librarian/backlog/next?role=cataloger → returns oldest
+//  3. POST /v1/librarian/progress → marks it processed
+//  4. GET backlog/next again → returns the second-oldest
+//  5. drain remaining; final GET returns 404
 func TestBacklogFlowOldestFirst(t *testing.T) {
 	base, tok, st := testServer(t)
 	ctx := context.Background()

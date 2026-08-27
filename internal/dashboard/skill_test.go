@@ -57,28 +57,28 @@ func TestServeSkillMD(t *testing.T) {
 		"by-trigger", // lookup endpoint
 		"by-symptom",
 		"prohibited",
-		"Pseudo-realtime ping-pong",         // chat protocol section
-		"long-poll",                         // long-poll cursor pattern
-		"Loop prevention",                   // loop guardrails
-		"Attachments — evidence",            // attachment section header
-		"POST <base-url>/v1/attachments",    // upload usage
-		"attached:<id>",                     // body-reference syntax
-		"worst-case",                        // role vocabulary present
-		"When to use chat (vs entry)",       // directive chat-vs-entry section
-		"DO NOT use chat for",               // negative directives spelled out
-		"Status reports of training",        // the lipsync-induced specific anti-example
-		"Searching chat (opt-in)",           // chat search opt-in section
-		`"include_chat":true`,               // opt-in flag documentation
-		`POST "<base-url>/v1/feedback"`,     // stateless feedback endpoint
-		`"signal":"helpful"`,                // example signal in feedback
-		"surfaced_gap",                      // the unusual 6th signal
-		"reference_count_30d",               // passive signal exposed
-		"engagement",                        // engagement endpoint mention
-		"Sample helper scripts",             // the new helper-scripts section header
-		"kb-post-entry.sh",                  // by name so agents can grep
+		"Pseudo-realtime ping-pong",      // chat protocol section
+		"long-poll",                      // long-poll cursor pattern
+		"Loop prevention",                // loop guardrails
+		"Attachments — evidence",         // attachment section header
+		"POST <base-url>/v1/attachments", // upload usage
+		"attached:<id>",                  // body-reference syntax
+		"worst-case",                     // role vocabulary present
+		"When to use chat (vs entry)",    // directive chat-vs-entry section
+		"DO NOT use chat for",            // negative directives spelled out
+		"Status reports of training",     // the lipsync-induced specific anti-example
+		"Searching chat (opt-in)",        // chat search opt-in section
+		`"include_chat":true`,            // opt-in flag documentation
+		`POST "<base-url>/v1/feedback"`,  // stateless feedback endpoint
+		`"signal":"helpful"`,             // example signal in feedback
+		"surfaced_gap",                   // the unusual 6th signal
+		"reference_count_30d",            // passive signal exposed
+		"engagement",                     // engagement endpoint mention
+		"Sample helper scripts",          // the new helper-scripts section header
+		"kb-post-entry.sh",               // by name so agents can grep
 		"kb-lookup-trigger.sh",
 		"kb-feedback.sh",
-		"OMOIKANE_BASE_URL",                 // shared env-var contract
+		"OMOIKANE_BASE_URL",                       // shared env-var contract
 		"/samples/agent-helpers/kb-post-entry.sh", // exact fetch path
 	} {
 		if !strings.Contains(body, want) {
@@ -187,10 +187,10 @@ func TestNoInstallShRoute(t *testing.T) {
 
 func TestPublicBase(t *testing.T) {
 	cases := []struct {
-		host    string
-		tls     bool
-		proto   string
-		want    string
+		host  string
+		tls   bool
+		proto string
+		want  string
 	}{
 		{"localhost:8095", false, "", "http://localhost:8095"},
 		{"kb.example.com", false, "https", "https://kb.example.com"},

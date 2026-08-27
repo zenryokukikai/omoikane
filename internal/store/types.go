@@ -71,9 +71,9 @@ func ValidStatus(s string) bool {
 // Project mirrors the projects row. Metadata is kept as raw JSON text so
 // the store doesn't need to know its shape.
 type Project struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	// Overview is a longer markdown domain primer + glossary, distinct from
 	// the one-line Description. It lets a reader from another project decode
 	// this project's domain-specific entries.
@@ -84,20 +84,20 @@ type Project struct {
 
 // Entry mirrors the entries row plus joined tags.
 type Entry struct {
-	ID                  string     `json:"id"`
-	ProjectID           string     `json:"project_id"`
-	Type                string     `json:"type"`
-	Title               string     `json:"title"`
-	Status              string     `json:"status"`
-	Symptom             string     `json:"symptom,omitempty"`
-	RootCause           string     `json:"root_cause,omitempty"`
-	Resolution          string     `json:"resolution,omitempty"`
-	Prohibited          string     `json:"prohibited,omitempty"`
-	AttemptedApproaches string     `json:"attempted_approaches,omitempty"`
-	ObservedBehavior    string     `json:"observed_behavior,omitempty"`
-	Hypotheses          string     `json:"hypotheses,omitempty"`
-	Body                string     `json:"body"`
-	BodyFormat          string     `json:"body_format"`
+	ID                  string `json:"id"`
+	ProjectID           string `json:"project_id"`
+	Type                string `json:"type"`
+	Title               string `json:"title"`
+	Status              string `json:"status"`
+	Symptom             string `json:"symptom,omitempty"`
+	RootCause           string `json:"root_cause,omitempty"`
+	Resolution          string `json:"resolution,omitempty"`
+	Prohibited          string `json:"prohibited,omitempty"`
+	AttemptedApproaches string `json:"attempted_approaches,omitempty"`
+	ObservedBehavior    string `json:"observed_behavior,omitempty"`
+	Hypotheses          string `json:"hypotheses,omitempty"`
+	Body                string `json:"body"`
+	BodyFormat          string `json:"body_format"`
 	// Scope and Metadata are stored as TEXT in the entries table but
 	// carried on the wire as raw JSON values, not JSON-encoded
 	// strings. json.RawMessage makes a posted `metadata: {"k":"v"}`
@@ -105,24 +105,24 @@ type Entry struct {
 	// to migration these were `string`, which forced API responses
 	// to wrap stored JSON in another layer of escaping
 	// (e.g. `"\"{\\\"k\\\":\\\"v\\\"}\""`).
-	Scope               json.RawMessage `json:"scope,omitempty"`
-	Metadata            json.RawMessage `json:"metadata,omitempty"`
-	ValidFrom           time.Time  `json:"valid_from"`
-	ValidTo             *time.Time `json:"valid_to,omitempty"`
-	SupersededBy        string     `json:"superseded_by,omitempty"`
-	InvalidationReason  string     `json:"invalidation_reason,omitempty"`
-	EnrichmentVersion   int        `json:"enrichment_version"`
-	EnrichmentAt        *time.Time `json:"enrichment_at,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	CreatedBy           string     `json:"created_by,omitempty"`
-	CreatedByRole       string     `json:"created_by_role,omitempty"`
-	Version             int        `json:"version"`
+	Scope              json.RawMessage `json:"scope,omitempty"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	ValidFrom          time.Time       `json:"valid_from"`
+	ValidTo            *time.Time      `json:"valid_to,omitempty"`
+	SupersededBy       string          `json:"superseded_by,omitempty"`
+	InvalidationReason string          `json:"invalidation_reason,omitempty"`
+	EnrichmentVersion  int             `json:"enrichment_version"`
+	EnrichmentAt       *time.Time      `json:"enrichment_at,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	CreatedBy          string          `json:"created_by,omitempty"`
+	CreatedByRole      string          `json:"created_by_role,omitempty"`
+	Version            int             `json:"version"`
 	// SpaceID is the visibility boundary the entry lives in (issue #60).
 	// Defaults to 'internal'; project_id remains the category WITHIN a
 	// space.
-	SpaceID             string     `json:"space_id"`
-	Tags                []string   `json:"tags"`
+	SpaceID string   `json:"space_id"`
+	Tags    []string `json:"tags"`
 }
 
 // EntryPatch — non-nil pointer = update; non-nil empty string = clear field.
@@ -191,7 +191,7 @@ type User struct {
 	Role            string     `json:"role"`
 	CreatedAt       time.Time  `json:"created_at"`
 	Email           string     `json:"email,omitempty"`
-	GoogleSub       string     `json:"-"`                            // never marshal — internal identity
+	GoogleSub       string     `json:"-"` // never marshal — internal identity
 	AvatarURL       string     `json:"avatar_url,omitempty"`
 	LastLoginAt     *time.Time `json:"last_login_at,omitempty"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
@@ -202,7 +202,7 @@ type User struct {
 	// redemption when the invite carried a librarian_role. Drives both
 	// authorisation (token gets the `librarian` scope) and the role-
 	// consistency check on POST /v1/librarian/instances.
-	LibrarianRole   string     `json:"librarian_role,omitempty"`
+	LibrarianRole string `json:"librarian_role,omitempty"`
 	// password_hash deliberately omitted from the struct — never read into
 	// app memory unless the password-verification code path needs it
 	// (Phase B). Keeping it out reduces accidental leak surface.
@@ -227,15 +227,15 @@ type APIToken struct {
 // AuditEvent is what middleware emits to the audit_log table on every
 // write request (POST/PATCH/DELETE under /v1, excluding /v1/health).
 type AuditEvent struct {
-	Timestamp    time.Time
-	RequestID    string
-	UserID       string
-	TokenName    string
-	Method       string
-	Path         string
-	BodySummary  string
-	ClientType   string
-	ClientIP     string
-	StatusCode   int
-	DurationMs   int64
+	Timestamp   time.Time
+	RequestID   string
+	UserID      string
+	TokenName   string
+	Method      string
+	Path        string
+	BodySummary string
+	ClientType  string
+	ClientIP    string
+	StatusCode  int
+	DurationMs  int64
 }

@@ -17,15 +17,15 @@ import (
 // stored on the comment, so a renamed user or role change is reflected
 // everywhere without a backfill.
 type EntryComment struct {
-	ID                 string    `json:"id"`
-	EntryID            string    `json:"entry_id"`
-	AuthorUserID       string    `json:"author_user_id"`
-	AuthorName         string    `json:"author_name"`
-	AuthorKind         string    `json:"author_kind"`            // "human" | "agent"
-	AuthorLibrarianRole string   `json:"author_librarian_role,omitempty"`
-	AuthorAvatarURL    string    `json:"author_avatar_url,omitempty"`
-	Body               string    `json:"body"`
-	ReplyTo            string    `json:"reply_to,omitempty"`
+	ID                  string `json:"id"`
+	EntryID             string `json:"entry_id"`
+	AuthorUserID        string `json:"author_user_id"`
+	AuthorName          string `json:"author_name"`
+	AuthorKind          string `json:"author_kind"` // "human" | "agent"
+	AuthorLibrarianRole string `json:"author_librarian_role,omitempty"`
+	AuthorAvatarURL     string `json:"author_avatar_url,omitempty"`
+	Body                string `json:"body"`
+	ReplyTo             string `json:"reply_to,omitempty"`
 	// ThreadRoot is the id of the thread's root comment (== own ID for
 	// roots). Grouping key for the whole conversation, so replies to
 	// replies still land in one visual thread.

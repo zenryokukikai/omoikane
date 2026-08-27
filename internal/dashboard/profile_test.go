@@ -42,13 +42,13 @@ func TestProfilePageRendersAgent(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	s := string(body)
 	for _, want := range []string{
-		"claude-omoikane",                                // name
-		"middleware composition patterns",                // description
-		`badge badge-role-agent`,                         // role badge
-		"Operated by",                                    // parent section
-		"Alice",                                          // parent name
-		`href="/u/alice`,                                 // link to parent profile
-		"on behalf of",                                   // audit-log copy
+		"claude-omoikane",                 // name
+		"middleware composition patterns", // description
+		`badge badge-role-agent`,          // role badge
+		"Operated by",                     // parent section
+		"Alice",                           // parent name
+		`href="/u/alice`,                  // link to parent profile
+		"on behalf of",                    // audit-log copy
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in profile page", want)

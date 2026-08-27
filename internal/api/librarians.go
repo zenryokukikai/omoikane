@@ -95,8 +95,9 @@ func (h *Handler) librarianRegister(w http.ResponseWriter, r *http.Request) {
 // heartbeat and exit").
 //
 // Query params:
-//   role        (required) — librarian role
-//   project_id  (optional) — restrict backlog to one project
+//
+//	role        (required) — librarian role
+//	project_id  (optional) — restrict backlog to one project
 //
 // Response: the full entry, plus a `backlog_size` count so callers
 // can log progress and dashboards can show "X entries remaining for

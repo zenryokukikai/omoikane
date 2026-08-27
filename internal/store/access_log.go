@@ -10,20 +10,20 @@ import (
 // surfaced; the constants live here (not in package api) so the store can
 // reject bad values and the api layer references one source of truth.
 const (
-	AccessSourceGet              = "get"
-	AccessSourceSearch           = "search"
-	AccessSourceLookupByTrigger  = "lookup_by_trigger"
-	AccessSourceLookupBySymptom  = "lookup_by_symptom"
-	AccessSourceLookupByTags     = "lookup_by_tags"
+	AccessSourceGet               = "get"
+	AccessSourceSearch            = "search"
+	AccessSourceLookupByTrigger   = "lookup_by_trigger"
+	AccessSourceLookupBySymptom   = "lookup_by_symptom"
+	AccessSourceLookupByTags      = "lookup_by_tags"
 	AccessSourceLookupBySituation = "lookup_by_situation"
 )
 
 var validAccessSources = map[string]bool{
-	AccessSourceGet:              true,
-	AccessSourceSearch:           true,
-	AccessSourceLookupByTrigger:  true,
-	AccessSourceLookupBySymptom:  true,
-	AccessSourceLookupByTags:     true,
+	AccessSourceGet:               true,
+	AccessSourceSearch:            true,
+	AccessSourceLookupByTrigger:   true,
+	AccessSourceLookupBySymptom:   true,
+	AccessSourceLookupByTags:      true,
 	AccessSourceLookupBySituation: true,
 }
 

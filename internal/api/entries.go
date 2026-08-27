@@ -19,7 +19,7 @@ import (
 )
 
 type entryRequest struct {
-	ProjectID           string   `json:"project_id"`
+	ProjectID string `json:"project_id"`
 	// SpaceID is the visibility boundary (issue #60). Empty = 'internal'.
 	// A space the caller cannot see 404s exactly like a missing one.
 	SpaceID             string   `json:"space_id,omitempty"`
@@ -292,12 +292,12 @@ func entryWithFeedbackPrompt(e *store.Entry) entryGetEnvelope {
 func (h *Handler) listEntries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.EntryFilter{
-		ProjectID:         q.Get("project_id"),
-		Type:              q.Get("type"),
-		Status:            q.Get("status"),
-		Tag:               q.Get("tag"),
-		Query:             q.Get("q"),
-		IncludeSuperseded: q.Get("include_superseded") == "true",
+		ProjectID:           q.Get("project_id"),
+		Type:                q.Get("type"),
+		Status:              q.Get("status"),
+		Tag:                 q.Get("tag"),
+		Query:               q.Get("q"),
+		IncludeSuperseded:   q.Get("include_superseded") == "true",
 		Uncategorized:       q.Get("uncategorized") == "true",
 		OldestFirst:         q.Get("order") == "oldest",
 		NotProgressedByRole: q.Get("not_progressed_by"),
@@ -579,7 +579,6 @@ func parseIfMatch(v string) (int, error) {
 	v = strings.TrimSuffix(v, `"`)
 	return strconv.Atoi(v)
 }
-
 
 // summaryEntry returns the cataloger summary (a librarian_meta with
 // metadata.kind=cataloger_summary and metadata.source_entry_id=<id>) for the

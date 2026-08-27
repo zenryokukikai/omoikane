@@ -444,4 +444,3 @@ func TestLookupCreateCasesAttachesCaseID(t *testing.T) {
 		t.Fatalf("expected case_id attached: %v", out.Matches[0])
 	}
 }
-

@@ -21,8 +21,8 @@ func seedEntryWithIndices(t *testing.T, st *store.Store, tags []string,
 	id, err := st.CreateEntry(ctx, &store.Entry{
 		ProjectID: "kb", Type: "trap", Title: "Mask trap",
 		Body: "rect mask leaks", Prohibited: prohibited,
-		Tags:    tags,
-		Status:  "ACTIVE",
+		Tags:   tags,
+		Status: "ACTIVE",
 	})
 	if err != nil {
 		t.Fatal(err)

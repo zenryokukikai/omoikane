@@ -53,13 +53,13 @@ type SkillBundle struct {
 // rest of the file directly; the runner only needs the operational
 // params to schedule heartbeats and enforce budget ceilings.
 type skillFrontmatter struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
 	Operational struct {
-		HeartbeatIntervalSeconds       int `yaml:"heartbeat_interval_seconds"`
-		CooldownBetweenActionsSeconds  int `yaml:"cooldown_between_actions_seconds"`
-		DailyTokenCeiling              int `yaml:"daily_token_ceiling"`
-		Phase                          int `yaml:"phase"`
+		HeartbeatIntervalSeconds      int `yaml:"heartbeat_interval_seconds"`
+		CooldownBetweenActionsSeconds int `yaml:"cooldown_between_actions_seconds"`
+		DailyTokenCeiling             int `yaml:"daily_token_ceiling"`
+		Phase                         int `yaml:"phase"`
 	} `yaml:"operational"`
 	Prohibitions []string `yaml:"prohibitions"`
 }
@@ -107,9 +107,11 @@ func roleFromName(name string) string {
 // silently degraded runner.
 //
 // New layout (migration 016 era): only 3 files are required —
-//   SKILL.md (with frontmatter that carries operational params)
-//   AGENTS.md
-//   PERSONALITY.md
+//
+//	SKILL.md (with frontmatter that carries operational params)
+//	AGENTS.md
+//	PERSONALITY.md
+//
 // The legacy 10-file layout (role_definition.md + personality.yaml + …)
 // is no longer accepted; per-role bundles have been migrated.
 func LoadSkill(dir string) (*SkillBundle, error) {

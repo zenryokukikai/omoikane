@@ -112,9 +112,11 @@ func TestRecordFeedbackAllowsMultiplePerUser(t *testing.T) {
 }
 
 // engagement_score with one helpful (+1.0) and one wrong (-1.0):
-//   numerator   = 1.0 + (-1.0) = 0
-//   denominator = 3 + 2 = 5
-//   score       = 0
+//
+//	numerator   = 1.0 + (-1.0) = 0
+//	denominator = 3 + 2 = 5
+//	score       = 0
+//
 // Effectively neutralized — opposing signals cancel. This is the right
 // behavior: a controversial entry should have low score, not high
 // "we have lots of feedback so it must be great" score.

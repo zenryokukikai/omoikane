@@ -33,19 +33,19 @@ type Config struct {
 	LLMEndpoint         string
 	LLMMonthlyBudgetUSD float64
 	SecretsMode         SecretsMode
-	PiiMode             SecretsMode // PII (email/card) scan mode; default off
+	PiiMode             SecretsMode   // PII (email/card) scan mode; default off
 	TriggerRulesPath    string        // optional path to trigger_rules.yaml
 	ClusterInterval     time.Duration // Phase 3: background incident clustering cadence; 0 disables
 	ClusterThreshold    float64       // Phase 3: Jaccard threshold for clustering (default 0.4)
 	ClusterMinMembers   int           // Phase 3: minimum group size to surface a cluster (default 2)
 
 	// Phase A auth (Google OAuth)
-	GoogleClientID     string   // KB_OAUTH_GOOGLE_CLIENT_ID
-	GoogleClientSecret string   // KB_OAUTH_GOOGLE_CLIENT_SECRET
-	OAuthRedirectBase  string   // KB_OAUTH_REDIRECT_BASE (e.g. https://kb.example.com)
-	AuthAllowDomains   []string // KB_AUTH_ALLOW_DOMAINS=foo.com,bar.com — domain allow-list for new signups
-	AuthAllowEmails    []string // KB_AUTH_ALLOW_EMAILS=alice@x.com,bob@y.com — explicit email allow-list (OR with domain list)
-	HTTPSEnabled       bool     // KB_HTTPS=1 → mark cookies Secure, expect https redirects
+	GoogleClientID     string        // KB_OAUTH_GOOGLE_CLIENT_ID
+	GoogleClientSecret string        // KB_OAUTH_GOOGLE_CLIENT_SECRET
+	OAuthRedirectBase  string        // KB_OAUTH_REDIRECT_BASE (e.g. https://kb.example.com)
+	AuthAllowDomains   []string      // KB_AUTH_ALLOW_DOMAINS=foo.com,bar.com — domain allow-list for new signups
+	AuthAllowEmails    []string      // KB_AUTH_ALLOW_EMAILS=alice@x.com,bob@y.com — explicit email allow-list (OR with domain list)
+	HTTPSEnabled       bool          // KB_HTTPS=1 → mark cookies Secure, expect https redirects
 	SessionTTL         time.Duration // KB_SESSION_TTL — default 24h
 
 	// Agent registration policy

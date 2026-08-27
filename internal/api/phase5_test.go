@@ -140,8 +140,8 @@ func TestLibrarianChat(t *testing.T) {
 // chatPost must derive author_user_id from the auth token, never from
 // the request body. Migration 012 adds this column and the handler
 // fills it server-side; this test locks both halves:
-//   1) the field is populated for new messages
-//   2) a client-supplied author_user_id is ignored (no impersonation)
+//  1. the field is populated for new messages
+//  2. a client-supplied author_user_id is ignored (no impersonation)
 func TestLibrarianChatAuthorUserIDFromAuthContext(t *testing.T) {
 	base, tok, st := testServer(t)
 	t.Cleanup(ResetEmergencyStopForTest)

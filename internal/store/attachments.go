@@ -26,18 +26,18 @@ import (
 
 // Attachment is one row of the attachments table (no body bytes).
 type Attachment struct {
-	ID           string    `json:"id"`
-	ProjectID    string    `json:"project_id"`
-	Mime         string    `json:"mime"`
-	Filename     string    `json:"filename,omitempty"`
-	SizeBytes    int64     `json:"size_bytes"`
-	Hash         string    `json:"hash"`
-	Role         string    `json:"role"`
-	Caption      string    `json:"caption"`
-	UploadedBy   string    `json:"uploaded_by"`
-	UploadedAt   time.Time `json:"uploaded_at"`
-	SpaceID      string    `json:"space_id"`
-	StoragePath  string    `json:"-"` // internal — never marshalled
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Mime        string    `json:"mime"`
+	Filename    string    `json:"filename,omitempty"`
+	SizeBytes   int64     `json:"size_bytes"`
+	Hash        string    `json:"hash"`
+	Role        string    `json:"role"`
+	Caption     string    `json:"caption"`
+	UploadedBy  string    `json:"uploaded_by"`
+	UploadedAt  time.Time `json:"uploaded_at"`
+	SpaceID     string    `json:"space_id"`
+	StoragePath string    `json:"-"` // internal — never marshalled
 }
 
 // validAttachmentRoles is the MVP role vocabulary. New roles require a

@@ -94,7 +94,9 @@ func (s *Store) GetMemberInvitation(ctx context.Context, code string) (*MemberIn
 // (or all invitations if inviterUserID == "" — for admin listing).
 func (s *Store) ListMemberInvitations(ctx context.Context, inviterUserID string) ([]*MemberInvitation, error) {
 	var (
-		rows interface{ next(*MemberInvitation, *nullTimeBox) error }
+		rows interface {
+			next(*MemberInvitation, *nullTimeBox) error
+		}
 	)
 	_ = rows // suppress unused — written below with a closure
 	q := `SELECT code, inviter_user_id, target_email, target_role, COALESCE(note,''),

@@ -46,8 +46,8 @@ func TestSearchIncludeChatOptIn(t *testing.T) {
 		t.Fatalf("default: %d %s", s, raw)
 	}
 	var def struct {
-		Results     []any  `json:"results"`
-		ChatResults []any  `json:"chat_results"`
+		Results     []any `json:"results"`
+		ChatResults []any `json:"chat_results"`
 	}
 	_ = json.Unmarshal(raw, &def)
 	if len(def.Results) != 1 {

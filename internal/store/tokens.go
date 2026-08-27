@@ -373,9 +373,9 @@ func (s *Store) LookupToken(ctx context.Context, plain string) (*APIToken, error
 		       created_at, expires_at, last_used_at
 		FROM api_tokens WHERE token_hash = ?`, hash)
 	var (
-		t          APIToken
-		scopesCSV  string
-		expN, luN  nullTimeBox
+		t         APIToken
+		scopesCSV string
+		expN, luN nullTimeBox
 	)
 	if err := row.Scan(&t.TokenHash, &t.UserID, &t.Name, &scopesCSV,
 		&t.TokenType, &t.CreatedAt, &expN, &luN); err != nil {

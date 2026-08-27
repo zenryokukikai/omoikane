@@ -54,8 +54,8 @@ func (h *Handler) claimOpenWork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"task_id":  taskID,
-		"entry_id": entryID,
+		"task_id":    taskID,
+		"entry_id":   entryID,
 		"claimed_by": req.InstanceID,
 	})
 }

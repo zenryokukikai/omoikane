@@ -97,7 +97,7 @@ func TestRenderContentWikiLinksExistingEntryIsLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := string(renderContent(context.Background(), "see [[" + id + "]] for the real one", "", s))
+	out := string(renderContent(context.Background(), "see [["+id+"]] for the real one", "", s))
 	if !strings.Contains(out, `href="/entries/`+id+`"`) {
 		t.Errorf("existing entry should render as live link: %s", out)
 	}

@@ -613,4 +613,3 @@ func (h *Handler) rebuildClusters(w http.ResponseWriter, r *http.Request) {
 		"ran_at":           time.Now().UTC().Format(time.RFC3339),
 	})
 }
-

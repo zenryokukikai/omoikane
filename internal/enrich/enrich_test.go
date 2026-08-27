@@ -78,7 +78,7 @@ func TestExtractProhibitedPatterns(t *testing.T) {
 			"* DO NOT use cv2.rectangle on target\n" +
 			"DO NOT use rectangular mask anywhere\n" + // duplicate
 			"   \n" + // whitespace-only is dropped
-			"x\n" +   // < 4 chars after strip
+			"x\n" + // < 4 chars after strip
 			"a third unique rule",
 	})
 	if len(out) != 3 {

@@ -37,7 +37,7 @@ func testServerOpenRegister(t *testing.T) (base, tok string, st *store.Store) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &Handler{
 		Store: st, Enricher: enrich.New("", "", "", "", logger),
-		SecretsMode:  config.SecretsOff, Logger: logger,
+		SecretsMode: config.SecretsOff, Logger: logger,
 		RegisterOpen: true,
 	}
 	r := chi.NewRouter()

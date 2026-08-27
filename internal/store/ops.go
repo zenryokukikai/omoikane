@@ -83,11 +83,11 @@ func (s *Store) ListEntriesByTier(ctx context.Context, tier, limit int) ([]*Entr
 
 // CoordinatorTriage is the result of a single anomaly-scan pass.
 type CoordinatorTriage struct {
-	ReviewQueueDepth    int
-	StaleInstances      []string
-	MisleadingHeavy     []string // entry IDs with ≥3 misleading
-	DormantEntryCount   int
-	GeneratedAt         time.Time
+	ReviewQueueDepth  int
+	StaleInstances    []string
+	MisleadingHeavy   []string // entry IDs with ≥3 misleading
+	DormantEntryCount int
+	GeneratedAt       time.Time
 }
 
 // CoordinatorAnomalyScan looks for the cluster of conditions that the
@@ -405,12 +405,12 @@ func (s *Store) LLMUsageStatsWindow(ctx context.Context, days int) (*LLMUsageSta
 // HealthCoverage reports how much of the project graph has been
 // enriched, has any feedback, and has tags.
 type HealthCoverage struct {
-	TotalActive     int `json:"total_active"`
-	WithTags        int `json:"with_tags"`
-	WithEnrichment  int `json:"with_enrichment"`
-	WithFeedback    int `json:"with_feedback"`
-	WithRelations   int `json:"with_relations"`
-	WithHierarchy   int `json:"with_hierarchy"`
+	TotalActive    int `json:"total_active"`
+	WithTags       int `json:"with_tags"`
+	WithEnrichment int `json:"with_enrichment"`
+	WithFeedback   int `json:"with_feedback"`
+	WithRelations  int `json:"with_relations"`
+	WithHierarchy  int `json:"with_hierarchy"`
 }
 
 func (s *Store) HealthCoverageStats(ctx context.Context) (*HealthCoverage, error) {

@@ -12,10 +12,10 @@ import (
 
 // CmdFeedback handles `kb feedback (record|judge|signals|review-queue)`.
 //
-//   record       create a usage_case (the agent records what it considered)
-//   judge        PATCH a usage_case with the post-hoc outcome/result
-//   signals      print aggregated signals for an entry
-//   review-queue list entries flagged for human review
+//	record       create a usage_case (the agent records what it considered)
+//	judge        PATCH a usage_case with the post-hoc outcome/result
+//	signals      print aggregated signals for an entry
+//	review-queue list entries flagged for human review
 func CmdFeedback(args []string, stdout io.Writer) error {
 	if len(args) < 1 {
 		return errors.New("usage: kb feedback (record|judge|signals|review-queue)")

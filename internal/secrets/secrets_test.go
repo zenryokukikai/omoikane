@@ -54,9 +54,9 @@ func TestDoesNotFlagGitSSHRemote(t *testing.T) {
 
 func TestDoesNotFlagCardLikeOrPhoneOrAccountDigits(t *testing.T) {
 	for _, body := range []string{
-		"use 4242 4242 4242 4242 to test",   // card-like
-		"call +81 90 1234 5678 tomorrow",     // phone
-		"account 1234567890123456 at the bank", // 16-digit run
+		"use 4242 4242 4242 4242 to test",              // card-like
+		"call +81 90 1234 5678 tomorrow",               // phone
+		"account 1234567890123456 at the bank",         // 16-digit run
 		"run id 20260601123045 build 1111111111111111", // timestamps / hashes
 	} {
 		if f := ScanSecrets(Doc{Body: body}); len(f) != 0 {

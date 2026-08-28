@@ -96,6 +96,9 @@ form label input, form label select { max-width: 100%; min-width: 0; }
   .entries-filter button[type="submit"] { width: 100%; }
 }
 
+/* ---- /entries quick-views active marker + empty state (issue #120) ---- */
+.entries-quick-filter a.active { font-weight: 700; color: var(--accent-strong); text-decoration: underline; }
+.empty-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; margin-top: 0.9rem; }
 `
 
 // stylesHome: home front page.

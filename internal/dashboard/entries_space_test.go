@@ -107,6 +107,160 @@ func TestEntriesSpaceSelectVisibility(t *testing.T) {
 	}
 }
 
+// quickViewBlock returns just the "Quick views:" paragraph so assertions
+// about quick-view hrefs are not confused by the space select's own hrefs.
+func quickViewBlock(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `class="entries-quick-filter"`)
+	if start < 0 {
+		t.Fatal("quick-view block missing")
+	}
+	end := strings.Index(body[start:], "</p>")
+	if end < 0 {
+		t.Fatal("quick-view block not closed")
+	}
+	return body[start : start+end]
+}
+
+// emptyStateBlock returns just the empty-state <div class="empty"> so name
+// assertions are not confused by the space select's option labels.
+func emptyStateBlock(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<div class="empty">`)
+	if start < 0 {
+		t.Fatal("empty-state block missing")
+	}
+	end := strings.Index(body[start:], "</div>")
+	if end < 0 {
+		t.Fatal("empty-state block not closed")
+	}
+	return body[start : start+end]
+}
+
+// Every quick view carries the current ?space forward (issue #120, the
+// concrete fix for issue 1: clicking a view inside a space no longer jumps
+// you to all spaces). The restricted space holds one entry, so the list is
+// non-empty and the quick-view row renders.
+func TestEntriesQuickViewsCarrySpace(t *testing.T) {
+	f, srv := newDashLeakFixture(t)
+	code, body := get(t, srv, "/entries?space="+f.spaceID, f.memberTok)
+	if code != 200 {
+		t.Fatalf("member /entries?space=: code=%d, want 200", code)
+	}
+	block := quickViewBlock(t, string(body))
+
+	// space sorts before every other query key, so each href leads with it.
+	leading := `href="/entries?space=` + f.spaceID
+	if n := strings.Count(block, leading); n != 8 {
+		t.Errorf("expected all 8 quick-view hrefs to carry space=%s, got %d", f.spaceID, n)
+	}
+	// No quick-view href may drop the space: neither a bare /entries (the
+	// old "all" link that reset to every space) nor one leading with another
+	// key (which would mean space was omitted).
+	for _, bad := range []string{
+		`href="/entries"`,
+		`href="/entries?type=`,
+		`href="/entries?status=`,
+	} {
+		if strings.Contains(block, bad) {
+			t.Errorf("a quick-view href dropped the space filter: found %q", bad)
+		}
+	}
+}
+
+// The empty-state space name comes from the viewer's visible label and
+// leaks no other space's name (issue #120 security requirement). The
+// member's own personal space is empty.
+func TestEntriesEmptyStateSpaceName(t *testing.T) {
+	f, srv := newDashLeakFixture(t)
+	code, body := get(t, srv, "/entries?space=p-u-member", f.memberTok)
+	if code != 200 {
+		t.Fatalf("member personal-space /entries: code=%d, want 200", code)
+	}
+	block := emptyStateBlock(t, string(body))
+
+	if !strings.Contains(block, "個人スペース") {
+		t.Error("empty state should name the personal space as 個人スペース")
+	}
+	if !strings.Contains(block, "この条件に一致するエントリはありません") {
+		t.Error("empty state should explain the filtered-empty condition")
+	}
+	if !strings.Contains(block, "全スペースを表示") {
+		t.Error("empty state should offer the all-spaces escape hatch")
+	}
+	// The name is drawn from the viewer's own visible label only — no other
+	// space's display name may appear inside the empty-state block.
+	for _, leak := range []string{"internal(全体)", "secret-space"} {
+		if strings.Contains(block, leak) {
+			t.Errorf("empty-state block leaked another space name: %q", leak)
+		}
+	}
+}
+
+// The empty-state space name for a viewer who can see only ONE space
+// comes from the GetSpace FALLBACK in spaceDisplayName, not the space
+// select's labels — because with a single visible space the select (and
+// thus pc.SpaceOptions) is empty. An external-role user joins no internal
+// group and holds no ACL grant, so their only visible space is their own
+// (empty) personal space: exactly the one-visible-space path that reaches
+// the fallback. This is a real user path, not a contrived one.
+func TestEntriesEmptyStateFallbackName(t *testing.T) {
+	st := newDashStore(t)
+	ctx := context.Background()
+
+	// A space the external viewer must NEVER see — its name and id are the
+	// leak canaries for this test.
+	secret, err := st.CreateSpace(ctx, "secret-space")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// External role → no GroupInternal membership, no ACL grant, so
+	// VisibleSpaces resolves to {personal space} alone. The personal space
+	// is created by the user-provisioning hook and starts empty.
+	if err := st.CreateUser(ctx, &store.User{ID: "u-ext", Name: "u-ext", Role: store.RoleExternal}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := st.CreateToken(ctx, "u-ext", "ext", []string{"read"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := mount(t, st, false)
+	personal := store.PersonalSpaceID("u-ext")
+	code, body := get(t, srv, "/entries?space="+personal, tok)
+	if code != 200 {
+		t.Fatalf("external viewer on own personal space: code=%d, want 200", code)
+	}
+	bs := string(body)
+
+	// The select MUST be absent — the observable consequence of
+	// spaceOptions returning nil for a one-space viewer. This pins that the
+	// name below could only have come from the GetSpace fallback: branch 1
+	// (the select's own labels) has nothing to resolve against here.
+	if strings.Contains(bs, `name="space"`) {
+		t.Fatal("space select rendered for a one-space viewer; the test would exercise the SpaceOptions branch, not the fallback")
+	}
+
+	// The fallback ran and produced the personal-space label.
+	block := emptyStateBlock(t, bs)
+	if !strings.Contains(block, "個人スペース") {
+		t.Errorf("empty state did not name the personal space via the GetSpace fallback")
+	}
+	if !strings.Contains(block, "この条件に一致するエントリはありません") {
+		t.Error("empty state should explain the filtered-empty condition")
+	}
+
+	// No OTHER space's name or id may appear anywhere in the response (the
+	// viewer's own personal-space id legitimately echoes in the hrefs, so it
+	// is not a leak and is not asserted here).
+	for _, leak := range []string{"secret-space", secret.ID, "internal(全体)"} {
+		if strings.Contains(bs, leak) {
+			t.Errorf("response leaked a space the external viewer cannot see: %q", leak)
+		}
+	}
+}
+
 // The ⚙ header menu carries the 個人スペース direct link for a signed-in
 // viewer — and not for an anonymous page.
 func TestHeaderPersonalSpaceLink(t *testing.T) {

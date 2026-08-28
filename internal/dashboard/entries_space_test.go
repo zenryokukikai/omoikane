@@ -197,6 +197,70 @@ func TestEntriesEmptyStateSpaceName(t *testing.T) {
 	}
 }
 
+// The empty-state space name for a viewer who can see only ONE space
+// comes from the GetSpace FALLBACK in spaceDisplayName, not the space
+// select's labels — because with a single visible space the select (and
+// thus pc.SpaceOptions) is empty. An external-role user joins no internal
+// group and holds no ACL grant, so their only visible space is their own
+// (empty) personal space: exactly the one-visible-space path that reaches
+// the fallback. This is a real user path, not a contrived one.
+func TestEntriesEmptyStateFallbackName(t *testing.T) {
+	st := newDashStore(t)
+	ctx := context.Background()
+
+	// A space the external viewer must NEVER see — its name and id are the
+	// leak canaries for this test.
+	secret, err := st.CreateSpace(ctx, "secret-space")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// External role → no GroupInternal membership, no ACL grant, so
+	// VisibleSpaces resolves to {personal space} alone. The personal space
+	// is created by the user-provisioning hook and starts empty.
+	if err := st.CreateUser(ctx, &store.User{ID: "u-ext", Name: "u-ext", Role: store.RoleExternal}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := st.CreateToken(ctx, "u-ext", "ext", []string{"read"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := mount(t, st, false)
+	personal := store.PersonalSpaceID("u-ext")
+	code, body := get(t, srv, "/entries?space="+personal, tok)
+	if code != 200 {
+		t.Fatalf("external viewer on own personal space: code=%d, want 200", code)
+	}
+	bs := string(body)
+
+	// The select MUST be absent — the observable consequence of
+	// spaceOptions returning nil for a one-space viewer. This pins that the
+	// name below could only have come from the GetSpace fallback: branch 1
+	// (the select's own labels) has nothing to resolve against here.
+	if strings.Contains(bs, `name="space"`) {
+		t.Fatal("space select rendered for a one-space viewer; the test would exercise the SpaceOptions branch, not the fallback")
+	}
+
+	// The fallback ran and produced the personal-space label.
+	block := emptyStateBlock(t, bs)
+	if !strings.Contains(block, "個人スペース") {
+		t.Errorf("empty state did not name the personal space via the GetSpace fallback")
+	}
+	if !strings.Contains(block, "この条件に一致するエントリはありません") {
+		t.Error("empty state should explain the filtered-empty condition")
+	}
+
+	// No OTHER space's name or id may appear anywhere in the response (the
+	// viewer's own personal-space id legitimately echoes in the hrefs, so it
+	// is not a leak and is not asserted here).
+	for _, leak := range []string{"secret-space", secret.ID, "internal(全体)"} {
+		if strings.Contains(bs, leak) {
+			t.Errorf("response leaked a space the external viewer cannot see: %q", leak)
+		}
+	}
+}
+
 // The ⚙ header menu carries the 個人スペース direct link for a signed-in
 // viewer — and not for an anonymous page.
 func TestHeaderPersonalSpaceLink(t *testing.T) {

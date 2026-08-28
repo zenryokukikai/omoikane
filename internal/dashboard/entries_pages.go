@@ -124,10 +124,10 @@ func buildQuickViews(f store.EntryFilter, token string) []quickView {
 		if token != "" {
 			q.Set("token", token)
 		}
-		if len(q) == 0 {
-			return template.URL("/entries")
-		}
-		return template.URL("/entries?" + q.Encode())
+		// Same "empty → bare /entries, else /entries?…" href rule the
+		// empty-state links use: keep it in ONE place (entriesHref) so a
+		// future change to the href shape can't fix one copy and miss this.
+		return entriesHref(q)
 	}
 	defs := []struct{ Label, Type, Status string }{
 		{"all", "", ""},

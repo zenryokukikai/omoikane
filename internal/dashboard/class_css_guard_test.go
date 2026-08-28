@@ -41,12 +41,11 @@ import (
 // the guard fails if a line here has gained a rule (stale) or is no longer
 // used by any template, so the ledger cannot rot.
 var forwardKnownGaps = map[string]string{
-	"btn":                  "KNOWN GAP #122: buttons render as plain links (user-visible, top priority)",
-	"entries-quick-filter": "KNOWN GAP #122: Quick views have no spacing/separators (folded into #120)",
-	"badge-space":          "KNOWN GAP #122: space badge not visually distinct from the default badge",
-	"entry-new-form":       "KNOWN GAP #122: new-entry form has no layout rule",
-	"chat-status-filter":   "KNOWN GAP #122: chat status filter unstyled",
-	"cmt-replyto":          "KNOWN GAP #122: reply-to indicator unstyled",
+	"btn":                "KNOWN GAP #122: buttons render as plain links (user-visible, top priority)",
+	"badge-space":        "KNOWN GAP #122: space badge not visually distinct from the default badge",
+	"entry-new-form":     "KNOWN GAP #122: new-entry form has no layout rule",
+	"chat-status-filter": "KNOWN GAP #122: chat status filter unstyled",
+	"cmt-replyto":        "KNOWN GAP #122: reply-to indicator unstyled",
 }
 
 // reverseGoPrefixes are class-name PREFIXES composed outside any template

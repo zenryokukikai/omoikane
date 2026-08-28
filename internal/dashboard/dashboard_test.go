@@ -339,6 +339,12 @@ func TestCSSServed(t *testing.T) {
 	if !bytes.Contains(body, []byte(".entries-filter")) {
 		t.Fatal("expected .entries-filter rules in served stylesheet")
 	}
+	// The #120 quick-view active marker is likewise assembled from a Go
+	// const — assert it reaches the served stylesheet (guards against the
+	// styles_pages.go const not being wired into the assembled sheet).
+	if !bytes.Contains(body, []byte(".entries-quick-filter a.active")) {
+		t.Fatal("expected .entries-quick-filter a.active rule in served stylesheet")
+	}
 }
 
 func TestRenderUnknownPage(t *testing.T) {

@@ -107,6 +107,96 @@ func TestEntriesSpaceSelectVisibility(t *testing.T) {
 	}
 }
 
+// quickViewBlock returns just the "Quick views:" paragraph so assertions
+// about quick-view hrefs are not confused by the space select's own hrefs.
+func quickViewBlock(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `class="entries-quick-filter"`)
+	if start < 0 {
+		t.Fatal("quick-view block missing")
+	}
+	end := strings.Index(body[start:], "</p>")
+	if end < 0 {
+		t.Fatal("quick-view block not closed")
+	}
+	return body[start : start+end]
+}
+
+// emptyStateBlock returns just the empty-state <div class="empty"> so name
+// assertions are not confused by the space select's option labels.
+func emptyStateBlock(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<div class="empty">`)
+	if start < 0 {
+		t.Fatal("empty-state block missing")
+	}
+	end := strings.Index(body[start:], "</div>")
+	if end < 0 {
+		t.Fatal("empty-state block not closed")
+	}
+	return body[start : start+end]
+}
+
+// Every quick view carries the current ?space forward (issue #120, the
+// concrete fix for issue 1: clicking a view inside a space no longer jumps
+// you to all spaces). The restricted space holds one entry, so the list is
+// non-empty and the quick-view row renders.
+func TestEntriesQuickViewsCarrySpace(t *testing.T) {
+	f, srv := newDashLeakFixture(t)
+	code, body := get(t, srv, "/entries?space="+f.spaceID, f.memberTok)
+	if code != 200 {
+		t.Fatalf("member /entries?space=: code=%d, want 200", code)
+	}
+	block := quickViewBlock(t, string(body))
+
+	// space sorts before every other query key, so each href leads with it.
+	leading := `href="/entries?space=` + f.spaceID
+	if n := strings.Count(block, leading); n != 8 {
+		t.Errorf("expected all 8 quick-view hrefs to carry space=%s, got %d", f.spaceID, n)
+	}
+	// No quick-view href may drop the space: neither a bare /entries (the
+	// old "all" link that reset to every space) nor one leading with another
+	// key (which would mean space was omitted).
+	for _, bad := range []string{
+		`href="/entries"`,
+		`href="/entries?type=`,
+		`href="/entries?status=`,
+	} {
+		if strings.Contains(block, bad) {
+			t.Errorf("a quick-view href dropped the space filter: found %q", bad)
+		}
+	}
+}
+
+// The empty-state space name comes from the viewer's visible label and
+// leaks no other space's name (issue #120 security requirement). The
+// member's own personal space is empty.
+func TestEntriesEmptyStateSpaceName(t *testing.T) {
+	f, srv := newDashLeakFixture(t)
+	code, body := get(t, srv, "/entries?space=p-u-member", f.memberTok)
+	if code != 200 {
+		t.Fatalf("member personal-space /entries: code=%d, want 200", code)
+	}
+	block := emptyStateBlock(t, string(body))
+
+	if !strings.Contains(block, "個人スペース") {
+		t.Error("empty state should name the personal space as 個人スペース")
+	}
+	if !strings.Contains(block, "この条件に一致するエントリはありません") {
+		t.Error("empty state should explain the filtered-empty condition")
+	}
+	if !strings.Contains(block, "全スペースを表示") {
+		t.Error("empty state should offer the all-spaces escape hatch")
+	}
+	// The name is drawn from the viewer's own visible label only — no other
+	// space's display name may appear inside the empty-state block.
+	for _, leak := range []string{"internal(全体)", "secret-space"} {
+		if strings.Contains(block, leak) {
+			t.Errorf("empty-state block leaked another space name: %q", leak)
+		}
+	}
+}
+
 // The ⚙ header menu carries the 個人スペース direct link for a signed-in
 // viewer — and not for an anonymous page.
 func TestHeaderPersonalSpaceLink(t *testing.T) {

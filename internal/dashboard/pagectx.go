@@ -153,6 +153,14 @@ type pageCtx struct {
 	EntriesTotal  int
 	EntriesFilter store.EntryFilter
 	Pagination    *pagination
+	// QuickViews are the "Quick views:" links, built Go-side so the
+	// {space, token} carry-over and active-view detection live in one place
+	// (buildQuickViews) rather than being hand-repeated in the template.
+	QuickViews []quickView
+	// EntriesEmpty holds the empty-state guidance (filters-in-effect summary
+	// + clear actions). Zero value = no filters named; only populated when
+	// the list is empty.
+	EntriesEmpty entriesEmpty
 
 	// SpaceOptions feeds the /entries space select: the viewer's visible
 	// spaces with display labels, nil when a select would be noise

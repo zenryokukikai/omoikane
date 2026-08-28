@@ -3,8 +3,11 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -81,7 +84,190 @@ func (h *Handler) entriesList(w http.ResponseWriter, r *http.Request) {
 	pc.EntriesFilter = filter
 	pc.SpaceOptions = h.spaceOptions(r.Context(), pc.Me)
 	pc.Pagination = buildPagination(r, total, page, limit)
+	// Quick views carry the current {space, token} and swap {type|status};
+	// the active one is the view matching the filter (see buildQuickViews).
+	pc.QuickViews = buildQuickViews(filter, pc.Token)
+	// Empty-state guidance is only computed when there is nothing to show:
+	// it names the filters actually in effect and offers ways to clear them.
+	if total == 0 {
+		pc.EntriesEmpty = h.buildEntriesEmpty(r.Context(), pc, filter)
+	}
 	h.render(w, "entries", pc)
+}
+
+// quickView is one entry in the /entries "Quick views:" row. The Href is
+// built Go-side so the {space, token} carry-over contract lives in ONE
+// place (buildQuickViews) instead of being hand-repeated per link in the
+// template — adding a new query dimension no longer means editing 8 lines.
+type quickView struct {
+	Label  string
+	Href   template.URL
+	Active bool
+}
+
+// buildQuickViews assembles the fixed set of quick views. Each carries the
+// viewer's current visible space and token forward and swaps in its own
+// type/status; project/tag/q/include_superseded are form-side refinements,
+// not part of a view, so they are intentionally dropped on a view click.
+func buildQuickViews(f store.EntryFilter, token string) []quickView {
+	base := func(setType, setStatus string) template.URL {
+		q := url.Values{}
+		if setType != "" {
+			q.Set("type", setType)
+		}
+		if setStatus != "" {
+			q.Set("status", setStatus)
+		}
+		if f.SpaceID != "" {
+			q.Set("space", f.SpaceID)
+		}
+		if token != "" {
+			q.Set("token", token)
+		}
+		if len(q) == 0 {
+			return template.URL("/entries")
+		}
+		return template.URL("/entries?" + q.Encode())
+	}
+	defs := []struct{ Label, Type, Status string }{
+		{"all", "", ""},
+		{"🗂️ librarian output", "librarian_meta", ""},
+		{"⚠️ traps", "trap", ""},
+		{"💡 lessons", "lesson", ""},
+		{"📋 decisions", "decision", ""},
+		{"🏗️ designs", "design", ""},
+		{"🚨 incidents", "incident", ""},
+		{"📝 drafts", "", "DRAFT"},
+	}
+	out := make([]quickView, 0, len(defs))
+	for _, d := range defs {
+		out = append(out, quickView{
+			Label:  d.Label,
+			Href:   base(d.Type, d.Status),
+			Active: activeQuickView(f, d.Type, d.Status),
+		})
+	}
+	return out
+}
+
+// activeQuickView reports whether the current filter IS this quick view:
+// the (type, status) pair matches and no other refinement is in effect.
+// space and include_superseded are excluded — space is the base every view
+// carries, and include_superseded is orthogonal to "which view". When a
+// project/tag/q refinement is present, no view is active (a first-class
+// state: the row shows nothing highlighted rather than a wrong guess).
+func activeQuickView(f store.EntryFilter, viewType, viewStatus string) bool {
+	return f.Type == viewType && f.Status == viewStatus &&
+		f.ProjectID == "" && f.Tag == "" && f.Query == ""
+}
+
+// entriesEmpty is the empty-state guidance shown when a filtered /entries
+// list has zero results: the human-readable summary of the filters in
+// effect plus up to two "clear" actions. All hrefs are built Go-side with
+// the same space/token carry-over contract the quick views use.
+type entriesEmpty struct {
+	SummaryText   string       // "（スペース: 個人スペース / 種別: trap）" or ""
+	ClearHref     template.URL // keeps space+token, drops other filters; "" hides it
+	ClearLabel    string       // "絞り込みを解除" / "スペース内で絞り込みを解除"
+	AllSpacesHref template.URL // drops space too (/entries{?token}); "" hides it
+}
+
+// buildEntriesEmpty names the filters in effect and offers clear actions.
+// The space name is resolved ONLY through the viewer's already-visible
+// SpaceOptions (or a GetSpace on filter.SpaceID, which reaches this code
+// solely after RequireVisibleSpace has passed in entriesList) — so it can
+// never surface a space the viewer cannot already see. It reads output;
+// it introduces no lookup on an unvalidated space id.
+func (h *Handler) buildEntriesEmpty(ctx context.Context, pc pageCtx, f store.EntryFilter) entriesEmpty {
+	var e entriesEmpty
+	hasSpace := f.SpaceID != ""
+	hasOther := f.Type != "" || f.Status != "" || f.ProjectID != "" ||
+		f.Tag != "" || f.Query != "" || f.IncludeSuperseded
+
+	// Summary: labelled `ラベル: 値` clauses joined by " / ", in this order.
+	var parts []string
+	if hasSpace {
+		if name := h.spaceDisplayName(ctx, pc, f.SpaceID); name != "" {
+			parts = append(parts, "スペース: "+name)
+		}
+	}
+	if f.Type != "" {
+		parts = append(parts, "種別: "+f.Type)
+	}
+	if f.Status != "" {
+		parts = append(parts, "状態: "+f.Status)
+	}
+	if f.ProjectID != "" {
+		parts = append(parts, "プロジェクト: "+f.ProjectID)
+	}
+	if f.Tag != "" {
+		parts = append(parts, "タグ: "+f.Tag)
+	}
+	if f.Query != "" {
+		parts = append(parts, "検索: "+f.Query)
+	}
+	if f.IncludeSuperseded {
+		parts = append(parts, "SUPERSEDED を含む")
+	}
+	if len(parts) > 0 {
+		e.SummaryText = "（" + strings.Join(parts, " / ") + "）"
+	}
+
+	// Clear action: keep the space (users usually want to stay in it and
+	// just widen the type) and token, drop every other refinement.
+	if hasOther {
+		q := url.Values{}
+		if hasSpace {
+			q.Set("space", f.SpaceID)
+		}
+		if pc.Token != "" {
+			q.Set("token", pc.Token)
+		}
+		e.ClearHref = entriesHref(q)
+		if hasSpace {
+			e.ClearLabel = "スペース内で絞り込みを解除"
+		} else {
+			e.ClearLabel = "絞り込みを解除"
+		}
+	}
+	// Escape hatch for an empty personal/other space: drop the space too.
+	if hasSpace {
+		q := url.Values{}
+		if pc.Token != "" {
+			q.Set("token", pc.Token)
+		}
+		e.AllSpacesHref = entriesHref(q)
+	}
+	return e
+}
+
+// entriesHref builds "/entries" with an optional query string, matching the
+// quick-view href shape (empty query → bare "/entries").
+func entriesHref(q url.Values) template.URL {
+	if len(q) == 0 {
+		return template.URL("/entries")
+	}
+	return template.URL("/entries?" + q.Encode())
+}
+
+// spaceDisplayName resolves a VALIDATED, visible space id to its display
+// name without any new visibility lookup: first the viewer's SpaceOptions
+// (present when 2+ spaces are visible, zero extra queries), then — only
+// when the select is hidden (a single visible space) — a best-effort
+// GetSpace on the same already-RequireVisibleSpace-checked id used by the
+// entry-page badge. On miss the name is simply omitted, never fabricated.
+func (h *Handler) spaceDisplayName(ctx context.Context, pc pageCtx, id string) string {
+	for _, opt := range pc.SpaceOptions {
+		if opt.ID == id {
+			return opt.Label
+		}
+	}
+	if len(pc.SpaceOptions) == 0 {
+		if sp, err := h.Store.GetSpace(ctx, id); err == nil {
+			return spaceLabel(sp, pc.Me)
+		}
+	}
+	return ""
 }
 
 // entryNewPage renders the human entry-creation form (issue #71).

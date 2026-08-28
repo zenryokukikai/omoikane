@@ -212,3 +212,72 @@ func TestEntriesPageQuickViewChips(t *testing.T) {
 		}
 	}
 }
+
+// The active quick view is identifiable (issue #120): a filter that IS a
+// quick view marks exactly that link active; a filter that matches no view
+// (a project refinement) highlights nothing.
+func TestEntriesQuickViewActiveMarker(t *testing.T) {
+	s := newDashStore(t)
+	seedEntriesList(t, s)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// ?type=trap → the traps view is the active one, "all" is not.
+	resp, _ := http.Get(srv.URL + "/entries?type=trap")
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	body := string(b)
+	if !strings.Contains(body, `class="active" aria-current="page">⚠️ traps</a>`) {
+		t.Error("type=trap should mark the traps quick view active")
+	}
+	if strings.Contains(body, `class="active" aria-current="page">all</a>`) {
+		t.Error("the 'all' quick view must not be active under type=trap")
+	}
+
+	// ?project=p matches no quick view → nothing is highlighted.
+	resp, _ = http.Get(srv.URL + "/entries?project=p")
+	b, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if strings.Contains(string(b), `aria-current="page"`) {
+		t.Error("a project-only filter matches no quick view; none should be active")
+	}
+}
+
+// The empty state names the filters actually in effect and offers a way to
+// clear them (issue #120). No incident is seeded, so ?type=incident is
+// empty.
+func TestEntriesEmptyStateNamesFilters(t *testing.T) {
+	s := newDashStore(t)
+	seedEntriesList(t, s)
+	h, _ := New(s, true)
+	r := chi.NewRouter()
+	h.Mount(r)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, _ := http.Get(srv.URL + "/entries?type=incident")
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	body := string(b)
+
+	for _, want := range []string{
+		"この条件に一致するエントリはありません",
+		"種別",
+		"incident",
+		// The clear action keeps space+token (both empty here) and drops the
+		// type — so it points at bare /entries, with the pager-link chrome.
+		`class="pager-link" href="/entries"`,
+		"絞り込みを解除",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("empty state should contain %q", want)
+		}
+	}
+	// The old reason-less, dead-end message is gone.
+	if strings.Contains(body, "No entries match the current filter.") {
+		t.Error("the old empty-state message should be removed")
+	}
+}

@@ -72,6 +72,30 @@ form label input, form label select { max-width: 100%; min-width: 0; }
 .directive-text { overflow-wrap: anywhere; }
 .directive-meta { font-size: 0.78rem; margin-top: 0.15rem; }
 
+/* ---- /entries filter form (issue #119) ---- */
+/* Each label wraps its own control (<label>type<select>…). Without
+   layout rules the label text and its control are plain inline boxes,
+   so the browser is free to line-break BETWEEN them — on a narrow
+   screen every control drifts under the NEXT label's text and appears
+   to belong to it. Make each label an inline-flex "one unbreakable
+   chunk" (nowrap) so the text and its control never separate. */
+.entries-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; }
+.entries-filter label { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+/* Narrow (same 720px breakpoint as the rest of the dashboard): one
+   item per line, label above its full-width control. */
+@media (max-width: 720px) {
+  .entries-filter label { flex-direction: column; align-items: stretch; width: 100%; gap: 0.2rem; white-space: normal; }
+  /* min-width:0 is load-bearing: the global form input[type=text]
+     rule (styles_chat.go) sets min-width:320px and out-specifies the
+     generic form label input reset, so without this the inputs refuse
+     to shrink and the page scrolls sideways under ~360px. */
+  .entries-filter input[type="text"], .entries-filter select { width: 100%; min-width: 0; }
+  /* The checkbox keeps text beside the box even when narrow — stacking
+     would leave the □ floating alone above "include SUPERSEDED". */
+  .entries-filter label.checkbox-inline { flex-direction: row; align-items: center; width: auto; }
+  .entries-filter button[type="submit"] { width: 100%; }
+}
+
 `
 
 // stylesHome: home front page.

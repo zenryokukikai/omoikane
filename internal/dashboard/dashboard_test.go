@@ -334,6 +334,11 @@ func TestCSSServed(t *testing.T) {
 	if !bytes.Contains(body, []byte(":root")) {
 		t.Fatal("expected CSS body")
 	}
+	// The /entries filter layout rules (issue #119) are assembled from a
+	// Go const — assert they actually reach the served stylesheet.
+	if !bytes.Contains(body, []byte(".entries-filter")) {
+		t.Fatal("expected .entries-filter rules in served stylesheet")
+	}
 }
 
 func TestRenderUnknownPage(t *testing.T) {

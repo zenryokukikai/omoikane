@@ -99,7 +99,11 @@ var reverseKnownOrphans = map[string]string{
 // ---- extraction ------------------------------------------------------
 
 var (
-	classAttrRE = regexp.MustCompile(`class="([^"]*)"`)
+	// Both quote styles: the repo writes class="…" throughout, but a
+	// single-quoted attribute would otherwise slip past the guard with
+	// NO error — a silent false negative is exactly the failure this
+	// test exists to prevent, so it must not have a blind spot of its own.
+	classAttrRE = regexp.MustCompile(`class="([^"]*)"|class='([^']*)'`)
 	// tmplActionRE is deliberately non-greedy: dashboard templates never
 	// nest }} inside a {{ ... }} action, so shortest-match is correct.
 	tmplActionRE = regexp.MustCompile(`\{\{.*?\}\}`)
@@ -159,7 +163,13 @@ func templateClasses(t *testing.T) (static map[string]map[string]bool, prefixes 
 		}
 		base := strings.TrimPrefix(f, "templates/")
 		for _, m := range classAttrRE.FindAllStringSubmatch(string(b), -1) {
-			for _, tok := range strings.Fields(neutralizeActions(m[1])) {
+			// Group 1 is the double-quoted body, group 2 the single-quoted
+			// one; exactly one is non-empty per match.
+			attr := m[1]
+			if attr == "" {
+				attr = m[2]
+			}
+			for _, tok := range strings.Fields(neutralizeActions(attr)) {
 				if strings.Contains(tok, dynamicSentinel) {
 					if pre := tok[:strings.Index(tok, dynamicSentinel)]; pre != "" {
 						prefixes[pre] = true

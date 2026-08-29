@@ -105,15 +105,23 @@ func (h *Handler) talkPage(w http.ResponseWriter, r *http.Request) {
 // on any miss — the same fail-open direction as the webhook-side
 // routing, so what the page shows matches who actually answers.
 func (h *Handler) resolveTalkLibrarian(r *http.Request, pc *pageCtx, owner string) {
-	// Feature gate first: with the runtime unconfigured (OPENCRAB_URL
-	// unset → h.Librarian nil) no librarian can answer, so none may
-	// front the page either — a leftover user_librarians row must not
-	// split identity ("shown: librarian, answering: default responder",
-	// design §25.7). Same gate the webhook router applies via
-	// TalkDispatch == nil.
-	if h.Librarian == nil {
-		return
-	}
+	// An ACTIVE user_librarians row is the signal that this user HAS a
+	// personal librarian, so it fronts their /talk (name, avatar,
+	// per-bubble icon). The gate is the row's status — NOT h.Librarian.
+	//
+	// The old code gated this on h.Librarian == nil and cited §25.7
+	// ("shown: librarian, answering: default responder" must not split).
+	// The reasoning was sound but the proxy was wrong: h.Librarian is the
+	// ability to PROVISION a librarian on the opencrab runtime, which is a
+	// different capability from "a librarian answers this user". Who
+	// actually answers a /talk thread is decided by the dispatch layer
+	// (internal/api webhook router / TalkDispatch), not by whether this
+	// process can provision — so provisioning capability must not decide
+	// whether to show an identity the user has already configured. Read
+	// backwards, the gate PRODUCED the very split §25.7 forbids: with
+	// OPENCRAB_URL unset it dropped the librarian's face even though the
+	// row — and the persona that answers — were intact (#126). The header
+	// nav (pagectx.go) is decoupled the same way and on the same signal.
 	if ul, err := h.Store.GetUserLibrarian(r.Context(), owner); err == nil && ul.Status == "active" {
 		pc.TalkLibrarian = ul
 	}

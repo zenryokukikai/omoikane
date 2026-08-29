@@ -432,3 +432,59 @@ func TestMyLibrarianSaveTouchesOnlyOwnConfig(t *testing.T) {
 		t.Fatalf("attacker's own row wrong: %+v err=%v", alice, err)
 	}
 }
+
+// #126: the header nav names the /talk entry point after the viewer's own
+// ACTIVE librarian, read straight from user_librarians. This is display,
+// not provisioning, so it must NOT be gated on h.Librarian (the ability to
+// create a librarian on the opencrab runtime). This pins the production
+// defect where removing OPENCRAB_URL dropped an intact librarian row's
+// name and icon back to the default responder in the header.
+func TestNavLibrarianShownWithoutRuntime(t *testing.T) {
+	srv, st, tok := mountAuthed(t) // alice; h.Librarian stays nil (runtime off)
+	ctx := context.Background()
+
+	// An active personal librarian with a name and an uploaded icon.
+	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+		UserID: "alice", AgentID: "plib-alice", Name: "きりん", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserLibrarianIconImage(ctx, "alice", tinyPNG, "image/png"); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := get(t, srv, "/", tok)
+	bs := string(body)
+	if code != 200 {
+		t.Fatalf("GET /: code=%d", code)
+	}
+	// Name shows in the nav, not the default responder fallback.
+	if !strings.Contains(bs, "きりん</a>") {
+		t.Fatalf("nav should show the personal librarian name with the runtime off:\n%s", bs)
+	}
+	if strings.Contains(bs, "🎩 "+talkAgentName()) {
+		t.Fatal("nav fell back to the default responder despite an active librarian row")
+	}
+	// The uploaded icon renders (versioned <img>), not the text glyph.
+	if !strings.Contains(bs, `class="nav-libicon"`) ||
+		!strings.Contains(bs, "/librarian-icon/alice?v=") {
+		t.Fatalf("nav should render the librarian's uploaded icon with the runtime off:\n%s", bs)
+	}
+}
+
+// The fallback path stays intact: a viewer with NO active librarian row
+// gets the default responder name in the nav even though the runtime is
+// off — the decoupling adds the librarian, it doesn't remove the default.
+func TestNavLibrarianFallsBackWithoutRow(t *testing.T) {
+	srv, _, tok := mountAuthed(t) // alice; no user_librarians row, runtime off
+	code, body := get(t, srv, "/", tok)
+	bs := string(body)
+	if code != 200 {
+		t.Fatalf("GET /: code=%d", code)
+	}
+	if !strings.Contains(bs, "🎩 "+talkAgentName()) {
+		t.Fatalf("nav should show the default responder when there is no librarian row:\n%s", bs)
+	}
+	if strings.Contains(bs, `class="nav-libicon"`) {
+		t.Fatal("nav rendered a librarian icon with no librarian row")
+	}
+}

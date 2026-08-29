@@ -52,7 +52,14 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 // for the login page: it gates both the ?next echoed into the form and
 // the post-sign-in bounce target, so the contract lives in one place.
 func safeNext(raw string) string {
-	if raw != "" && strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") {
+	// The backslash rejection is load-bearing: browsers normalise "\" to
+	// "/" during URL parsing, so a Location of "/\evil.example" becomes
+	// the scheme-relative "//evil.example" — an open redirect that the
+	// "//" prefix check alone does not catch. Go's url parsing does NOT
+	// normalise backslashes, which is exactly why this must be explicit.
+	if raw != "" && strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") &&
+		!strings.ContainsRune(raw, '\\') &&
+		strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 }) < 0 {
 		return raw
 	}
 	return ""

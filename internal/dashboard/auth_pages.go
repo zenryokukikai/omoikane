@@ -18,15 +18,44 @@ import (
 
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 	pc := h.renderCtx(r)
+	next := safeNext(r.URL.Query().Get("next"))
+	// Already signed in? Don't render a login form — bounce to the
+	// intended destination (default "/"). This unbreaks the mobile
+	// handoff (#129): an in-app browser (e.g. Slack) rewrites the URL to
+	// /login?next=… , the user reopens it in a browser that IS signed in,
+	// and lands on their entry instead of a pointless login screen.
+	//
+	// The bounce is unconditional for a signed-in visitor, including when
+	// ?error=… is present: the only producer of that param is a failed
+	// OAuth attempt for a visitor who is NOT yet authenticated, so an
+	// authenticated visitor has no error here worth stopping to read.
+	if pc.Me != nil {
+		dest := next
+		if dest == "" {
+			dest = "/"
+		}
+		http.Redirect(w, r, dest, http.StatusSeeOther)
+		return
+	}
 	pc.Title = "omoikane — sign in"
 	pc.GoogleEnabled = h.GoogleEnabled
-	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
-		pc.Next = next
-	}
+	pc.Next = next
 	if e := r.URL.Query().Get("error"); e != "" {
 		pc.LoginError = e
 	}
 	h.render(w, "login", pc)
+}
+
+// safeNext returns raw when it is a safe same-origin redirect target
+// (starts with "/" but not "//", which would be a protocol-relative URL
+// to another host), otherwise "". This is the single open-redirect guard
+// for the login page: it gates both the ?next echoed into the form and
+// the post-sign-in bounce target, so the contract lives in one place.
+func safeNext(raw string) string {
+	if raw != "" && strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") {
+		return raw
+	}
+	return ""
 }
 
 // claimPage renders the "do you want to claim this agent?" view. The

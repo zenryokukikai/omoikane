@@ -42,10 +42,28 @@ type Handler struct {
 const sessionCookieName = "kb_session"
 
 func (h *Handler) Mount(r chi.Router) {
-	// Public: /login is the unauthenticated landing for browsers without
-	// a token yet. The OAuth callback lives under /v1/auth/google/... in
-	// the API package.
-	r.Get("/login", h.loginPage)
+	// /login is the landing for browsers without a token yet. It renders
+	// the sign-in form for anonymous visitors, but it must ALSO recognise
+	// an already-signed-in visitor and bounce them to their destination
+	// (issue #129). So it runs an OPTIONAL authentication chain: the
+	// session cookie / ?token= is promoted and looked up, but a missing or
+	// invalid credential renders the form rather than 401-ing. The OAuth
+	// callback itself lives under /v1/auth/google/... in the API package.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.SessionCookieToBearer(sessionCookieName))
+		r.Use(auth.AllowQueryTokenForGET)
+		if !h.Open {
+			mw := &auth.Middleware{S: h.Store}
+			r.Use(mw.OptionalAuthenticate)
+		}
+		r.Get("/login", h.loginPage)
+	})
+
+	// Public: the stylesheet is a compiled-in Go const with no
+	// request-derived or sensitive data, so it must be reachable WITHOUT a
+	// session — otherwise the pre-login pages (/login, /claim/{code})
+	// render as unstyled text because their <link> 401s (issue #129).
+	r.Get("/static/style.css", h.css)
 
 	// Public: /skill.md is the single, canonical Agent-Skills-standard
 	// SKILL.md for omoikane. One URL, one source of truth — agents
@@ -122,7 +140,6 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/u/{id}", h.profilePage)
 		r.Get("/members", h.membersPage)
 		r.Get("/admin/spaces", h.adminSpacesPage)
-		r.Get("/static/style.css", h.css)
 	})
 	// Write surfaces for the dashboard (chat + agents). Form submissions
 	// can't set Authorization headers, so we accept the token via

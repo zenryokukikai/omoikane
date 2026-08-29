@@ -168,6 +168,97 @@ func TestAuthenticateBackendError(t *testing.T) {
 	}
 }
 
+func TestOptionalAuthenticateValidTokenPopulates(t *testing.T) {
+	s := newStore(t)
+	plain := issueToken(t, s, []string{"read"})
+	mw := &Middleware{S: s}
+
+	var seen *store.APIToken
+	srv := httptest.NewServer(chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = FromContext(r.Context())
+		w.WriteHeader(200)
+	}), mw.OptionalAuthenticate))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if seen == nil || seen.Name != "t" {
+		t.Fatalf("token not propagated: %+v", seen)
+	}
+}
+
+func TestOptionalAuthenticateMissingPassesAnonymous(t *testing.T) {
+	s := newStore(t)
+	mw := &Middleware{S: s}
+
+	reached := false
+	var seen *store.APIToken
+	srv := httptest.NewServer(chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		seen = FromContext(r.Context())
+		w.WriteHeader(200)
+	}), mw.OptionalAuthenticate))
+	defer srv.Close()
+
+	// No Authorization header at all: must reach the handler anonymously,
+	// never a 401.
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status=%d (expected pass-through, not 401)", resp.StatusCode)
+	}
+	if !reached {
+		t.Fatal("handler not reached — OptionalAuthenticate must never block")
+	}
+	if seen != nil {
+		t.Fatalf("expected anonymous context, got %+v", seen)
+	}
+}
+
+func TestOptionalAuthenticateInvalidPassesAnonymous(t *testing.T) {
+	s := newStore(t)
+	mw := &Middleware{S: s}
+
+	reached := false
+	var seen *store.APIToken
+	srv := httptest.NewServer(chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		seen = FromContext(r.Context())
+		w.WriteHeader(200)
+	}), mw.OptionalAuthenticate))
+	defer srv.Close()
+
+	// A stale / unrecognised token (the #129 stale-cookie case): the
+	// visitor must land on the page anonymously, NOT be turned away.
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Authorization", "Bearer garbage")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status=%d (invalid token must pass through, not 401)", resp.StatusCode)
+	}
+	if !reached {
+		t.Fatal("handler not reached — invalid token must not block")
+	}
+	if seen != nil {
+		t.Fatalf("expected anonymous context for invalid token, got %+v", seen)
+	}
+}
+
 func TestRequireScopeMissingToken(t *testing.T) {
 	srv := httptest.NewServer(chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)

@@ -49,17 +49,53 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 			writeAuthError(w, "INTERNAL", "Authentication backend error", http.StatusInternalServerError)
 			return
 		}
-		ctx := context.WithValue(r.Context(), ctxKeyToken, tok)
-		// Stash audit-relevant fields on the *Request itself so outer
-		// middleware (chi.Use'd before this sub-router's Mount) can read
-		// them — request.Header is a shared mutable struct, unlike the
-		// context which is replaced by WithValue.
-		if tok.UserID != "" {
-			r.Header.Set("X-Audit-User", tok.UserID)
-		}
-		r.Header.Set("X-Audit-Token-Name", tok.Name)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, m.stampToken(r, tok))
 	})
+}
+
+// OptionalAuthenticate attaches the looked-up APIToken to the context
+// when the request carries a valid Bearer credential, and otherwise
+// passes the request through UNCHANGED — it never writes a 401.
+//
+// It exists so pre-auth pages (the /login form) can tell "already signed
+// in" from "not signed in" WITHOUT turning away the latter. Authenticate
+// can't serve here: a genuine visitor with no session must still reach the
+// login form, not a 401. Concretely this fixes issue #129's Slack→Safari
+// handoff — an already-signed-in visitor whose in-app browser rewrote the
+// URL to /login gets bounced to their destination, while a first-time
+// visitor still sees the form.
+//
+// Invalid-token pass-through is deliberate and load-bearing: a stale or
+// unrecognised cookie (and, defensively, a lookup backend error) must land
+// the visitor on the login form, not on an error page. Any failure to
+// resolve a token therefore yields an anonymous request rather than a
+// rejection. When a token DOES resolve, the context is populated exactly
+// as Authenticate does (shared stampToken), so downstream FromContext sees
+// an identical value on either path.
+func (m *Middleware) OptionalAuthenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token, err := extractBearer(r); err == nil {
+			if tok, err := m.S.LookupToken(r.Context(), token); err == nil {
+				r = m.stampToken(r, tok)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// stampToken returns r with the looked-up token attached to its context
+// plus audit-relevant fields stashed on the *Request itself so outer
+// middleware (chi.Use'd before this sub-router's Mount) can read them —
+// request.Header is a shared mutable struct, unlike the context which is
+// replaced by WithValue. Shared by Authenticate and OptionalAuthenticate
+// so the "authenticated request" shape is built in exactly one place.
+func (m *Middleware) stampToken(r *http.Request, tok *store.APIToken) *http.Request {
+	ctx := context.WithValue(r.Context(), ctxKeyToken, tok)
+	if tok.UserID != "" {
+		r.Header.Set("X-Audit-User", tok.UserID)
+	}
+	r.Header.Set("X-Audit-Token-Name", tok.Name)
+	return r.WithContext(ctx)
 }
 
 // RequireScope returns middleware enforcing the named scope. "admin"

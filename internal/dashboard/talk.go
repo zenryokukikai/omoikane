@@ -122,6 +122,17 @@ func (h *Handler) resolveTalkLibrarian(r *http.Request, pc *pageCtx, owner strin
 	// OPENCRAB_URL unset it dropped the librarian's face even though the
 	// row — and the persona that answers — were intact (#126). The header
 	// nav (pagectx.go) is decoupled the same way and on the same signal.
+	//
+	// The residual §25.7 risk, named so it is not rediscovered the hard
+	// way: with OPENCRAB_URL unset, a human /talk message still fans out
+	// to any ACTIVE webhook subscription (internal/api/webhooks.go). If an
+	// operator points one at a generic responder, that responder's reply
+	// renders under the librarian's name here — the split, via a live
+	// path, for every librarian owner. Nothing in this process can
+	// synthesise a reply, so today the failure is silence; that is a fact
+	// about the deployment (no active subscription), not about the code.
+	// If a generic responder is ever wired up, this display must key on
+	// who answers, not on who is configured.
 	if ul, err := h.Store.GetUserLibrarian(r.Context(), owner); err == nil && ul.Status == "active" {
 		pc.TalkLibrarian = ul
 	}

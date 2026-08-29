@@ -141,7 +141,7 @@ func TestLoginBounceAuthenticatedRejectsUnsafeNext(t *testing.T) {
 	// Both a protocol-relative //host and an absolute https:// URL must be
 	// refused as bounce targets and fall back to "/", never the attacker's
 	// host (open-redirect guard).
-	for _, bad := range []string{"//evil.example", "https://evil.example", `/\evil.example`, `/a\b`, "/a\x08b"} {
+	for _, bad := range []string{"//evil.example", "https://evil.example", `/\evil.example`, `/a\b`, "/a\x08b", "/\x7fevil.example"} {
 		resp := getNoRedirect(t, srv, "/login?next="+url.QueryEscape(bad), tok)
 		if resp.StatusCode != http.StatusSeeOther {
 			t.Fatalf("%q: status=%d, want 303", bad, resp.StatusCode)

@@ -59,7 +59,7 @@ func safeNext(raw string) string {
 	// normalise backslashes, which is exactly why this must be explicit.
 	if raw != "" && strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") &&
 		!strings.ContainsRune(raw, '\\') &&
-		strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 }) < 0 {
+		strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 || (r >= 0x7f && r < 0xa0) }) < 0 {
 		return raw
 	}
 	return ""

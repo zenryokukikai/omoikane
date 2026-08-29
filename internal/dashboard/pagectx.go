@@ -193,11 +193,17 @@ func (h *Handler) renderCtx(r *http.Request) pageCtx {
 			pc.Me = u
 		}
 	}
-	// Nav label: the viewer's own librarian answers THEIR /talk, so the
-	// header entry point is named after it (#73 UX: "where do I chat with
-	// my librarian?" — same place, now labelled so). Single PK lookup;
-	// default responder name when the feature is off or unset.
-	if pc.Me != nil && h.Librarian != nil {
+	// Nav label: the viewer's own librarian names the header entry point
+	// to /talk (#73 UX: "where do I chat with my librarian?" — same place,
+	// now labelled so). This is DISPLAY, not dispatch: the name, persona
+	// and icon already live in user_librarians, so showing them is a single
+	// local PK read. It must not be gated on h.Librarian — that field is
+	// the ability to PROVISION a librarian on the opencrab runtime, a
+	// different capability. Gating display on it meant an unconfigured (or
+	// temporarily removed) OPENCRAB_URL silently dropped the header back to
+	// the default responder name even though the DB row was intact (#126).
+	// Default responder name still shows when the user has no active row.
+	if pc.Me != nil {
 		if ul, err := h.Store.GetUserLibrarian(r.Context(), pc.Me.ID); err == nil && ul.Status == "active" && ul.Name != "" {
 			pc.NavLibrarian = ul
 		}

@@ -265,24 +265,29 @@ func TestTalkPersonalLibrarianIdentity(t *testing.T) {
 	}
 }
 
-// #126: with the runtime unconfigured (no OPENCRAB_URL → h.Librarian
-// nil) an ACTIVE user_librarians row still fronts /talk — BOTH the header
-// nav AND the in-page respondent (talk-head name + avatar). The librarian
-// identity is a display fact keyed on the row's status, decoupled from
-// the opencrab PROVISIONING capability; who answers the thread is decided
-// by the dispatch layer, not by whether this process can provision. This
-// pins the corrected §25.7 reasoning so the old h.Librarian gate is not
-// restored.
-func TestTalkLibrarianIdentityWithoutRuntime(t *testing.T) {
+// With the feature gate OFF (no OPENCRAB_URL → h.Librarian nil) a
+// leftover user_librarians row must NOT front the /talk RESPONDENT:
+// nothing routes to the runtime in that configuration, so showing the
+// librarian as the answerer would split identity — "shown: librarian,
+// answering: default responder" (design §25.7). resolveTalkLibrarian's
+// gate is a dispatch gate and must match the routing gate.
+//
+// The header nav is a SEPARATE concern and is deliberately NOT gated the
+// same way (#126): it names the entry point to /talk from the local
+// user_librarians row, which is a pure display read and stays truthful
+// whether or not the runtime is configured. So the librarian name is
+// expected in the nav here — this test pins the respondent identity
+// specifically, not the mere presence of the name in the page.
+func TestTalkLibrarianIdentityGatedOff(t *testing.T) {
 	srv, st, tok := mountAuthed(t) // alice (admin), h.Librarian NOT set
 	ctx := context.Background()
 
 	if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
-		UserID: "alice", AgentID: "plib-alice", Name: "きりん", Status: "active"}); err != nil {
+		UserID: "alice", AgentID: "plib-alice", Name: "ゲート検証司書", Status: "active"}); err != nil {
 		t.Fatal(err)
 	}
 	tid, err := st.OpenThread(ctx, &store.ChatThread{
-		Title: "runtime off", Intent: "talk", CreatedBy: "alice"})
+		Title: "gate off", Intent: "talk", CreatedBy: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,47 +298,20 @@ func TestTalkLibrarianIdentityWithoutRuntime(t *testing.T) {
 		if code != 200 {
 			t.Fatalf("%s: code=%d", path, code)
 		}
-		// The in-page respondent identity is the librarian's, not the
-		// default responder's: talk-head name + the 🤖 librarian glyph
-		// (IconText default, no uploaded icon here).
-		if !strings.Contains(bs, `talk-name">きりん`) {
-			t.Fatalf("%s: librarian should front the respondent with the runtime off", path)
-		}
-		if !strings.Contains(bs, `talk-avatar">🤖`) {
-			t.Fatalf("%s: librarian avatar missing from the respondent head", path)
-		}
-		if strings.Contains(bs, `talk-name">コンシェルジュ`) {
-			t.Fatalf("%s: default responder still fronts the page despite an active row", path)
-		}
-		// And the header nav names the entry point after the same row.
-		if !strings.Contains(bs, `class="nav-journal"`) || !strings.Contains(bs, "きりん</a>") {
-			t.Fatalf("%s: header nav should show the personal librarian regardless of the runtime", path)
-		}
-	}
-}
-
-// The genuine fallback stays intact: with no active user_librarians row
-// the /talk respondent AND the nav are the default responder, runtime off.
-func TestTalkDefaultResponderWithoutLibrarian(t *testing.T) {
-	srv, s, tok := mountAuthed(t) // alice, no user_librarians row
-	ctx := context.Background()
-	tid, err := s.OpenThread(ctx, &store.ChatThread{
-		Title: "no librarian", Intent: "talk", CreatedBy: "alice"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, path := range []string{"/talk", "/talk/" + tid} {
-		code, body := get(t, srv, path, tok)
-		bs := string(body)
-		if code != 200 {
-			t.Fatalf("%s: code=%d", path, code)
+		// The respondent identity (talk-head name + the 🤖 avatar) must
+		// stay the default responder, not the leftover librarian row.
+		if strings.Contains(bs, `talk-name">ゲート検証司書`) || strings.Contains(bs, `talk-avatar">🤖`) ||
+			strings.Contains(bs, `talk-avatar-sm">🤖`) {
+			t.Fatalf("%s: librarian fronts the respondent while the dispatch gate is off", path)
 		}
 		if !strings.Contains(bs, `talk-name">コンシェルジュ`) {
 			t.Fatalf("%s: default responder identity missing from talk-head", path)
 		}
-		if strings.Contains(bs, `talk-avatar">🤖`) {
-			t.Fatalf("%s: librarian avatar shown with no librarian row", path)
+		// #126: the header nav still names the entry point after the
+		// local row even with the runtime unconfigured — display is
+		// decoupled from dispatch.
+		if !strings.Contains(bs, `class="nav-journal"`) || !strings.Contains(bs, "ゲート検証司書</a>") {
+			t.Fatalf("%s: header nav should show the personal librarian regardless of the runtime", path)
 		}
 	}
 }

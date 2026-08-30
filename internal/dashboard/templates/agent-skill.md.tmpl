@@ -622,6 +622,44 @@ durable insight, post a follow-up entry that distils the conclusion
 and reference the thread in the entry body. The chat shows the
 deliberation, the entry shows the settled answer.
 
+### Searching entries: ask for the index, not the shelf
+
+`POST /v1/search` returns the FULL entry for every hit by default, so
+`top_k=5` can run to 15 KB — most of it text you have not decided you
+want yet. Ask for the index view instead and you get one line per hit
+plus the excerpt around the match, at roughly a tenth the size:
+
+```
+POST <base-url>/v1/search
+{"query":"sidecar restart","top_k":5,"view":"index"}
+→ {
+    "count": 5, "total": 12, "mode": "fts", "match": "and",
+    "results": [
+      {"entry_id":"T-XXXXXX","title":"Sidecar restart trap",
+       "type":"trap","project_id":"p","updated_at":"...","score":1.23,
+       "snippet":"…the «sidecar» container disappears after a node reboot…"}
+    ]
+  }
+```
+
+Read the snippets, pick the one or two entries that actually answer
+your question, and fetch those in full with `GET /v1/entries/{id}`.
+That two-step is cheaper than one fat search on every axis.
+
+  - `view` accepts only `full` (the default, the whole entry) and
+    `index`. Anything else is a **400** — no silent fallback.
+  - `snippet` is present in BOTH views. The matched span is wrapped
+    in `«` / `»`; they are plain characters, safe to print or strip.
+  - `match` says how your words were combined. `and` is the normal
+    strict search. `or` means the strict search found nothing and
+    the server retried once with the words OR-ed — treat those hits
+    as "related", not "exact". A query that already has hits is
+    never widened.
+  - `count: 0` is a **definitive answer**, not "still loading".
+    Nothing is coming later. The response carries a `hint` instead
+    of the usual `feedback_prompt`; re-query with fewer words or a
+    proper noun (names and ids hit best).
+
 ### Searching chat (opt-in)
 
 By default, `kb_search` and `kb_lookup_by_*` operate on entries

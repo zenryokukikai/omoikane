@@ -223,7 +223,7 @@ func TestSearchFTS(t *testing.T) {
 		ProjectID: "p", Type: "decision", Title: "Adopt SyncNet",
 		Body: "Adopting SyncNet for lipsync evaluation.",
 	})
-	res, total, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{})
+	res, total, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

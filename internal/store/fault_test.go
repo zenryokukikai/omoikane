@@ -169,7 +169,7 @@ func TestClosedStoreAllOperationsFail(t *testing.T) {
 			return s.SetEnrichment(ctx, "x", 1)
 		}},
 		{"SearchFTS", func(s *Store) error {
-			_, _, err := s.SearchFTS(ctx, `"x"*`, EntryFilter{})
+			_, _, _, err := s.SearchFTS(ctx, `"x"*`, EntryFilter{})
 			return err
 		}},
 		{"WriteAudit", func(s *Store) error {

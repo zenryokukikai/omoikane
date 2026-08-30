@@ -59,13 +59,13 @@ func TestSearchFTSDoesNotErrorOnSpecialChars(t *testing.T) {
 		"マスク",
 		"train-inference OR (mask AND foo:bar)",
 	} {
-		if _, _, err := s.SearchFTS(ctx, q, EntryFilter{}); err != nil {
+		if _, _, _, err := s.SearchFTS(ctx, q, EntryFilter{}); err != nil {
 			t.Errorf("SearchFTS(%q) errored (was a 500 in prod): %v", q, err)
 		}
 	}
 
 	// Sanity: a hyphenated query actually finds the hyphenated entry.
-	res, _, err := s.SearchFTS(ctx, "train-inference", EntryFilter{})
+	res, _, _, err := s.SearchFTS(ctx, "train-inference", EntryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

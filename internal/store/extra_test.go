@@ -95,7 +95,7 @@ func TestSearchFiltersByProjectAndType(t *testing.T) {
 	_ = s.CreateProject(ctx, &Project{ID: "b", Name: "B"})
 	_, _ = s.CreateEntry(ctx, &Entry{ProjectID: "a", Type: "trap", Title: "mask", Body: "mask leaks"})
 	_, _ = s.CreateEntry(ctx, &Entry{ProjectID: "b", Type: "trap", Title: "mask other", Body: "mask too"})
-	res, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{ProjectID: "a"})
+	res, _, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{ProjectID: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestSearchFiltersByProjectAndType(t *testing.T) {
 
 func TestEmptyFTSQuery(t *testing.T) {
 	s := newTestStore(t)
-	if _, _, err := s.SearchFTS(context.Background(), "  ", EntryFilter{}); err == nil {
+	if _, _, _, err := s.SearchFTS(context.Background(), "  ", EntryFilter{}); err == nil {
 		t.Fatal("expected error")
 	}
 }

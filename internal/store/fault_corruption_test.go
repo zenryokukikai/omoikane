@@ -74,7 +74,7 @@ func TestSoftDeleteOnDroppedTable(t *testing.T) {
 func TestSearchFTSDroppedJoin(t *testing.T) {
 	s, _ := seed(t)
 	dropTable(t, s, "entries")
-	if _, _, err := s.SearchFTS(context.Background(), `"x"*`, EntryFilter{}); err == nil {
+	if _, _, _, err := s.SearchFTS(context.Background(), `"x"*`, EntryFilter{}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -165,7 +165,7 @@ func TestSearchFTSScanError(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.SearchFTS(context.Background(), `"y"*`, EntryFilter{}); err == nil {
+	if _, _, _, err := s.SearchFTS(context.Background(), `"y"*`, EntryFilter{}); err == nil {
 		t.Fatal("expected scan error")
 	}
 }

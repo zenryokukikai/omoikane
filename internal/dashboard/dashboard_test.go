@@ -307,6 +307,52 @@ func TestSearchPageWithResults(t *testing.T) {
 	if !bytes.Contains(body, []byte("Mask trap v2")) {
 		t.Fatalf("expected hit, got %s", body)
 	}
+	// The excerpt around the match, highlighted (issue #138). Without it
+	// the results page is a list of titles and a reader has to open each
+	// entry to find out whether it was the one they wanted.
+	if !bytes.Contains(body, []byte(`class="entry-row-snippet"`)) {
+		t.Fatalf("search results have no snippet row: %s", body)
+	}
+	if !bytes.Contains(body, []byte("<mark>")) {
+		t.Fatalf("snippet is not highlighted: %s", body)
+	}
+	// The store's raw markers must never reach the page — they are
+	// converted, and the conversion happens AFTER escaping so an entry
+	// body cannot inject tags.
+	if bytes.Contains(body, []byte(store.SnippetOpen)) ||
+		bytes.Contains(body, []byte(store.SnippetClose)) {
+		t.Fatalf("raw « » markers leaked into the HTML: %s", body)
+	}
+}
+
+// snippetHTML escapes first and converts markers second. Reversing those
+// two steps would let entry text inject live markup into the results
+// page, so the order is pinned here rather than left to review.
+func TestSnippetHTMLEscapesBeforeHighlighting(t *testing.T) {
+	got := string(snippetHTML(
+		`a <script>alert(1)</script> ` + store.SnippetOpen + `hit` + store.SnippetClose))
+	if strings.Contains(got, "<script>") {
+		t.Fatalf("snippet injected live markup: %s", got)
+	}
+	if !strings.Contains(got, "&lt;script&gt;") {
+		t.Fatalf("entry text was not escaped: %s", got)
+	}
+	if !strings.Contains(got, "<mark>hit</mark>") {
+		t.Fatalf("markers were not converted to <mark>: %s", got)
+	}
+}
+
+// An entry whose own text contains « » must not be able to close the
+// highlight early — the conversion is a plain replacement, so the worst
+// case is a stray <mark>, never an attacker-chosen tag.
+func TestSnippetHTMLMarkerInBodyStaysInert(t *testing.T) {
+	got := string(snippetHTML(`quote "x" & <b>bold</b>`))
+	if strings.Contains(got, "<b>") {
+		t.Fatalf("body markup survived escaping: %s", got)
+	}
+	if !strings.Contains(got, "&amp;") {
+		t.Fatalf("ampersand was not escaped: %s", got)
+	}
 }
 
 func TestSearchPageEmptyQuery(t *testing.T) {

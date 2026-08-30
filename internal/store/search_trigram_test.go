@@ -24,7 +24,7 @@ func TestJapaneseSearchRecall(t *testing.T) {
 	other := mk("別件", "音声合成モデルの評価メモ。")
 
 	find := func(q string) []string {
-		res, _, err := s.SearchFTS(ctx, q, EntryFilter{})
+		res, _, _, err := s.SearchFTS(ctx, q, EntryFilter{})
 		if err != nil {
 			t.Fatalf("SearchFTS(%q): %v", q, err)
 		}

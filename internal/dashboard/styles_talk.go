@@ -153,5 +153,20 @@ main:has(.talk-layout) { max-width: none; }
   .talk-side-menu[open] > .talk-side-bar::after { transform: rotate(180deg); }
   .talk-side-menu:not([open]) > .talk-threads { display: none; }
   .talk-side-menu[open] > .talk-threads { margin-top: 0.4rem; max-height: 55vh; }
+  /* #131 (header): on a phone the whole global chrome above the talk
+     layout — the nav-link cluster, the search box, the Members/Invite/
+     avatar row — is noise that pushes the conversation further down.
+     While the talk layout is on screen, collapse the header to a slim
+     line: only the brand (the unclassed first link) and the ⚙ ops menu
+     survive. Page-scoped with body:has(.talk-layout): the header is a
+     sibling of <main>, so this reaches it from OUTSIDE main — the same
+     :has() dependency already shipped as main:has(.talk-layout) above.
+     Every other page, and desktop /talk (>720px), keep the full header. */
+  body:has(.talk-layout) header .nav-journal,
+  body:has(.talk-layout) header .header-search,
+  body:has(.talk-layout) header .header-invite-form,
+  body:has(.talk-layout) header .header-user,
+  body:has(.talk-layout) header > .muted,
+  body:has(.talk-layout) header > .spacer { display: none; }
 }
 `

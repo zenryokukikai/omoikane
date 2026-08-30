@@ -54,18 +54,25 @@ func New(baseURL, ownerID, kbURL string) *Client {
 }
 
 // DispatchTalk hands one /talk message to the agent's REST messages
-// endpoint (POST /api/agents/{id}/messages). user_id is the client's
-// trusted owner id — the same value Provision wrote into the agent's
-// trust row, so the runtime resolves the caller as Owner and exposes
-// the execution tools (opencrab caller_identity.rs).
+// endpoint (POST /api/agents/{id}/messages) and returns the agent's
+// reply text. user_id is the client's trusted owner id — the same value
+// Provision wrote into the agent's trust row, so the runtime resolves
+// the caller as Owner and exposes the execution tools (opencrab
+// caller_identity.rs).
 //
-// The endpoint is synchronous: it answers after the agent's whole turn.
-// The response body here is only inspected for errors, never parsed for
-// content: reply delivery lives on the gateway path (the agent's turn
-// output arrives as the say) — since #132 the instructions carry no
-// posting recipe, so this REST dispatch has no reply channel of its own
-// and survives only as the pre-cutover-thread fallback (see
-// internal/api/webhooks.go).
+// The endpoint is synchronous: it answers after the agent's whole turn
+// with {"session_id","caller_type","responses":[{"agent_id","content"}]}
+// (opencrab agents_messages.rs). Since #132 the agent's instructions
+// carry no posting recipe, so this response body is the ONLY channel the
+// reply travels on — the caller (internal/api/webhooks.go) is
+// responsible for delivering it into the thread (issue #134). A reply
+// may legitimately be empty or the NO_REPLY sentinel; suppression is the
+// caller's decision, not this client's.
+//
+// One exception is mapped to an error here: the runtime reports an
+// engine failure as HTTP 200 with the reply text "(Error: ...)"
+// (agents_messages.rs error arm). That is an error report, not the
+// librarian's words, and must never be delivered as one.
 //
 // Transient failures — connection errors and 5xx, i.e. the runtime was
 // never reached or an infra layer failed in front of it (a restart
@@ -73,30 +80,45 @@ func New(baseURL, ownerID, kbURL string) *Client {
 // same shape as omoikane's webhook delivery. 4xx and error-body
 // responses are FINAL: the runtime processed the request, the agent's
 // turn may already have run, and a re-send could run it twice.
-func (c *Client) DispatchTalk(ctx context.Context, agentID, content string) error {
+func (c *Client) DispatchTalk(ctx context.Context, agentID, content string) (string, error) {
 	if agentID == "" {
-		return fmt.Errorf("opencrab: agent id required")
+		return "", fmt.Errorf("opencrab: agent id required")
+	}
+	var out struct {
+		Responses []struct {
+			Content string `json:"content"`
+		} `json:"responses"`
 	}
 	backoff := c.talkBackoff
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
 		err = c.do(ctx, c.talkHC, http.MethodPost,
 			"/api/agents/"+agentID+"/messages",
-			map[string]any{"user_id": c.ownerID, "content": content}, nil)
+			map[string]any{"user_id": c.ownerID, "content": content}, &out)
 		var te *transientError
 		if err == nil || !errors.As(err, &te) {
-			return err
+			break
 		}
 		if attempt < 3 {
 			select {
 			case <-ctx.Done():
-				return err
+				return "", err
 			case <-time.After(backoff):
 			}
 			backoff *= 2
 		}
 	}
-	return err
+	if err != nil {
+		return "", err
+	}
+	var reply string
+	if len(out.Responses) > 0 {
+		reply = out.Responses[0].Content
+	}
+	if strings.HasPrefix(strings.TrimSpace(reply), "(Error:") {
+		return "", fmt.Errorf("runtime turn failed: %s", strings.TrimSpace(reply))
+	}
+	return reply, nil
 }
 
 // transientError marks a failure worth retrying: the request never
@@ -283,8 +305,10 @@ func (c *Client) do(ctx context.Context, hc *http.Client, method, path string, b
 		// agent turn may already be running (the messages endpoint is
 		// synchronous over the whole turn), so a re-send would run the
 		// turn twice — issue #79 was three identical replies from
-		// exactly this. The reply arrives out-of-band via the recipe,
-		// so nothing is lost by giving up on the response body.
+		// exactly this. Giving up on the response body does lose that
+		// one reply (since #132/#134 it is the only reply channel on
+		// this lane), but a duplicate turn is the worse failure; the
+		// user retries by asking again.
 		var ne net.Error
 		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
 			return err

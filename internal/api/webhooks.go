@@ -150,10 +150,11 @@ func (h *Handler) startWebhookDispatcher() {
 }
 
 // TalkDispatcher delivers one /talk message to a personal-librarian
-// agent on an external runtime. Implemented by *opencrab.Client; an
-// interface so tests can stand in a fake runtime.
+// agent on an external runtime and returns the agent's reply text (the
+// runtime's messages API is synchronous over the whole turn). Implemented
+// by *opencrab.Client; an interface so tests can stand in a fake runtime.
 type TalkDispatcher interface {
-	DispatchTalk(ctx context.Context, agentID, content string) error
+	DispatchTalk(ctx context.Context, agentID, content string) (reply string, err error)
 }
 
 // talkDispatchTimeout bounds one runtime dispatch. The messages API is
@@ -240,22 +241,80 @@ func (h *Handler) routeTalkToPersonalLibrarian(data any) bool {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), talkDispatchTimeout)
 		defer cancel()
-		if err := h.TalkDispatch.DispatchTalk(ctx, ul.AgentID,
-			talkDispatchContent(threadID, title, content)); err != nil {
+		reply, err := h.TalkDispatch.DispatchTalk(ctx, ul.AgentID,
+			talkDispatchContent(title, content))
+		if err != nil {
+			// Log and stop: an error string is never posted as the
+			// librarian's words — the thread just stays unanswered
+			// (same at-most-once contract as above).
 			h.Logger.Warn("talk: personal librarian dispatch failed",
 				"agent_id", ul.AgentID, "thread", threadID, "err", err)
+			return
 		}
+		h.deliverTalkReply(threadID, title, owner, reply)
 	}()
 	return true
 }
 
+// deliverTalkReply posts one REST-dispatch reply into its /talk thread
+// as the librarian and emits the terminal chat.status broadcast — the
+// same delivery contract the gateway lane provides (the gate posts the
+// say, then broadcasts done). Since #132 the agent's instructions carry
+// no posting recipe, so on the REST fallback path reply delivery is the
+// SERVER's responsibility; before #134 the reply was silently dropped
+// here.
+//
+// Suppression parity with the gateway lane: an empty reply or the exact
+// NO_REPLY sentinel (trimmed match — opencrab's own `trim() ==
+// "NO_REPLY"` rule) posts nothing. On the gateway lane such a turn
+// produces no say and the user sees silence; the fallback must mean the
+// same silence, not a literal "NO_REPLY" message.
+func (h *Handler) deliverTalkReply(threadID, title, owner, reply string) {
+	if t := strings.TrimSpace(reply); t == "" || t == "NO_REPLY" {
+		return
+	}
+	// Own deadline: the dispatch context above may have spent most of
+	// the 5-minute turn budget, and an earned reply must not be dropped
+	// over that.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// Thread context reconstructed from the routed event's own fields
+	// (they were read off the thread row when the human message was
+	// posted); intent is "talk" by the routing guard above.
+	th := &store.ChatThread{ThreadID: threadID, Intent: "talk", CreatedBy: owner, Title: title}
+	// Same author semantics as the gateway lane's PostAssistantReply
+	// (internal/gate/runtime/kb.go): role assistant, attributed to the
+	// thread owner, intent observation — via the one chat write
+	// contract (storeChatMessage), never a second shape.
+	if _, err := h.storeChatMessage(ctx, th, &store.ChatMessage{
+		ThreadID: threadID, AuthorRole: "assistant", AuthorUserID: owner,
+		Intent: "observation", Content: reply,
+	}); err != nil {
+		h.Logger.Warn("talk: storing REST-fallback reply failed",
+			"thread", threadID, "err", err)
+		return
+	}
+	// Terminal status: the /talk UI clears its pending indicator on
+	// {thread_id, done:true} — the same event the gateway lane
+	// broadcasts via POST /v1/events/broadcast (see broadcastEvent).
+	h.Events.Publish(Event{Type: "chat.status",
+		Data:    map[string]any{"thread_id": threadID, "done": true},
+		SpaceID: threadEventSpace(th)})
+}
+
 // talkDispatchContent frames a human /talk message for the runtime's
-// messages API. thread_id must be in the text: the librarian's reply
-// recipe (opencrab.Instructions) posts back to this thread by id.
-func talkDispatchContent(threadID, title, body string) string {
+// messages API. The messages endpoint is synchronous: the response body
+// of this very call is the reply, and the server delivers it into the
+// thread itself (deliverTalkReply, issue #134) — so the framing tells
+// the agent exactly that, and deliberately hands over NO thread_id and
+// no posting recipe: the REST-era recipe is gone since #132, and an
+// agent that tried to post its own reply would double-post.
+func talkDispatchContent(title, body string) string {
 	var b strings.Builder
-	b.WriteString("[omoikane /talk] 新しいメッセージが届きました。応答レシピに従い、下記の thread_id へ返信してください。\n")
-	b.WriteString("thread_id: " + threadID + "\n")
+	b.WriteString("[omoikane /talk] 利用者から新しいメッセージが届きました。" +
+		"この依頼へのあなたの応答本文が、そのまま利用者への返信として届けられます" +
+		"(自分で投稿する必要はありません)。" +
+		"返信が不要と判断した場合は NO_REPLY とだけ返してください。\n")
 	if title != "" {
 		b.WriteString("スレッド題: " + title + "\n")
 	}

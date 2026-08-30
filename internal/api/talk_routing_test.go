@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -100,8 +101,11 @@ func TestChatAuthorAssistant(t *testing.T) {
 // thread owner's personal librarian on the opencrab runtime — and NOT
 // to the webhook-subscribed default responder. Owners without an
 // (active) librarian keep the webhook path unchanged, and assistant
-// replies never bounce back into either pipe.
+// replies never bounce back into either pipe. Since issue #134 the REST
+// lane also delivers: the runtime's response content is posted back
+// into the thread as the assistant, followed by the done chat.status.
 func TestTalkRoutingPersonalLibrarian(t *testing.T) {
+	const crabReply = "調査しました。答えは42です。"
 	// Mock runtime: capture path + body of every messages call.
 	var crabCalls atomic.Int32
 	var crabPath, crabBody atomic.Value
@@ -111,14 +115,20 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 		crabBody.Store(string(b))
 		crabCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"session_id":"s","responses":[{"agent_id":"a","content":"ok"}]}`))
+		_, _ = w.Write([]byte(`{"session_id":"s","responses":[{"agent_id":"a","content":"` + crabReply + `"}]}`))
 	}))
 	defer crab.Close()
 
 	// The REAL client — the request shape the runtime sees is part of
 	// the contract under test.
 	oc := opencrab.New(crab.URL, "owner-1", "http://kb.test")
-	base, adminTok, st := testServerWithTalkDispatch(t, oc)
+	var events <-chan Event
+	base, adminTok, st := testServerWithTalkDispatchOpts(t, oc, func(h *Handler) {
+		// Tap the event bus before Mount starts the dispatcher, so the
+		// done broadcast of the fallback delivery is observable.
+		h.Events = NewEventBus()
+		events, _ = h.Events.Subscribe(nil)
+	})
 	ctx := context.Background()
 
 	// Webhook mock: the default responder's inbox.
@@ -198,11 +208,50 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 	if msg.UserID != "owner-1" {
 		t.Fatalf("runtime caller id: %q, want owner-1", msg.UserID)
 	}
-	// The thread id and the human text must both be in the content —
-	// the librarian's reply recipe posts back by thread_id.
-	if !strings.Contains(msg.Content, tid1) || !strings.Contains(msg.Content, "こんにちは司書さん") {
-		t.Fatalf("dispatch content missing thread id or body: %q", msg.Content)
+	// The human text (and the thread title as context) must be in the
+	// content. The thread id and the posting-recipe wording must NOT:
+	// since #132/#134 the server delivers the reply itself, and handing
+	// the agent a thread_id invites a double-post.
+	if !strings.Contains(msg.Content, "こんにちは司書さん") || !strings.Contains(msg.Content, "経路テスト") {
+		t.Fatalf("dispatch content missing body or title: %q", msg.Content)
 	}
+	for _, banned := range []string{tid1, "thread_id", "レシピ"} {
+		if strings.Contains(msg.Content, banned) {
+			t.Fatalf("dispatch content still hands the agent %q (issue #134): %q", banned, msg.Content)
+		}
+	}
+
+	// Issue #134: the runtime's response content is delivered into the
+	// thread as the librarian's (assistant) reply.
+	waitFor("assistant reply delivery", func() bool {
+		return len(threadMessages(t, base, u1Tok, tid1)) >= 2
+	})
+	msgs := threadMessages(t, base, u1Tok, tid1)
+	last := msgs[len(msgs)-1]
+	if last["author_role"] != "assistant" || last["content"] != crabReply {
+		t.Fatalf("delivered reply = %v, want assistant %q", last, crabReply)
+	}
+	if last["author_user_id"] != "u1" {
+		t.Fatalf("reply attributed to %v, want the thread owner u1 (gateway-lane author semantics)", last["author_user_id"])
+	}
+	// ... followed by the terminal chat.status {done:true} broadcast the
+	// /talk UI clears its pending indicator on.
+	waitFor("done chat.status broadcast", func() bool {
+		for {
+			select {
+			case e := <-events:
+				if e.Type != "chat.status" {
+					continue
+				}
+				d, _ := e.Data.(map[string]any)
+				if d["thread_id"] == tid1 && d["done"] == true {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	})
 	time.Sleep(300 * time.Millisecond)
 	if hookCalls.Load() != 0 {
 		t.Fatalf("webhook received a message that was routed to the personal librarian")
@@ -243,17 +292,22 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 }
 
 // fakeTalkDispatcher records every DispatchTalk call (issue #104
-// cutover guard tests): the REST dispatch leg as a pure recorder.
+// cutover guard tests) and answers a canned reply/err (issue #134
+// fallback-delivery tests). Zero value = empty reply, no error.
 type fakeTalkDispatcher struct {
-	mu    sync.Mutex
-	calls []string // agent ids, in dispatch order
+	mu       sync.Mutex
+	calls    []string // agent ids, in dispatch order
+	contents []string // dispatched framing+body, same order
+	reply    string   // returned as the agent's reply
+	err      error    // returned as the dispatch error
 }
 
-func (f *fakeTalkDispatcher) DispatchTalk(_ context.Context, agentID, _ string) error {
+func (f *fakeTalkDispatcher) DispatchTalk(_ context.Context, agentID, content string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, agentID)
-	return nil
+	f.contents = append(f.contents, content)
+	return f.reply, f.err
 }
 
 func (f *fakeTalkDispatcher) snapshot() []string {
@@ -430,6 +484,104 @@ func TestTalkGatewayCutoverKillSwitch(t *testing.T) {
 	if calls := fake.snapshot(); len(calls) != 1 || calls[0] != "plib-u1" {
 		t.Fatalf("REST dispatch calls = %v, want [plib-u1]", calls)
 	}
+}
+
+// REST-fallback suppression and error handling (issue #134): an empty
+// reply, the NO_REPLY sentinel (trimmed match — opencrab's own rule)
+// and a dispatch error all deliver NOTHING into the thread. In
+// particular an error must never appear as the librarian's words.
+func TestTalkRESTFallbackSuppression(t *testing.T) {
+	cases := []struct {
+		name  string
+		reply string
+		err   error
+	}{
+		{"empty reply", "", nil},
+		{"NO_REPLY sentinel", "NO_REPLY", nil},
+		{"NO_REPLY with whitespace", "  NO_REPLY\n", nil},
+		{"dispatch error", "こわれた応答", errors.New("runtime turn failed: (Error: boom)")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeTalkDispatcher{reply: tc.reply, err: tc.err}
+			base, _, st := testServerWithTalkDispatch(t, fake)
+			ctx := context.Background()
+
+			if err := st.CreateUser(ctx, &store.User{ID: "u1", Name: "u1", Role: "member"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.UpsertUserLibrarian(ctx, &store.UserLibrarian{
+				UserID: "u1", AgentID: "plib-u1", Name: "アイ", Status: "active"}); err != nil {
+				t.Fatal(err)
+			}
+			u1Tok, err := st.CreateToken(ctx, "u1", "t", []string{"read", "write"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, th := doJSONMap(t, "POST", base+"/v1/librarian/threads", u1Tok,
+				map[string]string{"title": "抑止テスト", "intent": "talk"})
+			if code != http.StatusCreated {
+				t.Fatalf("open thread: %d %v", code, th)
+			}
+			tid, _ := th["thread_id"].(string)
+			if code, out := doJSONMap(t, "POST", base+"/v1/librarian/chat", u1Tok, map[string]string{
+				"thread_id": tid, "author_role": "human", "content": "いますか"}); code != http.StatusCreated {
+				t.Fatalf("human post: %d %v", code, out)
+			}
+
+			deadline := time.Now().Add(5 * time.Second)
+			for len(fake.snapshot()) == 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("timeout waiting for REST dispatch")
+				}
+				time.Sleep(25 * time.Millisecond)
+			}
+			time.Sleep(300 * time.Millisecond) // settle: delivery would land here
+			msgs := threadMessages(t, base, u1Tok, tid)
+			if len(msgs) != 1 {
+				t.Fatalf("thread messages = %v, want the human message only (suppressed/failed reply must not post)", msgs)
+			}
+			if msgs[0]["author_role"] != "human" {
+				t.Fatalf("unexpected message: %v", msgs[0])
+			}
+		})
+	}
+}
+
+// The dispatch framing (issue #134): tells the agent its response body
+// is delivered to the user as-is, keeps the thread title and the human
+// text as context — and hands over neither a thread_id nor the retired
+// posting-recipe wording (#132: self-posting would double-post).
+func TestTalkDispatchContentFraming(t *testing.T) {
+	got := talkDispatchContent("引越しの相談", "本文です")
+	for _, want := range []string{"引越しの相談", "本文です", "そのまま利用者への返信"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("framing missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{"thread_id", "レシピ"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("framing still contains %q:\n%s", banned, got)
+		}
+	}
+}
+
+// threadMessages lists a thread's stored messages over the public API
+// (the same read the /talk UI uses).
+func threadMessages(t *testing.T, base, tok, threadID string) []map[string]any {
+	t.Helper()
+	code, out := doJSONMap(t, "GET", base+"/v1/librarian/threads/"+threadID+"/messages?limit=50", tok, nil)
+	if code != http.StatusOK {
+		t.Fatalf("list messages: %d %v", code, out)
+	}
+	raw, _ := out["messages"].([]any)
+	msgs := make([]map[string]any, 0, len(raw))
+	for _, m := range raw {
+		if mm, ok := m.(map[string]any); ok {
+			msgs = append(msgs, mm)
+		}
+	}
+	return msgs
 }
 
 // doJSONMap posts JSON and decodes the response object. Local variant of

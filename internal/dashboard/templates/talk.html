@@ -29,16 +29,24 @@
 <div class="talk-layout">
   <aside class="talk-side">
     <a class="talk-new{{if not .ChatThread}} talk-active{{end}}" href="/talk">＋ 新しい会話</a>
-    <div class="talk-threads">
-      {{range .TalkThreads}}
-      <a class="talk-thread{{if and $.ChatThread (eq $.ChatThread.ThreadID .ThreadID)}} talk-active{{end}}" href="/talk/{{.ThreadID}}">
-        <span class="talk-thread-title">{{if .Title}}{{.Title}}{{else}}(untitled){{end}}</span>
-        <span class="talk-thread-date muted">{{ltime .OpenedAt "md"}}</span>
-      </a>
-      {{else}}
-      <p class="muted talk-empty">まだ会話がありません。</p>
-      {{end}}
-    </div>
+    {{/* #131: the thread list lives inside a <details> so it can collapse
+         into a tap-to-open bar on narrow screens (the conversation must be
+         what you see first on a phone). On desktop CSS makes the <details>
+         layout-transparent and the bar hidden, so the sidebar is unchanged.
+         The ＋新しい会話 link stays OUTSIDE it — always-visible導線. */}}
+    <details class="talk-side-menu">
+      <summary class="talk-side-bar">会話一覧 <span class="muted">{{len .TalkThreads}}</span></summary>
+      <div class="talk-threads">
+        {{range .TalkThreads}}
+        <a class="talk-thread{{if and $.ChatThread (eq $.ChatThread.ThreadID .ThreadID)}} talk-active{{end}}" href="/talk/{{.ThreadID}}">
+          <span class="talk-thread-title">{{if .Title}}{{.Title}}{{else}}(untitled){{end}}</span>
+          <span class="talk-thread-date muted">{{ltime .OpenedAt "md"}}</span>
+        </a>
+        {{else}}
+        <p class="muted talk-empty">まだ会話がありません。</p>
+        {{end}}
+      </div>
+    </details>
   </aside>
 
   <section class="talk-main">

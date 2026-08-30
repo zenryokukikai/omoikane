@@ -16,6 +16,27 @@ main:has(.talk-layout) { max-width: none; }
 }
 .talk-new:hover, .talk-new.talk-active { border-style: solid; background: var(--bg-soft); }
 .talk-threads { display: flex; flex-direction: column; gap: 0.15rem; overflow-y: auto; }
+/* Thread-list disclosure (#131). The past-thread list lives in a <details>
+   so mobile can collapse it (media block below); desktop must keep the
+   plain always-open sidebar. Both wrappers are made layout-transparent
+   with display:contents so .talk-new + .talk-threads stay the two direct
+   flex children of .talk-side exactly as before — the <details> and its
+   ::details-content pseudo add no box.
+   ::details-content matters for a second reason: modern engines (Blink
+   131+, WebKit 18.4+) hide a CLOSED details' content by putting
+   content-visibility:hidden on that pseudo — which keeps a layout box
+   (so getComputedStyle/getClientRects still report it "visible") but
+   SKIPS PAINT. Overriding the child's display does NOT defeat that; only
+   neutralizing the pseudo does. display:contents on ::details-content
+   removes the pseudo's box, so there is nothing left to skip and the list
+   paints regardless of the open state — no dependence on the open
+   attribute, which is what keeps this working in Safari as well as Blink.
+   The list is hidden again on mobile purely by toggling .talk-threads'
+   own display (display:none removes its box outright), so the same
+   ::details-content rule is harmless there. */
+.talk-side-menu { display: contents; }
+.talk-side-menu::details-content { display: contents; }
+.talk-side-bar { display: none; }
 .talk-thread {
   display: flex; flex-direction: column; padding: 0.4rem 0.6rem; border-radius: 6px;
   text-decoration: none; color: inherit;
@@ -116,5 +137,21 @@ main:has(.talk-layout) { max-width: none; }
   .talk-layout { flex-direction: column; height: auto; }
   .talk-side { flex: none; }
   .talk-main { min-height: 70vh; }
+  /* #131: on a phone the thread list is a tap-to-open menu so the
+     conversation is on screen first. The <details> is a real box again;
+     the summary is a compact bar (⚙-menu idiom: native marker hidden, own
+     caret), and the list only shows when the user opens it. */
+  .talk-side-menu { display: block; }
+  .talk-side-bar {
+    display: flex; align-items: center; gap: 0.4rem; cursor: pointer;
+    list-style: none; padding: 0.5rem 0.7rem; border-radius: 6px;
+    border: 1px solid var(--border); font-size: 0.9rem; color: var(--accent);
+  }
+  .talk-side-bar::-webkit-details-marker { display: none; }
+  .talk-side-bar::after { content: "▾"; margin-left: auto; transition: transform 0.15s ease; }
+  .talk-side-menu[open] > .talk-side-bar { background: var(--bg-soft); }
+  .talk-side-menu[open] > .talk-side-bar::after { transform: rotate(180deg); }
+  .talk-side-menu:not([open]) > .talk-threads { display: none; }
+  .talk-side-menu[open] > .talk-threads { margin-top: 0.4rem; max-height: 55vh; }
 }
 `

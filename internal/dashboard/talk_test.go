@@ -69,6 +69,32 @@ func TestTalkPage(t *testing.T) {
 	if !strings.Contains(bs, "talk-msg-bot") {
 		t.Fatalf("missing bot bubble class")
 	}
+	// #131: the past-thread list is wrapped in a <details> disclosure so it
+	// collapses into a tap-to-open menu on narrow screens (server can only
+	// pin STRUCTURE — the desktop/mobile split is pure CSS). The thread
+	// titles must live INSIDE that details, and the ＋新しい会話 link must
+	// stay OUTSIDE it (always-visible導線). Verify the markup order:
+	// talk-new … <details class="talk-side-menu"> … talk-thread … </details>.
+	sideMenu := strings.Index(bs, `class="talk-side-menu"`)
+	newLink := strings.Index(bs, `class="talk-new`)
+	// The sidebar thread entries (class="talk-thread…") are the only place
+	// "talk-thread" appears; they must sit AFTER the details opens (inside
+	// it). The thread title itself is unusable for ordering — it also lands
+	// in the page <title> (talk.go:98), which precedes the sidebar.
+	threadList := strings.Index(bs, "talk-thread")
+	if sideMenu < 0 {
+		t.Fatalf("thread list not wrapped in a talk-side-menu <details>")
+	}
+	if newLink < 0 || newLink > sideMenu {
+		t.Fatalf("＋新しい会話 link must render before (outside) the thread menu")
+	}
+	if threadList < 0 || threadList < sideMenu {
+		t.Fatalf("thread entries must render inside the talk-side-menu details")
+	}
+	// The collapsed-state orientation bar exists (label + count).
+	if !strings.Contains(bs, `class="talk-side-bar"`) {
+		t.Fatalf("thread menu missing its summary bar")
+	}
 	// The live listener must clear the pending line when a responder
 	// message arrives — the defence for responders that never send
 	// chat.status done (#36). Guarded on author_role so the asker's own

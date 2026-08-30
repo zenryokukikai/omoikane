@@ -60,9 +60,12 @@ func New(baseURL, ownerID, kbURL string) *Client {
 // the execution tools (opencrab caller_identity.rs).
 //
 // The endpoint is synchronous: it answers after the agent's whole turn.
-// The reply itself reaches omoikane out-of-band — the agent posts to
-// /v1/librarian/chat per its instructions recipe — so the response body
-// here is only inspected for errors, never parsed for content.
+// The response body here is only inspected for errors, never parsed for
+// content: reply delivery lives on the gateway path (the agent's turn
+// output arrives as the say) — since #132 the instructions carry no
+// posting recipe, so this REST dispatch has no reply channel of its own
+// and survives only as the pre-cutover-thread fallback (see
+// internal/api/webhooks.go).
 //
 // Transient failures — connection errors and 5xx, i.e. the runtime was
 // never reached or an infra layer failed in front of it (a restart

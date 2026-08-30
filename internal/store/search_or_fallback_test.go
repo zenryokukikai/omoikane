@@ -161,3 +161,35 @@ func TestSearchORFallbackKeepsShortTokensStrict(t *testing.T) {
 		t.Fatalf("short-token filter should still exclude everything, got total=%d", total)
 	}
 }
+
+// A zero that comes from the FILTER, not the tokens, must NOT trigger the
+// OR retry: widening the trigram MATCH cannot rescue a project/type/status
+// that matches nothing, and OR over trigrams is expensive enough that the
+// wasted pass shows up on a large corpus. The observable proof is the
+// reported match mode — an "or" here would mean the retry ran for nothing.
+func TestSearchORFallbackSkippedWhenFilterCausedTheZero(t *testing.T) {
+	s, ctx := orFallbackStore(t)
+
+	// The same query that DOES trigger the retry when unfiltered...
+	_, total, match, err := s.SearchFTS(ctx, "一週間 頑張った", EntryFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if match != MatchOr || total == 0 {
+		t.Fatalf("precondition broken: unfiltered query should be rescued by OR, got match=%q total=%d", match, total)
+	}
+
+	// ...must stay AND when a filter no entry satisfies is what caused the zero.
+	res, total, match, err := s.SearchFTS(ctx, "一週間 頑張った", EntryFilter{
+		ProjectID: "no-such-project-exists",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 || len(res) != 0 {
+		t.Fatalf("filter should exclude everything, got %d", total)
+	}
+	if match != MatchAnd {
+		t.Errorf("match = %q, want %q — the OR retry ran even though the filter caused the zero", match, MatchAnd)
+	}
+}

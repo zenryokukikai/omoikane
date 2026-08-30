@@ -253,7 +253,7 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 	if err != nil {
 		return nil, 0, "", err
 	}
-	if total == 0 && orRetryApplies(long, short) {
+	if total == 0 && orRetryApplies(long, short) && s.orRetryWorthIt(ctx, f) {
 		res, total, err = s.searchEntries(ctx, long, short, f, true)
 		if err != nil {
 			return nil, 0, "", err
@@ -261,6 +261,35 @@ func (s *Store) SearchFTS(ctx context.Context, q string, f EntryFilter) ([]*Sear
 		return res, total, MatchOr, nil
 	}
 	return res, total, MatchAnd, nil
+}
+
+// orRetryWorthIt reports whether the OR retry can possibly return rows.
+// A zero can come from the TOKENS (what the retry loosens) or from the
+// FILTERS (which the retry does not touch): a project/type/status/tag
+// that matches nothing yields zero no matter how the tokens are joined,
+// so widening the trigram MATCH there is pure waste — and OR over
+// trigrams broadens the candidate set enough that the wasted COUNT(*)
+// is real on a large corpus. One cheap filters-only COUNT tells the two
+// apart. Unfiltered queries skip the probe entirely (nothing to rule out).
+func (s *Store) orRetryWorthIt(ctx context.Context, f EntryFilter) bool {
+	if f.ProjectID == "" && f.Type == "" && f.Status == "" && f.Tag == "" {
+		return true
+	}
+	probe := EntryFilter{
+		ProjectID:         f.ProjectID,
+		Type:              f.Type,
+		Status:            f.Status,
+		Tag:               f.Tag,
+		IncludeSuperseded: f.IncludeSuperseded,
+		Limit:             1,
+	}
+	_, total, err := s.ListEntries(ctx, probe)
+	if err != nil {
+		// The probe is an optimisation, not a gate: on error fall back to
+		// retrying, so a transient failure never turns into a lost result.
+		return true
+	}
+	return total > 0
 }
 
 // orRetryApplies reports whether a zero-hit query has anything to loosen.

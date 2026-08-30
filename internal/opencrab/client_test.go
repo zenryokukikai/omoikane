@@ -255,12 +255,16 @@ func TestDispatchTalkRetriesTransient(t *testing.T) {
 		if attempts < 3 {
 			return 502, "bad gateway"
 		}
-		return 200, `{"session_id":"s","responses":[]}`
+		return 200, `{"session_id":"s","responses":[{"agent_id":"plib-u1","content":"承知しました"}]}`
 	}
 	c := f.client()
 	c.talkBackoff = time.Millisecond
-	if err := c.DispatchTalk(context.Background(), "plib-u1", "hello"); err != nil {
+	reply, err := c.DispatchTalk(context.Background(), "plib-u1", "hello")
+	if err != nil {
 		t.Fatalf("dispatch after transient failures: %v", err)
+	}
+	if reply != "承知しました" {
+		t.Fatalf("reply = %q, want the runtime's response content (issue #134: the reply is the only channel)", reply)
 	}
 	if attempts != 3 {
 		t.Fatalf("attempts = %d, want 3", attempts)
@@ -284,11 +288,47 @@ func TestDispatchTalkNoRetryOnFinal(t *testing.T) {
 		f.handlers["POST /api/agents/a/messages"] = h
 		c := f.client()
 		c.talkBackoff = time.Millisecond
-		if err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
+		if _, err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
 			t.Fatalf("%s: want error", name)
 		}
 		if len(f.calls) != 1 {
 			t.Fatalf("%s: attempts = %d, want 1 (no retry — the turn may have run)", name, len(f.calls))
+		}
+	}
+}
+
+// Reply extraction contract (issue #134): the messages endpoint answers
+// the agent's turn output as responses[0].content — that text (empty
+// and NO_REPLY included, verbatim: suppression is the caller's call) is
+// returned to the caller. The one exception: the runtime frames an
+// engine failure as HTTP 200 with content "(Error: ...)" — that is an
+// error report and must surface as an error, never as reply text.
+func TestDispatchTalkReplyExtraction(t *testing.T) {
+	cases := []struct {
+		name, body, reply string
+		wantErr           bool
+	}{
+		{"reply", `{"session_id":"s","responses":[{"agent_id":"a","content":"答えです"}]}`, "答えです", false},
+		{"no-reply-sentinel", `{"session_id":"s","responses":[{"agent_id":"a","content":"NO_REPLY"}]}`, "NO_REPLY", false},
+		{"empty-responses", `{"session_id":"s","responses":[]}`, "", false},
+		{"engine-error-framing", `{"session_id":"s","responses":[{"agent_id":"a","content":"(Error: llm exploded)"}]}`, "", true},
+	}
+	for _, tc := range cases {
+		f := newFakeRuntime(t)
+		body := tc.body
+		f.handlers["POST /api/agents/a/messages"] = func(recordedCall) (int, string) { return 200, body }
+		reply, err := f.client().DispatchTalk(context.Background(), "a", "x")
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("%s: want error, got reply %q", tc.name, reply)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if reply != tc.reply {
+			t.Fatalf("%s: reply = %q, want %q", tc.name, reply, tc.reply)
 		}
 	}
 }
@@ -303,7 +343,7 @@ func TestDispatchTalkConnectionErrorRetries(t *testing.T) {
 	c := New(url, "o", "http://kb")
 	c.talkBackoff = 2 * time.Millisecond
 	start := time.Now()
-	if err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
+	if _, err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
 		t.Fatal("want error against a dead runtime")
 	}
 	// Both backoff sleeps (2ms + 4ms) must have run — proof the
@@ -329,7 +369,7 @@ func TestDispatchTalkNoRetryOnResponseTimeout(t *testing.T) {
 	c.talkHC.Timeout = 20 * time.Millisecond
 	c.talkBackoff = time.Millisecond
 	start := time.Now()
-	err := c.DispatchTalk(context.Background(), "a", "x")
+	_, err := c.DispatchTalk(context.Background(), "a", "x")
 	if err == nil {
 		t.Fatal("want error on response timeout")
 	}

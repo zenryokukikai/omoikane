@@ -8,6 +8,7 @@ package api
 // events.go, so it stays package-level here.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -261,7 +262,7 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, err := h.Store.PostChatMessage(httpCtx(r), &store.ChatMessage{
+	id, err := h.storeChatMessage(httpCtx(r), thread, &store.ChatMessage{
 		ThreadID: req.ThreadID, AuthorRole: req.AuthorRole,
 		AuthorInstanceID: req.AuthorInstanceID,
 		AuthorUserID:     authorUserID,
@@ -274,23 +275,39 @@ func (h *Handler) chatPost(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	// Push to SSE listeners (chat responders, live frontends). Thread
-	// context rides along so listeners can route without a round-trip.
-	// The event is delivered under the thread's visibility space:
-	// internal for coordination threads, the owner's personal space for
-	// talk threads (see threadEventSpace / the Event doc comment).
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// storeChatMessage is the ONE librarian-chat write contract: persist
+// the message row, then push the chat.message event to SSE listeners
+// (chat responders, live frontends). Thread context rides along so
+// listeners can route without a round-trip; the event is delivered
+// under the thread's visibility space — internal for coordination
+// threads, the owner's personal space for talk threads (see
+// threadEventSpace / the Event doc comment). thread == nil (a
+// thread-less message) stores the row without an event, as before.
+//
+// Both writers come through here so row + event stay one shape: the
+// HTTP handler above (chatPost — every external poster, the gateway's
+// PostAssistantReply included) and the server-side /talk REST-fallback
+// reply delivery (webhooks.go deliverTalkReply, issue #134).
+func (h *Handler) storeChatMessage(ctx context.Context, thread *store.ChatThread, m *store.ChatMessage) (string, error) {
+	id, err := h.Store.PostChatMessage(ctx, m)
+	if err != nil {
+		return "", err
+	}
 	if h.Events != nil && thread != nil {
 		ev := map[string]any{
-			"id": id, "thread_id": req.ThreadID,
-			"author_user_id": authorUserID, "author_role": req.AuthorRole,
-			"content": req.Content, "intent": req.Intent,
+			"id": id, "thread_id": m.ThreadID,
+			"author_user_id": m.AuthorUserID, "author_role": m.AuthorRole,
+			"content": m.Content, "intent": m.Intent,
 			"thread_intent":     thread.Intent,
 			"thread_created_by": thread.CreatedBy,
 			"thread_title":      thread.Title,
 		}
 		h.Events.Publish(Event{Type: "chat.message", Data: ev, SpaceID: threadEventSpace(thread)})
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+	return id, nil
 }
 
 // chatList serves GET /v1/librarian/threads/{id}/messages.

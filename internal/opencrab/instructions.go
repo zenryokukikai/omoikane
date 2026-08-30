@@ -3,9 +3,17 @@ package opencrab
 import "fmt"
 
 // Instructions builds the agent's system instructions: the common
-// personal-librarian job description + the proven omoikane response
-// recipe (the same curl-based flow the sebastian responder runs in
-// production) + the user's free-text persona.
+// personal-librarian job description + the gateway-era reply contract +
+// the user's free-text persona.
+//
+// Gateway contract (issue #132): whatever the agent writes as its
+// turn's response body IS the reply — the gateway delivers it as the
+// say. The instructions therefore must NOT tell the agent to post via
+// /v1/librarian/chat or to broadcast chat.status events: those steps
+// need a thread_id the gateway prompt does not carry (the agent would
+// fail and apologise), and if they did succeed the reply would be sent
+// twice (posted body + delivered say). Only the read-side curl recipe
+// remains (POST /v1/search, GET /v1/entries/{id} via .kb.curlrc).
 //
 // The persona is embedded verbatim. It only ever reaches the user's OWN
 // agent — a hostile persona is self-injection with self-only blast
@@ -22,31 +30,23 @@ func Instructions(name, userName, persona, kbURL string) string {
 - 頼まれれば note エントリを書く
 - 分からないことは分からないと言う。空約束(「後で調べておきます」)はしない
 
-## omoikane 応答レシピ(この手順が完了条件)
+## 返信の仕方(重要)
+- **このターンの応答本文に書いた内容が、そのまま %[2]s さんへの返信として自動配送される。** 返信のための投稿作業は一切不要。
+- 返信のための投稿用 curl は使わない(チャット投稿 API やイベント broadcast へ POST しない)。thread_id を探さない。完了の通知も送らない。
+- **1件の依頼への返信は1回。** 応答を書き終えたらその依頼は完了。言い直し・補足の2通目を送らない。
+- 検索が空でも「見つからなかった」と自分の言葉で必ず返信する。
+
+## omoikane 検索レシピ(調べるとき)
 認証: workspace の .kb.curlrc に Authorization ヘッダが入っている。すべての curl に -K を付ける。
 Base URL: %[3]s
 
-1. 進捗実況(作業を始めたらまず送る): curl -sS -K .kb.curlrc -X POST %[3]s/v1/events/broadcast \
-     -H 'Content-Type: application/json' \
-     -d '{"type":"chat.status","data":{"thread_id":"<thread_id>","text":"🔎 書庫を検索しています…"}}'
-   data のキーは text(status ではない)。作業内容が変わるたびに送り直してよい。
-2. 検索(必要なときだけ): curl -sS -K .kb.curlrc -X POST %[3]s/v1/search \
+1. 検索(必要なときだけ): curl -sS -K .kb.curlrc -X POST %[3]s/v1/search \
      -H 'Content-Type: application/json' \
      -d '{"query":"<検索語>","top_k":8}'
    GET や ?q= は使えない(必ず POST + JSON)。挨拶や雑談には検索は不要 — そのまま返事してよい。
-3. 精読: curl -sS -K .kb.curlrc "%[3]s/v1/entries/<entry_id>"
-4. 返信投稿(必須): curl -sS -K .kb.curlrc -X POST %[3]s/v1/librarian/chat \
-     -H 'Content-Type: application/json' \
-     -d '{"thread_id":"<thread_id>","author_role":"assistant","intent":"observation","content":"<回答>"}'
-5. 完了通知(返信投稿の直後に必ず送る): curl -sS -K .kb.curlrc -X POST %[3]s/v1/events/broadcast \
-     -H 'Content-Type: application/json' \
-     -d '{"type":"chat.status","data":{"thread_id":"<thread_id>","done":true}}'
+2. 精読: curl -sS -K .kb.curlrc "%[3]s/v1/entries/<entry_id>"
 
-- **チャットへの投稿が完了条件。** 投稿せずにターンを終えない。検索が空でも「見つからなかった」と自分の言葉で必ず返信する。
-- **1件の依頼への返信投稿は1回だけ。** 返信と完了通知を送り終えたら、その依頼は完了。続きのターンが来ても、新しいメッセージが届いていない限り何も投稿しない(言い直し・補足の2通目を送らない)。
-- author_role は必ず "assistant"。author_user_id は送らない(トークンからサーバ側で付く)。
 - 引用するエントリは [[entry_id]] 形式で本文に埋め込む。
-- 自分の投稿(author_role が "assistant" のもの)には応答しない(ループ防止)。
 
 ## 性格
 %[4]s

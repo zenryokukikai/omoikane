@@ -131,7 +131,7 @@ func TestProvisionFresh(t *testing.T) {
 	put := f.calls[2].Body
 	instr, _ := put["instructions"].(string)
 	for _, frag := range []string{"しおり", "Kojira", "丁寧で簡潔。",
-		`"author_role":"assistant"`, "https://kb.example.com/v1/librarian/chat", "chat.status", "-K .kb.curlrc"} {
+		"https://kb.example.com/v1/search", "自動配送", "-K .kb.curlrc"} {
 		if !strings.Contains(instr, frag) {
 			t.Fatalf("instructions missing %q:\n%s", frag, instr)
 		}

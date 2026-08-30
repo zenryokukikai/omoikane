@@ -69,6 +69,9 @@ func newFromFS(s *store.Store, open bool, fsys fs.FS) (*Handler, error) {
 		},
 		"deref":     deref,
 		"wikiLinks": wikiLinks,
+		// snippetHTML turns a search hit's « » markers into <mark>,
+		// after escaping the excerpt (see search_pages.go).
+		"snippetHTML": snippetHTML,
 		// markdown + wiki + mentions + attachment unfurl in one shot;
 		// preferred renderer for entry bodies and chat messages.
 		// Captures `s` so attachment refs can be resolved at render

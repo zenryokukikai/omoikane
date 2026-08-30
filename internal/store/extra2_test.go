@@ -86,7 +86,7 @@ func TestSearchScopeIncludeSuperseded(t *testing.T) {
 	})
 	_ = s.SoftDeleteEntry(ctx, id, "tester", "human")
 	// Default: archived excluded
-	res, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{})
+	res, _, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestSearchScopeIncludeSuperseded(t *testing.T) {
 		t.Fatalf("default search should exclude archived, got %d", len(res))
 	}
 	// IncludeSuperseded: archived returned
-	res, _, err = s.SearchFTS(ctx, `"mask"*`, EntryFilter{IncludeSuperseded: true})
+	res, _, _, err = s.SearchFTS(ctx, `"mask"*`, EntryFilter{IncludeSuperseded: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestSearchTagFilter(t *testing.T) {
 	_, _ = s.CreateEntry(ctx, &Entry{
 		ProjectID: "p", Type: "trap", Title: "untagged mask", Body: "mask",
 	})
-	res, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{Tag: "mask"})
+	res, _, _, err := s.SearchFTS(ctx, `"mask"*`, EntryFilter{Tag: "mask"})
 	if err != nil {
 		t.Fatal(err)
 	}

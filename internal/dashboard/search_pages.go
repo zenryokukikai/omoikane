@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"errors"
+	"html/template"
 	"net/http"
 	"strings"
 
@@ -21,7 +22,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	pc.Title = "omoikane — search"
 	pc.Query = q
 	if q != "" {
-		res, _, err := h.Store.SearchFTS(r.Context(), q, store.EntryFilter{
+		res, _, _, err := h.Store.SearchFTS(r.Context(), q, store.EntryFilter{
 			ProjectID: r.URL.Query().Get("project"),
 			Limit:     50,
 		})
@@ -32,6 +33,19 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		pc.Results = res
 	}
 	h.render(w, "search", pc)
+}
+
+// snippetHTML renders a store search snippet as highlighted HTML.
+//
+// The order here is the whole point: the snippet is cut from entry text,
+// so it is HTML-escaped FIRST and only then are the store's « » markers
+// turned into <mark>. Swapping the two steps would let an entry body
+// containing literal markup inject tags into the results page.
+func snippetHTML(snippet string) template.HTML {
+	escaped := template.HTMLEscapeString(snippet)
+	escaped = strings.ReplaceAll(escaped, store.SnippetOpen, "<mark>")
+	escaped = strings.ReplaceAll(escaped, store.SnippetClose, "</mark>")
+	return template.HTML(escaped)
 }
 
 // useCasePage shows one UseCase and a paginated list of its linked entries.

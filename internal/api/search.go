@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/zenryokukikai/omoikane/internal/store"
 )
@@ -18,7 +19,64 @@ type searchRequest struct {
 	// lookup-style queries). Results come back in a separate
 	// `chat_results` field on the response.
 	IncludeChat bool `json:"include_chat,omitempty"`
+	// View selects the projection of each hit (issue #138):
+	// ViewFull (the default) keeps the whole entry, ViewIndex returns
+	// the id/title/snippet a reader needs to decide what to open.
+	View string `json:"view,omitempty"`
 }
+
+// Response projections for search hits (issue #138).
+//
+// ViewFull is the default and is byte-for-byte the pre-#138 shape plus
+// the new `snippet` field, so the dashboard and the dist/ librarian
+// scripts keep working untouched. ViewIndex drops the entry body: a
+// top_k=5 full response runs 6-13 KB, which crowds out an agent's
+// context, while the flat hit is ~2 KB and still says enough — title
+// plus the matched text — to choose what to fetch in full.
+const (
+	ViewFull  = "full"
+	ViewIndex = "index"
+)
+
+// indexHit is the ViewIndex projection. It lives in the API layer on
+// purpose: the store keeps carrying the full *Entry either way, because
+// RecordAccess and the mode=reasoning re-rank both read it. Only the
+// marshalling changes.
+type indexHit struct {
+	EntryID   string    `json:"entry_id"`
+	Title     string    `json:"title"`
+	Type      string    `json:"type"`
+	ProjectID string    `json:"project_id"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Score     float64   `json:"score"`
+	Snippet   string    `json:"snippet"`
+}
+
+func indexHits(results []*store.SearchResult) []indexHit {
+	out := make([]indexHit, 0, len(results))
+	for _, sr := range results {
+		out = append(out, indexHit{
+			EntryID:   sr.Entry.ID,
+			Title:     sr.Entry.Title,
+			Type:      sr.Entry.Type,
+			ProjectID: sr.Entry.ProjectID,
+			UpdatedAt: sr.Entry.UpdatedAt,
+			Score:     sr.Score,
+			Snippet:   sr.Snippet,
+		})
+	}
+	return out
+}
+
+// ZeroHitHint replaces feedback_prompt on a count:0 response. The prompt
+// is hit-time wording ("was this helpful?") and reads, next to an empty
+// result list, as though something is still coming — a librarian in
+// production really did take count:0 for "not ready yet" and waited.
+// This says the opposite in as many words, and tells the reader what to
+// try instead (issue #138).
+const ZeroHitHint = `該当なし。語を減らすか固有名詞で引き直してください` +
+	`(人名・ID が最も当たります)。この count:0 は` +
+	`『結果がまだ準備中』ではなく『一致ゼロ』の確定応答です。`
 
 type searchFilters struct {
 	ProjectID         string `json:"project"`
@@ -44,6 +102,15 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"feature": "search.mode=" + req.Mode})
 		return
 	}
+	// An unknown view is a 400, never a silent fall back to "full": a
+	// typo would otherwise show up only as "search is inexplicably
+	// heavy", and the cause would take a long time to find.
+	if req.View != "" && req.View != ViewFull && req.View != ViewIndex {
+		writeError(w, http.StatusBadRequest, CodeBadRequest,
+			"view must be full or index",
+			map[string]any{"view": req.View})
+		return
+	}
 	filter := store.EntryFilter{Limit: req.TopK}
 	if req.Filters != nil {
 		filter.ProjectID = req.Filters.ProjectID
@@ -56,7 +123,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	// handler-level guard above prevents that path from being reached —
 	// any error here is therefore an internal-store failure that
 	// writeStoreError will translate.
-	results, total, err := h.Store.SearchFTS(httpCtx(r), req.Query, filter)
+	results, total, match, err := h.Store.SearchFTS(httpCtx(r), req.Query, filter)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -91,11 +158,22 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp := map[string]any{
-		"results":         results,
-		"count":           len(results),
-		"total":           total,
-		"mode":            defaultMode(req.Mode),
-		"feedback_prompt": FeedbackPrompt,
+		"results": results,
+		"count":   len(results),
+		"total":   total,
+		"mode":    defaultMode(req.Mode),
+		// `match` is deliberately its own field: `mode` already means the
+		// search strategy (fts / reasoning) and `view` the projection.
+		// Overloading one of them would give the same knob two meanings.
+		"match": match,
+	}
+	if req.View == ViewIndex {
+		resp["results"] = indexHits(results)
+	}
+	if len(results) == 0 {
+		resp["hint"] = ZeroHitHint
+	} else {
+		resp["feedback_prompt"] = FeedbackPrompt
 	}
 	// Passive access logging — every entry surfaced via search counts as
 	// a "the agent saw this" event. Best-effort; non-fatal.

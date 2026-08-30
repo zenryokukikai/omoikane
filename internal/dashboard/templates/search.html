@@ -11,6 +11,9 @@
           <a class="entry-row-title" href="/entries/{{.Entry.ID}}{{if $.Token}}?token={{urlq $.Token}}{{end}}">{{.Entry.Title}}</a>
           <span class="badge badge-status-{{.Entry.Status}}">{{.Entry.Status}}</span>
         </div>
+        {{if .Snippet}}
+        <div class="entry-row-snippet">{{snippetHTML .Snippet}}</div>
+        {{end}}
         <div class="entry-row-meta muted">
           <span class="badge">{{.Entry.ID}}</span> · {{.Entry.Type}} · score {{printf "%.3f" .Score}}
         </div>

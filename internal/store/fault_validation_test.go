@@ -23,7 +23,7 @@ func TestSearchFTSTagFilterCleanRun(t *testing.T) {
 	// without error. Exercises the tag-join path and the empty-result
 	// scan loop.
 	s, _ := seed(t)
-	if _, _, err := s.SearchFTS(context.Background(), `"x"*`, EntryFilter{
+	if _, _, _, err := s.SearchFTS(context.Background(), `"x"*`, EntryFilter{
 		Tag: "no-such-tag",
 	}); err != nil {
 		t.Fatalf("clean search should work: %v", err)
@@ -178,7 +178,7 @@ func TestSearchFTSWithTypeAndStatus(t *testing.T) {
 		ProjectID: "p", Type: "decision", Title: "for-search", Body: "extra",
 		Status: "ACTIVE",
 	})
-	res, _, err := s.SearchFTS(ctx, `"for-search"*`, EntryFilter{
+	res, _, _, err := s.SearchFTS(ctx, `"for-search"*`, EntryFilter{
 		Type: "decision", Status: "ACTIVE",
 	})
 	if err != nil {
@@ -195,7 +195,7 @@ func TestSearchFTSEntryWithEnrichmentAt(t *testing.T) {
 	if err := s.SetEnrichment(ctx, id, 7); err != nil {
 		t.Fatal(err)
 	}
-	res, _, err := s.SearchFTS(ctx, `"y"*`, EntryFilter{})
+	res, _, _, err := s.SearchFTS(ctx, `"y"*`, EntryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestSearchFTSEntryWithValidTo(t *testing.T) {
 	if err := s.SoftDeleteEntry(ctx, id, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	res, _, err := s.SearchFTS(ctx, `"y"*`, EntryFilter{IncludeSuperseded: true})
+	res, _, _, err := s.SearchFTS(ctx, `"y"*`, EntryFilter{IncludeSuperseded: true})
 	if err != nil {
 		t.Fatal(err)
 	}

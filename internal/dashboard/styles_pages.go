@@ -48,6 +48,16 @@ const stylesEntryLists = `/* ---- entry row lists (/entries, /search — issue #
 .entry-row-main { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
 .entry-row-title { font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
 .entry-row-meta { margin-top: 0.15rem; font-size: 0.78rem; overflow-wrap: anywhere; }
+/* Search-hit excerpt (issue #138): the matched span is wrapped in <mark>
+   so a reader can judge relevance without opening the entry. */
+.entry-row-snippet {
+  margin-top: 0.2rem; font-size: 0.85rem; line-height: 1.5;
+  color: var(--muted); overflow-wrap: anywhere;
+}
+.entry-row-snippet mark {
+  background: var(--hover); color: var(--fg);
+  padding: 0 0.1em; border-radius: 2px;
+}
 
 /* Forms never force a min-width (issue #19: /agents invite form was
    406px wide at a 375px viewport). max-width alone cannot beat an

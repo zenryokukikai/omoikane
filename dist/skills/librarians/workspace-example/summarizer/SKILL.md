@@ -70,12 +70,13 @@ argument to backfill an older day; the script pages back until that day
 is covered.
 
 **Check `scan.complete` before you believe an empty result.** `false`
-(the script also exits **3**) means the scan stopped before reaching the
-target day — the counts are a floor, not the day. Do **not** post a
-journal from an incomplete scan: re-run with a bigger budget
-(`SUMMARIZER_MAX_PAGES=120 bash …/fetch_yesterday.sh <date>`) and if it
-still comes back incomplete, print `incomplete scan for <date>` and exit
-without posting. (An earlier version silently returned 0 for any day
+(the script also exits **3**) means the day was never provably covered —
+the counts are a floor, not the day. `scan.incomplete_because` names the
+cause: page budget exhausted, a page the server could not account for,
+or timestamps that failed to parse. Do **not** post a journal from an
+incomplete scan: if it was the budget, re-run with a bigger one
+(`SUMMARIZER_MAX_PAGES=120 bash …/fetch_yesterday.sh <date>`); otherwise
+print `incomplete scan for <date>: <reason>` and exit without posting. (An earlier version silently returned 0 for any day
 older than the newest 500 entries, and four journals said "nothing
 happened" on days with hundreds of entries.)
 

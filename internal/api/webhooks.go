@@ -153,8 +153,12 @@ func (h *Handler) startWebhookDispatcher() {
 // agent on an external runtime and returns the agent's reply text (the
 // runtime's messages API is synchronous over the whole turn). Implemented
 // by *opencrab.Client; an interface so tests can stand in a fake runtime.
+//
+// ownerUserID is the kb user id of the librarian's owner — the identity
+// the runtime resolves the caller by (issue #137). It is per librarian:
+// the same value provisioning wrote into that agent's trust row.
 type TalkDispatcher interface {
-	DispatchTalk(ctx context.Context, agentID, content string) (reply string, err error)
+	DispatchTalk(ctx context.Context, agentID, ownerUserID, content string) (reply string, err error)
 }
 
 // talkDispatchTimeout bounds one runtime dispatch. The messages API is
@@ -241,7 +245,11 @@ func (h *Handler) routeTalkToPersonalLibrarian(data any) bool {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), talkDispatchTimeout)
 		defer cancel()
-		reply, err := h.TalkDispatch.DispatchTalk(ctx, ul.AgentID,
+		// Caller identity = the librarian's owner (the thread owner
+		// whose row we just read): the value provisioning wrote into
+		// its trust row, so the runtime resolves this dispatch as the
+		// owner and the owner-gated tools stay available (issue #137).
+		reply, err := h.TalkDispatch.DispatchTalk(ctx, ul.AgentID, ul.UserID,
 			talkDispatchContent(title, content))
 		if err != nil {
 			// Log and stop: an error string is never posted as the

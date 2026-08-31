@@ -2212,13 +2212,20 @@ API はブラウザに一切露出しない。スライス A は設定ページ+
 | 変数 | 意味 |
 |---|---|
 | `OPENCRAB_URL` | opencrab 基盤の base URL。**未設定なら機能ごと無効**(/my/librarian は 404、ヘッダーリンク非表示) |
-| `OPENCRAB_OWNER_ID` | 基盤 REST の信頼 caller id。敷設時に各エージェントの trust 行(owner_discord_id)へ書く |
 | `GATE_ADMIN_URL` | 外部 gate 管理面(admin API)の base URL(issue #104 G2)。**未設定なら gate 登録は無効**(保存フローは gate をスキップ)。`OPENCRAB_URL` と同じゲート方式 |
 | `GATE_OPERATOR_TOKEN` | gate 管理面の operator 資格情報。全 admin 呼び出しに bearer token として付与 |
 | `GATE_TALK_REST_FORCE` | gateway cutover の kill switch(issue #104)。**非空なら** gateway 経路の claim を全面停止し、全 /talk メッセージを従来の REST dispatch に戻す(opencrab 再起動・DB 操作不要)。通常は未設定 |
 | `KB_URL_SIGNING_KEY` | 添付ファイル署名付き URL の HMAC 鍵(issue #104 G4)。`/v1/attachments/{id}/content?exp=&sig=` の期限付き無認証配信(gateway が Authorization なしで fetch する契約)に使う。**未設定なら機能ごと無効**(発行はエラー、署名は決して許可しない)。署名は追加の許可であり制限ではない — sig なしアクセスは従来どおり認証必須。既定 TTL 15 分。鍵はログに出さない |
 
 エージェントの instructions に埋める omoikane 側 base URL は `KB_OAUTH_REDIRECT_BASE` を再利用する。
+
+**司書のオーナーは env ではない**(issue #137)。以前は `OPENCRAB_OWNER_ID`(デプロイ全体で 1 個)
+を全司書の trust 行へ書いていたため、**誰が保存しても同じ人がオーナー**になり、他メンバーは
+自分の司書のオーナーになれなかった(オーナー限定ツールが本人に出ない)。オーナーは
+**保存した本人の kb `users.id`** を都度書く。値の空間は自由ではない — gateway は発話者 ID に
+kb user id(`librarian_chat.author_user_id`)を刻み(`internal/gate/runtime`)、opencrab は
+完全一致で owner を判定するため、`google_sub` や Discord snowflake では**永久に一致しない**。
+`OPENCRAB_OWNER_ID` は廃止(残っていても読まれない)。
 
 ### 25.2 データ
 
@@ -2235,7 +2242,8 @@ API はブラウザに一切露出しない。スライス A は設定ページ+
 1. `GET /api/agents/{id}` — 存在確認(null なら次で作成)
 2. `POST /api/agents` `{id, name, persona_name}` — 新規時のみ
 3. `PUT /api/agents/{id}` — 共通テンプレ+応答レシピ+性格文を instructions に全量反映
-4. trust 行: `GET /api/agents/{id}/discord` → 既存なら `PATCH {owner_discord_id}`。
+4. trust 行: `GET /api/agents/{id}/discord` → 既存なら `PATCH {owner_discord_id}`(値は
+   **保存した本人の kb user id**、`ProvisionParams.OwnerID`)。
    未作成なら `PUT {bot_token:"", owner_discord_id}` の後、**GET で行の存在と owner 一致を検証**
    (PUT ハンドラは空トークンでの gateway 起動見送り = StartDeclined をエラーとして返すため、
    応答ではなく再取得を成功判定に使う)。bot_token は常に空 — gateway は起動し得ない
@@ -2266,7 +2274,7 @@ API はブラウザに一切露出しない。スライス A は設定ページ+
 2. human かつ **thread_intent=talk・スレッド owner(`thread_created_by`)が status=active の
    `user_librarians` 行を持つ・`OPENCRAB_URL` 設定済み** のとき、webhook 購読への配送を
    **抑止**し、代わりに基盤 REST へ直接ディスパッチ:
-   `POST {OPENCRAB_URL}/api/agents/{agent_id}/messages` `{"user_id": OPENCRAB_OWNER_ID, "content": ...}`。
+   `POST {OPENCRAB_URL}/api/agents/{agent_id}/messages` `{"user_id": <司書オーナーの kb user id>, "content": ...}`。
    content 先頭に thread_id(+スレッド題)を明記 — 司書の応答レシピは thread_id で返信する
 3. 上記条件を 1 つでも欠く(機能無効・talk 以外・司書なし/無効・owner 解決失敗)場合は
    従来どおり webhook で既定応答者へ(**fail-open to default responder**)
@@ -2279,8 +2287,9 @@ fire-and-forget。**接続エラー / 5xx に限り** 1s→2s の指数バック
 フォールバック配送は**しない**(webhook 配送自体と同じ at-most-once 契約。取りこぼしは
 リスト API で照合)。1 メッセージが 2 経路に届くことはない(二重応答の防止が抑止の目的)。
 
-caller `user_id` に `OPENCRAB_OWNER_ID` を使うのは、敷設時に trust 行へ書いた owner id と
-同値だから — 基盤側 `caller_identity` が Owner と解決し、実行ツールが露出する。
+caller `user_id` に**その司書のオーナー(= スレッド owner の kb user id)**を使うのは、敷設時に
+trust 行へ書いた owner id と同値だから — 基盤側 `caller_identity` が Owner と解決し、実行ツールが
+露出する。司書ごとの値であって、デプロイ共通の定数ではない(issue #137)。
 
 ### 25.7 メッセージ身元の一般化(スライス B)
 

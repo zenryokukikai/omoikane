@@ -26,9 +26,8 @@
 #   OPENCRAB_URL          opencrab runtime base    (default http://127.0.0.1:18700)
 #   GATE_ADMIN_URL        gate admin plane base    (default = OPENCRAB_URL)
 #   GATE_OPERATOR_TOKEN   operator bearer for the admin plane (default empty)
-#   OPENCRAB_OWNER_ID     trusted owner id written into the agent's trust
-#                         row (default qc-operator; must match what the
-#                         platform side expects)
+#   (no owner-id knob: since issue #137 the librarian's owner is the kb
+#    user that saved it — here the QC owner user — written per save)
 #   OPENCRAB_GATE_SOCKET  the core's UDS path      (default /tmp/opencrab/gate.sock)
 #   QC_LIBRARIAN_NAME     librarian display name   (default きりんQC)
 #   QC_REPLY_TIMEOUT      seconds to wait for the assistant reply (default 120)
@@ -59,7 +58,6 @@ KB_DB_PATH="${KB_DB_PATH:-$QC_DIR/kb.db}"
 OPENCRAB_URL="${OPENCRAB_URL:-http://127.0.0.1:18700}"
 GATE_ADMIN_URL="${GATE_ADMIN_URL:-$OPENCRAB_URL}"
 GATE_OPERATOR_TOKEN="${GATE_OPERATOR_TOKEN:-}"
-OPENCRAB_OWNER_ID="${OPENCRAB_OWNER_ID:-qc-operator}"
 OPENCRAB_GATE_SOCKET="${OPENCRAB_GATE_SOCKET:-/tmp/opencrab/gate.sock}"
 QC_LIBRARIAN_NAME="${QC_LIBRARIAN_NAME:-きりんQC}"
 QC_REPLY_TIMEOUT="${QC_REPLY_TIMEOUT:-120}"
@@ -155,7 +153,6 @@ KB_DB_PATH="$KB_DB_PATH" \
 KB_HTTP_ADDR="127.0.0.1:${KB_PORT}" \
 KB_OAUTH_REDIRECT_BASE="$KB_BASE" \
 OPENCRAB_URL="$OPENCRAB_URL" \
-OPENCRAB_OWNER_ID="$OPENCRAB_OWNER_ID" \
 GATE_ADMIN_URL="$GATE_ADMIN_URL" \
 GATE_OPERATOR_TOKEN="$GATE_OPERATOR_TOKEN" \
   "$QC_DIR/kb-server" >"$QC_DIR/kb-server.log" 2>&1 &

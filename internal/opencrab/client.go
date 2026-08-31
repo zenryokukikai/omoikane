@@ -25,9 +25,18 @@ import (
 )
 
 // Client provisions personal librarian agents onto one opencrab runtime.
+//
+// Owner identity (issue #137): a personal librarian's owner is the kb
+// user who owns it — its kb `users.id` — and that id travels per call
+// (ProvisionParams.OwnerID, DispatchTalk's ownerUserID), never as a
+// deployment-wide constant. The identifier space is not free: the
+// gateway lane stamps the speaker of a said with the kb user id
+// (internal/gate/runtime: m.AuthorUserID → said AuthorID) and opencrab
+// resolves ownership by exact string match against the trust row, so a
+// librarian is only owned by its user when the trust row carries that
+// same kb user id.
 type Client struct {
 	baseURL string // runtime base URL, no trailing slash
-	ownerID string // trusted caller id for the runtime's REST messages API
 	kbURL   string // omoikane's own base URL, embedded into agent instructions
 	hc      *http.Client
 	// talkHC serves the synchronous messages API (DispatchTalk): the
@@ -42,10 +51,9 @@ type Client struct {
 
 // New builds a Client. kbURL is the omoikane base URL agents should call
 // back to (typically cfg.OAuthRedirectBase).
-func New(baseURL, ownerID, kbURL string) *Client {
+func New(baseURL, kbURL string) *Client {
 	return &Client{
 		baseURL:     strings.TrimRight(baseURL, "/"),
-		ownerID:     ownerID,
 		kbURL:       strings.TrimRight(kbURL, "/"),
 		hc:          &http.Client{Timeout: 30 * time.Second},
 		talkHC:      &http.Client{},
@@ -55,10 +63,12 @@ func New(baseURL, ownerID, kbURL string) *Client {
 
 // DispatchTalk hands one /talk message to the agent's REST messages
 // endpoint (POST /api/agents/{id}/messages) and returns the agent's
-// reply text. user_id is the client's trusted owner id — the same value
-// Provision wrote into the agent's trust row, so the runtime resolves
-// the caller as Owner and exposes the execution tools (opencrab
-// caller_identity.rs).
+// reply text. ownerUserID is the kb user id of the librarian's owner —
+// the same value Provision wrote into that agent's trust row, so the
+// runtime resolves the caller as Owner and exposes the execution tools
+// (opencrab caller_identity.rs). It is per librarian, not a
+// deployment-wide constant (issue #137): dispatching with anything else
+// reaches the agent as a stranger and silently loses the owner tools.
 //
 // The endpoint is synchronous: it answers after the agent's whole turn
 // with {"session_id","caller_type","responses":[{"agent_id","content"}]}
@@ -80,9 +90,12 @@ func New(baseURL, ownerID, kbURL string) *Client {
 // same shape as omoikane's webhook delivery. 4xx and error-body
 // responses are FINAL: the runtime processed the request, the agent's
 // turn may already have run, and a re-send could run it twice.
-func (c *Client) DispatchTalk(ctx context.Context, agentID, content string) (string, error) {
+func (c *Client) DispatchTalk(ctx context.Context, agentID, ownerUserID, content string) (string, error) {
 	if agentID == "" {
 		return "", fmt.Errorf("opencrab: agent id required")
+	}
+	if ownerUserID == "" {
+		return "", fmt.Errorf("opencrab: owner user id required")
 	}
 	var out struct {
 		Responses []struct {
@@ -94,7 +107,7 @@ func (c *Client) DispatchTalk(ctx context.Context, agentID, content string) (str
 	for attempt := 1; attempt <= 3; attempt++ {
 		err = c.do(ctx, c.talkHC, http.MethodPost,
 			"/api/agents/"+agentID+"/messages",
-			map[string]any{"user_id": c.ownerID, "content": content}, &out)
+			map[string]any{"user_id": ownerUserID, "content": content}, &out)
 		var te *transientError
 		if err == nil || !errors.As(err, &te) {
 			break
@@ -143,7 +156,14 @@ func (e *httpError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.status,
 // ProvisionParams is one provisioning request. All ids are generated
 // server-side by the caller (never taken from a form).
 type ProvisionParams struct {
-	AgentID  string // "plib-<user_id>"
+	AgentID string // "plib-<user_id>"
+	// OwnerID is the kb users.id of the user this librarian belongs to
+	// — the one written into the runtime's trust row (issue #137). It
+	// must be the kb user id and nothing else: the gateway stamps the
+	// speaker of a said with exactly that value, and opencrab matches
+	// the owner by exact string (a google_sub or a Discord snowflake
+	// can never match, so the owner would never resolve).
+	OwnerID  string
 	UserName string // the owner's display name (embedded in instructions)
 	Name     string // the librarian's name (user-chosen)
 	Persona  string // free-text personality (user-chosen)
@@ -154,9 +174,10 @@ type ProvisionParams struct {
 //
 //  1. agent row exists (POST /api/agents when absent)
 //  2. identity + instructions up to date (PUT /api/agents/{id})
-//  3. trust row carries our owner id (PATCH or PUT /api/agents/{id}/discord,
-//     verified by a follow-up GET — the PUT path reports a gateway
-//     start-decline as an error even though the row was written)
+//  3. trust row carries the OWNING USER's kb user id (PATCH or PUT
+//     /api/agents/{id}/discord, verified by a follow-up GET — the PUT
+//     path reports a gateway start-decline as an error even though the
+//     row was written)
 //  4. kb credentials in the workspace (PUT /api/agents/{id}/workspace/.kb.curlrc)
 //     — only when KBToken is non-empty (first provision)
 //
@@ -165,6 +186,11 @@ type ProvisionParams struct {
 func (c *Client) Provision(ctx context.Context, p ProvisionParams) error {
 	if p.AgentID == "" || p.Name == "" {
 		return fmt.Errorf("opencrab: agent id and name required")
+	}
+	// Fail loudly rather than write an empty owner: a trust row with an
+	// empty owner is a librarian nobody owns (issue #137).
+	if p.OwnerID == "" {
+		return fmt.Errorf("opencrab: owner id required")
 	}
 
 	// Step 1 — ensure the agent row exists.
@@ -193,7 +219,7 @@ func (c *Client) Provision(ctx context.Context, p ProvisionParams) error {
 
 	// Step 3 — trust row (owner id only; no bot token, so the discord
 	// gateway can never start for this agent).
-	if err := c.ensureTrustRow(ctx, p.AgentID); err != nil {
+	if err := c.ensureTrustRow(ctx, p.AgentID, p.OwnerID); err != nil {
 		return err
 	}
 
@@ -219,17 +245,21 @@ func (c *Client) agentExists(ctx context.Context, id string) (bool, error) {
 	return trimmed != "" && trimmed != "null", nil
 }
 
-// ensureTrustRow makes the agent's discord-config row exist with our
-// owner id. The row (not the gateway) is what the runtime's REST
-// messages API checks for caller trust; bot_token stays empty and the
-// gateway is never started.
+// ensureTrustRow makes the agent's discord-config row exist with the
+// owning user's kb user id. The row (not the gateway) is what the
+// runtime's REST messages API checks for caller trust; bot_token stays
+// empty and the gateway is never started.
+//
+// The column is named owner_discord_id on the runtime side, but its
+// content is a kb user id — that name/content divergence is opencrab's
+// contract to rename, not ours (issue #137).
 //
 // PATCH updates an existing row in place; a missing row can only be
 // created via PUT, whose handler also tries to start the gateway and
 // then reports the (expected, token-less) start-decline as an error —
 // so success is judged by a follow-up GET showing the row with our
 // owner id, not by the PUT response.
-func (c *Client) ensureTrustRow(ctx context.Context, agentID string) error {
+func (c *Client) ensureTrustRow(ctx context.Context, agentID, ownerID string) error {
 	path := "/api/agents/" + agentID + "/discord"
 
 	var cfg struct {
@@ -242,7 +272,7 @@ func (c *Client) ensureTrustRow(ctx context.Context, agentID string) error {
 
 	if cfg.Configured {
 		if err := c.call(ctx, http.MethodPatch, path, map[string]any{
-			"owner_discord_id": c.ownerID,
+			"owner_discord_id": ownerID,
 		}, nil); err != nil {
 			return fmt.Errorf("trust row update (PATCH %s): %w", path, err)
 		}
@@ -252,7 +282,7 @@ func (c *Client) ensureTrustRow(ctx context.Context, agentID string) error {
 	// Row absent — create via PUT, tolerating the start-decline error.
 	putErr := c.call(ctx, http.MethodPut, path, map[string]any{
 		"bot_token":        "",
-		"owner_discord_id": c.ownerID,
+		"owner_discord_id": ownerID,
 	}, nil)
 
 	var after struct {
@@ -262,12 +292,12 @@ func (c *Client) ensureTrustRow(ctx context.Context, agentID string) error {
 	if err := c.call(ctx, http.MethodGet, path, nil, &after); err != nil {
 		return fmt.Errorf("trust row verify (GET %s): %w", path, err)
 	}
-	if !after.Configured || after.OwnerDiscordID != c.ownerID {
+	if !after.Configured || after.OwnerDiscordID != ownerID {
 		if putErr != nil {
 			return fmt.Errorf("trust row create (PUT %s): %w", path, putErr)
 		}
 		return fmt.Errorf("trust row create (PUT %s): row not persisted (configured=%v owner=%q want %q)",
-			path, after.Configured, after.OwnerDiscordID, c.ownerID)
+			path, after.Configured, after.OwnerDiscordID, ownerID)
 	}
 	return nil
 }

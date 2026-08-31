@@ -8,7 +8,7 @@ const stylesOps = `/* ---- header ⚙ ops menu (issue #22) — pure CSS dropdown
   padding: 0.15rem 0.45rem; border-radius: 6px; border: 1px solid transparent;
 }
 .nav-ops > summary::-webkit-details-marker { display: none; }
-.nav-ops[open] > summary { border-color: var(--border); background: var(--bg-soft); }
+.nav-ops[open] > summary { border-color: var(--border); background: var(--hover); }
 .nav-ops-menu {
   position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 30;
   display: flex; flex-direction: column; min-width: 12rem;
@@ -16,7 +16,7 @@ const stylesOps = `/* ---- header ⚙ ops menu (issue #22) — pure CSS dropdown
   box-shadow: 0 6px 20px rgba(0,0,0,0.12); padding: 0.4rem 0;
 }
 .nav-ops-menu a { padding: 0.35rem 0.9rem; font-weight: 500; font-size: 0.9rem; }
-.nav-ops-menu a:hover { background: var(--bg-soft); }
+.nav-ops-menu a:hover { background: var(--hover); }
 .nav-ops-menu hr { border: none; border-top: 1px solid var(--border); margin: 0.3rem 0; }
 /* Mobile (issue #69): with right:0 anchored to the ⚙ button, the
    12rem panel ran off the LEFT edge of the screen once the header
@@ -95,11 +95,7 @@ form label input, form label select { max-width: 100%; min-width: 0; }
    item per line, label above its full-width control. */
 @media (max-width: 720px) {
   .entries-filter label { flex-direction: column; align-items: stretch; width: 100%; gap: 0.2rem; white-space: normal; }
-  /* min-width:0 is load-bearing: the global form input[type=text]
-     rule (styles_chat.go) sets min-width:320px and out-specifies the
-     generic form label input reset, so without this the inputs refuse
-     to shrink and the page scrolls sideways under ~360px. */
-  .entries-filter input[type="text"], .entries-filter select { width: 100%; min-width: 0; }
+  .entries-filter input[type="text"], .entries-filter select { width: 100%; }
   /* The checkbox keeps text beside the box even when narrow — stacking
      would leave the □ floating alone above "include SUPERSEDED". */
   .entries-filter label.checkbox-inline { flex-direction: row; align-items: center; width: auto; }
@@ -108,14 +104,13 @@ form label input, form label select { max-width: 100%; min-width: 0; }
 
 /* ---- /entries/new compose form (issue #122) ----
    The template is <p><label>text<br><control></label></p> repeated, with
-   size=/cols= attributes doing the sizing. With no rule at all that gave
-   two problems: the controls were browser-default boxes in a page where
-   every other input is a 1px --border box, and at 320px the form scrolled
-   sideways — the global "form input[type=text] { min-width: 320px }"
-   (stylesLogin, specificity 0,1,2) out-specifies the generic
-   "form label input" reset (0,0,3), so the title/project/tag inputs
-   refused to shrink. ".entry-new-form input[type=text]" is 0,2,1 and
-   wins, which is what actually stops the horizontal scroll.
+   size=/cols= attributes doing the sizing. With no rule at all the
+   controls were browser-default boxes in a page where every other input
+   is a 1px --border box. (This block also used to carry the page's only
+   defence against horizontal scroll at 320px, because the global
+   "form input[type=text]" rule floored every input at 320px and could
+   not be out-specified. #123 deleted that floor, so the width/min-width
+   below are plain column layout now, not a counter-measure.)
 
    Layout: each <p> is a wrap-able row. The lone title/body labels take
    the full column; the four-up type/project/space/tags row flows from

@@ -23,6 +23,25 @@ package dashboard
 //
 // Only *.html templates are walked: the one *.tmpl file is the agent
 // skill markdown, which is never rendered to a styled HTML page.
+//
+// CSS custom properties (issue #158) get the same treatment further down
+// — same defect, one layer lower in the language:
+//
+//	Forward (TestCustomPropertiesAreDefined): every `var(--x)` in the
+//	  stylesheet (or in a template's inline style) must have a `--x:`
+//	  declaration. An undefined custom property is not an error in CSS:
+//	  the ONE declaration using it is thrown away and the page renders
+//	  with the property missing, so the page looks fine to anyone who has
+//	  not seen the intended version. That is how eight `var(--bg-soft)`
+//	  hover/selected fills shipped doing nothing.
+//
+//	Reverse (TestCustomPropertiesAreUsed): every `--x:` declaration must
+//	  be referenced by some `var(--x)`. A token nobody reads is dead
+//	  weight that invites a second, near-duplicate token later.
+//
+// Neither direction has an allowlist, because neither has an exception:
+// a token is defined and used, or it is a defect. Add one only with a
+// case that cannot be fixed instead.
 
 import (
 	"io/fs"
@@ -294,5 +313,154 @@ func TestStylesheetClassesAreUsed(t *testing.T) {
 		if !css[class] {
 			t.Errorf("reverseExternalUse entry %q has no rule any more — remove the stale allowlist line.", class)
 		}
+	}
+}
+
+// ---- custom properties (issue #158) ----------------------------------
+
+var (
+	// A use: the token name right after `var(`. Fallback forms
+	// (`var(--a, var(--b))`) match twice, once per `var(`, which is what
+	// we want — both names have to exist.
+	cssVarUseRE = regexp.MustCompile(`var\(\s*(--[A-Za-z0-9_-]+)`)
+	// A definition: a `--name:` declaration, i.e. a token name that
+	// starts a declaration (after `{`, after `;`, or at line start).
+	// Anchoring on those three keeps `var(--x)` — where the name is
+	// preceded by `(` and followed by `)` or `,` — from being read as
+	// one. Comments are stripped before either regex runs.
+	cssVarDefRE = regexp.MustCompile(`(?m)(?:^|[{;])\s*(--[A-Za-z0-9_-]+)\s*:`)
+)
+
+// customPropertyUses returns every `var(--x)` name found in the assembled
+// stylesheet and in the templates (a template may carry a custom property
+// in an inline style=""), mapped to the sources it appears in.
+func customPropertyUses(t *testing.T) map[string]map[string]bool {
+	t.Helper()
+	out := map[string]map[string]bool{}
+	add := func(name, src string) {
+		if out[name] == nil {
+			out[name] = map[string]bool{}
+		}
+		out[name][src] = true
+	}
+	for _, m := range cssVarUseRE.FindAllStringSubmatch(strippedStylesheet(), -1) {
+		add(m[1], "stylesheet")
+	}
+	files, err := fs.Glob(templatesFS, "templates/*.html")
+	if err != nil {
+		t.Fatalf("glob templates: %v", err)
+	}
+	for _, f := range files {
+		b, err := templatesFS.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, m := range cssVarUseRE.FindAllStringSubmatch(string(b), -1) {
+			add(m[1], strings.TrimPrefix(f, "templates/"))
+		}
+	}
+	return out
+}
+
+// customPropertyDefs returns every custom property DECLARED in the
+// stylesheet. Declarations anywhere count, not only :root — a token
+// scoped to one selector is still defined for the rules under it.
+func customPropertyDefs() map[string]bool {
+	out := map[string]bool{}
+	for _, m := range cssVarDefRE.FindAllStringSubmatch(strippedStylesheet(), -1) {
+		out[m[1]] = true
+	}
+	return out
+}
+
+func strippedStylesheet() string {
+	return cssCommentRE.ReplaceAllString(stylesheet, "")
+}
+
+// declarationsUsing returns up to `max` occurrences of `var(--name)` as
+// "selector { declaration }", so a failure points at the rules that
+// silently lost a property rather than just naming the token.
+func declarationsUsing(name string, max int) []string {
+	css := strippedStylesheet()
+	needle := "var(" + name
+	oneLine := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	var out []string
+	for i := 0; len(out) < max; {
+		j := strings.Index(css[i:], needle)
+		if j < 0 {
+			break
+		}
+		j += i
+		// The declaration: back to the opening brace or previous
+		// semicolon, forward to this declaration's terminator.
+		declStart := strings.LastIndexAny(css[:j], "{;") + 1
+		declEnd := strings.IndexAny(css[j:], ";}")
+		if declEnd < 0 {
+			declEnd = len(css) - j
+		}
+		// The selector: the text between the end of the previous rule and
+		// the opening brace of this one.
+		selEnd := strings.LastIndex(css[:j], "{")
+		selStart := strings.LastIndexAny(css[:max2(selEnd, 0)], "}{") + 1
+		sel := "?"
+		if selEnd > selStart {
+			sel = oneLine(css[selStart:selEnd])
+		}
+		out = append(out, sel+" { "+oneLine(css[declStart:j+declEnd])+" }")
+		i = j + len(needle)
+	}
+	return out
+}
+
+func max2(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// ---- forward ---------------------------------------------------------
+
+func TestCustomPropertiesAreDefined(t *testing.T) {
+	defs := customPropertyDefs()
+	if len(defs) == 0 {
+		t.Fatal("no `--token:` declarations found at all — the definition scanner is broken, " +
+			"not the stylesheet; fix cssVarDefRE before trusting this test.")
+	}
+	for name, srcs := range customPropertyUses(t) {
+		if defs[name] {
+			continue
+		}
+		t.Errorf("custom property %q is USED (in %s) but never defined.\n"+
+			"    CSS drops each declaration that reads it, so these render with the property missing:\n"+
+			"      %s\n"+
+			"    Fix: define %q in the :root block of internal/dashboard/styles_base.go,\n"+
+			"    or point the uses at the existing token that carries the intended meaning.",
+			name, sortedFiles(srcs), strings.Join(declarationsUsing(name, 3), "\n      "), name)
+	}
+}
+
+// ---- reverse ---------------------------------------------------------
+
+func TestCustomPropertiesAreUsed(t *testing.T) {
+	uses := customPropertyUses(t)
+	defs := customPropertyDefs()
+	if len(uses) == 0 {
+		t.Fatal("no `var(--token)` uses found at all — the use scanner is broken, not the " +
+			"stylesheet; fix cssVarUseRE before trusting this test.")
+	}
+	names := make([]string, 0, len(defs))
+	for name := range defs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if len(uses[name]) > 0 {
+			continue
+		}
+		t.Errorf("custom property %q is DEFINED but never read by any var(%s).\n"+
+			"    Fix: delete the declaration from internal/dashboard/styles_*.go, or use it —\n"+
+			"    an unread token is what makes someone invent a second one beside it.",
+			name, name)
 	}
 }

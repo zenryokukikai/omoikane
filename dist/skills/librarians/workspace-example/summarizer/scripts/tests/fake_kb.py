@@ -16,14 +16,24 @@ Modes:
   empty_after_first  page 2+ is empty while has_more still says true
   short_list    page 1 says has_more=false although the list goes on
   unparsable    like honest, but 3 target-day created_at values are junk
+  skipping_next_offset  next_offset jumps far past the rows it just sent
+                (following it silently leaves a hole in the middle)
+  lost_view     has_more=false, entries=[], but total still says 18k —
+                the shape of an ACL/space regression: the view is gone,
+                not the day
+  empty_kb      has_more=false, entries=[], total=0
 
-The data set: 2026-08-10..2026-08-31 JST, 200 entries per day —
-10 external_finding, 20 lesson, 169 librarian_meta/cataloger_summary and
-1 librarian_meta/daily_journal (which the script must drop). The first
-entry of a day sits at 00:00:00.000000000 JST and the last at
-23:59:59.999999999 JST, so any slip in the JST boundary moves the counts.
-Fraction widths cycle through 9/8/6/5/3/0 digits the way Go's
-RFC3339Nano emits them (it drops trailing zeros).
+The data set: 2026-08-10..2026-08-31 JST, 200 entries per day. The mix
+DIFFERS PER DAY (external_finding = 5 + day%5, lesson = 10 + day%3, one
+daily_journal the script must drop, the rest cataloger_summary), so a
+scan that is off by one day cannot pass. The first entry of a day sits
+at 00:00:00.000000000 JST and the last at 23:59:59.999999999 JST, so any
+slip in the JST boundary moves the counts too. Fraction widths cycle
+through 9/8/6/5/3/0 digits the way Go's RFC3339Nano emits them (it drops
+trailing zeros).
+
+`expected.py <YYYY-MM-DD>` prints the fixture's own answer for a day, so
+the tests never hard-code a number this file can drift away from.
 """
 import datetime
 import json
@@ -47,11 +57,17 @@ def stamp(dt, digits):
     return base + "." + nanos[:digits] + "Z"
 
 
+def mix(day):
+    """(external_findings, lessons) for a JST day — deliberately uneven."""
+    return 5 + day % 5, 10 + day % 3
+
+
 def build():
     entries = []
     n = 0
     for day in range(10, 32):
         start = datetime.datetime(2026, 8, day, 0, 0, 0, tzinfo=JST)
+        n_ext, n_lesson = mix(day)
         for i in range(PER_DAY):
             if i == 0:
                 dt = start
@@ -61,11 +77,11 @@ def build():
                 dt = start + datetime.timedelta(seconds=i * 400)
             digits = FRACTIONS[n % len(FRACTIONS)]
             created = stamp(dt, digits)
-            if i < 10:
+            if i < n_ext:
                 etype, meta = "external_finding", {"source_url": "https://example.test/%d" % n}
-            elif i < 30:
+            elif i < n_ext + n_lesson:
                 etype, meta = "lesson", {}
-            elif i == 30:
+            elif i == n_ext + n_lesson:
                 etype, meta = "librarian_meta", {"kind": "daily_journal"}
             else:
                 etype, meta = "librarian_meta", {"kind": "cataloger_summary"}
@@ -96,6 +112,20 @@ def page_for(offset, limit):
     if MODE == "short_list" and offset == 0:
         return batch, {"limit": limit, "offset": offset, "total": total,
                        "next_offset": offset + len(batch), "has_more": False}
+    if MODE == "skipping_next_offset":
+        # Sends 200 rows, then says "carry on 600 further along". A client
+        # that believes it never sees the 400 in between and still calls
+        # the scan complete.
+        batch = ALL[offset:offset + 200]
+        return batch, {"limit": limit, "offset": offset, "total": total,
+                       "next_offset": offset + 600,
+                       "has_more": offset + 600 < total}
+    if MODE == "lost_view":
+        return [], {"limit": limit, "offset": offset, "total": total,
+                    "next_offset": offset, "has_more": False}
+    if MODE == "empty_kb":
+        return [], {"limit": limit, "offset": offset, "total": 0,
+                    "next_offset": offset, "has_more": False}
     if MODE == "unparsable" and offset == 0:
         # Junk created_at on live entries: they must not be silently dropped.
         batch = [dict(e) for e in batch]

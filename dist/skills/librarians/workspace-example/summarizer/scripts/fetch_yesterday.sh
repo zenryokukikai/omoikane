@@ -17,18 +17,19 @@
 #                             "curator_resolution": K, ... },  // librarian_meta kinds
 #     "counts": { "external_findings": .., "new_knowledge": .. },
 #     "scan":   { "complete": true|false, "stop_reason": "...",
+#                 "covered_by": "tail_passed_day"|"whole_list_walked"|null,
 #                 "pages_fetched": N, "entries_scanned": M,
-#                 "unparsed_created_at": N, "oldest_updated_at": "...",
+#                 "rows_accounted": N, "unparsed_created_at": N,
+#                 "next_offset_skips_ignored": N, "oldest_updated_at": "...",
 #                 "list_total_first": N, "list_total_last": N,
 #                 "incomplete_because": [ "..." ] }
 #   }
 #
 # READ `scan.complete` BEFORE TRUSTING AN EMPTY RESULT. false means the
-# day was never provably covered — a cut-short scan, a page the server
-# could not account for, or timestamps we failed to parse — so "nothing
-# happened that day" is NOT established; `incomplete_because` says which,
-# and the script also exits 3. Empty counts with scan.complete=true is a
-# genuinely quiet day.
+# day was never provably covered, so "nothing happened that day" is NOT
+# established; `incomplete_because` says what was missing and the script
+# exits 3. Empty counts with scan.complete=true is a genuinely quiet day.
+# The proof rules live in ONE place — see COVERAGE CONTRACT below.
 #
 # WHAT THIS DELIBERATELY DOES NOT SEE: the list endpoint excludes
 # SUPERSEDED / ARCHIVED / DUPLICATE, and we do not pass
@@ -49,13 +50,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/load_env.sh"
 
 TARGET="${1:-$(TZ=Asia/Tokyo date -v-1d +%Y-%m-%d 2>/dev/null || TZ=Asia/Tokyo date -d 'yesterday' +%Y-%m-%d)}"
 
-# Page budget: 40 pages x 500 = 20k entries. That is NOT a promise of N
-# days' reach — the list is ordered by updated_at, so one bulk re-touch
-# (an indexer pass over old entries) can fill the window with entries far
-# newer than they look. The budget only stops a bug from paging forever;
-# when it is the thing that stopped the scan you get
-# stop_reason=page_limit and exit 3, never a quiet zero. Raise it then.
-MAX_PAGES="${SUMMARIZER_MAX_PAGES:-40}"
+# Page budget: 120 pages x 500 = 60k rows. Measured 2026-08-31 in prod:
+# walking the ENTIRE list is 37 pages (18,187 rows) — ~16 s on the box
+# itself (kb-core is on loopback there; minutes if you run it from off
+# the box). The list grows ~300/day, so a budget of 40 was already down
+# to three pages of headroom and would have started failing old-day
+# backfills within days. This is NOT a promise of N days' reach either: the list
+# is ordered by updated_at, so one bulk re-touch (an indexer pass over
+# old entries) fills the window with rows far newer than they look. The
+# budget only stops a bug from paging forever; when it is what stopped
+# the scan you get stop_reason=page_limit and exit 3 — never a quiet
+# zero. Raise it then.
+MAX_PAGES="${SUMMARIZER_MAX_PAGES:-120}"
 
 TARGET="$TARGET" MAX_PAGES="$MAX_PAGES" python3 - <<'PY'
 import datetime, json, os, re, sys, time, urllib.request
@@ -110,7 +116,14 @@ def jst_date(iso):
 def fetch_page(offset):
     """One page of the entry list, with retries for transient failures."""
     url = "%s/v1/entries?limit=%d&offset=%d" % (KB_URL, PAGE_SIZE, offset)
-    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + KB_TOKEN})
+    # Name ourselves. The daily run talks to a loopback kb-core, but a
+    # copy of this workspace pointed at the public host would meet an
+    # edge that can judge on User-Agent — and a 403 there would surface
+    # as "fetch failed", far from its cause. Costs nothing to avoid.
+    req = urllib.request.Request(url, headers={
+        "Authorization": "Bearer " + KB_TOKEN,
+        "User-Agent": "omoikane-summarizer/1.0",
+    })
     last_err = None
     for attempt in range(5):
         try:
@@ -122,33 +135,62 @@ def fetch_page(offset):
     raise SystemExit("fetch failed at offset %d: %s" % (offset, last_err))
 
 
-# ---------------------------------------------------------------------
-# Page the list until the target day is covered.
+# =====================================================================
+# COVERAGE CONTRACT — the ONE place this rule is written down. The
+# header, the completeness block below, the stderr message and SKILL.md
+# all point here and state no rule of their own; change it here.
 #
-# WHY WE MAY STOP EARLY, AND WHY IT LOSES NOTHING:
-#   The list is ordered updated_at DESC (internal/store/entries.go), and
-#   updated_at >= created_at always holds. So once a page ENDS at an
-#   updated_at earlier than the target day's first instant, every entry
-#   after it in the list has an even smaller updated_at, hence a smaller
-#   created_at — none of them can have been created on the target day.
-#   There is nothing left to find, and we stop.
+# The list is ordered updated_at DESC (internal/store/entries.go) and
+# updated_at >= created_at always holds. The target day is COVERED when
+# one of these is PROVEN, and it is never assumed:
 #
-#   This is why the old code was wrong in a way that could not be fixed
-#   by "fetch more": it took ONE page of 500 and filtered client-side, so
-#   any day older than the newest 500 entries silently produced 0 hits.
-#   Do not go back to a bigger fixed window — the day must be *covered*,
-#   and the coverage must be provable (that is what scan.complete says).
+#   P1  A page ENDED at an updated_at earlier than the target day's
+#       first instant. Everything further down the list has a smaller
+#       updated_at, hence a smaller created_at, so nothing created on
+#       the target day can still be ahead of us. Stop; nothing is lost.
 #
-# Offsets can shift under concurrent writes, which may repeat an entry
-# across pages; dedupe by id. (A shift can in principle also skip one,
-# which offset paging cannot prevent — it is bounded by how many entries
-# are written during the scan, seconds' worth.)
-# ---------------------------------------------------------------------
+#   P2  The whole list was walked: the server said has_more=false AND we
+#       accounted for at least `total` rows. P2 is what covers the
+#       OLDEST day in the KB, where P1 can never happen — there is
+#       nothing older for a page to end on.
+#
+# Two accounting rules keep P2 honest, since "we walked it all" is worth
+# exactly as much as the row count behind it:
+#
+#   A1  Never advance past what we were handed: offset grows by
+#       len(batch). A next_offset LARGER than that is the server telling
+#       us to step over rows it never sent — refusing is what keeps a
+#       hole out of the middle of a scan that would still call itself
+#       complete. (A smaller next_offset is followed: it can only
+#       re-read rows we already have, and the dedupe absorbs that. This
+#       is also what survives a clamped ?limit — we follow the rows, not
+#       our own idea of a page size.)
+#
+#   A2  A total > 0 with nothing to show for it is not a quiet day, it
+#       is a lost view. An ACL/space regression empties this list with
+#       no error at all — the same silent shape as the bug that made
+#       four journals report "nothing happened" (#148).
+#
+# The day's filter must also have worked: an unparsable created_at is
+# dropped from every bucket, which is where #147 (9-digit fractions) and
+# its 5-digit sibling both hid. Any of those => not complete.
+#
+# Never "fix" a short scan by asking for a bigger window. The day must
+# be covered and the coverage must be provable: scan.complete is that
+# proof, exit 3 is its absence.
+#
+# Offsets shift under concurrent UPDATES — the order is updated_at, so
+# an indexer pass, a curator resolution or an enrich re-touches old
+# entries and moves them to the front. Dedupe by id absorbs the repeats.
+# =====================================================================
 entries, seen = [], set()
 pages_fetched = 0
-offset = 0
+offset = 0                  # rows accounted for so far (A1)
 oldest_updated_at = None
-totals = []            # pagination.total as seen on each page
+totals = []                 # pagination.total as reported on each page
+tail_passed_day = False     # P1
+walked_whole_list = False   # P2
+skips_ignored = 0           # times a next_offset tried to jump a gap (A1)
 stop_reason = "page_limit"  # only survives if we exhaust MAX_PAGES
 
 while pages_fetched < MAX_PAGES:
@@ -168,21 +210,18 @@ while pages_fetched < MAX_PAGES:
     if batch:
         oldest_updated_at = batch[-1].get("updated_at") or oldest_updated_at
 
-    # Advance by the server's OWN next_offset, never by our page size.
-    # The server clamps ?limit (and elsewhere in this API a too-large
-    # limit is silently rounded DOWN), so "offset += PAGE_SIZE" would
-    # step over everything the clamp left behind and still report a
-    # clean scan. Following next_offset keeps the page-size contract in
-    # one place — the server's.
+    handed_us = offset + len(batch)          # A1
     nxt = pagination.get("next_offset")
-    offset = nxt if isinstance(nxt, int) and nxt > offset else offset + len(batch)
+    if isinstance(nxt, int) and nxt > handed_us:
+        skips_ignored += 1                   # would leave a hole; don't follow
+    offset = nxt if isinstance(nxt, int) and offset < nxt < handed_us else handed_us
 
     # END OF LIST — only on PROOF: the key exists and says has_more=false.
-    # A missing/!= false has_more is not evidence of anything; treating a
-    # falsy `.get()` as "the list ended" is exactly how one page of 500
-    # gets to call itself a full scan.
+    # A missing/falsy `.get()` is not evidence; reading it as one is how
+    # a single page of 500 got to call itself a full scan.
     if pagination.get("has_more") is False:
         stop_reason = "end_of_list"
+        walked_whole_list = bool(totals) and totals[-1] > 0 and offset >= totals[-1]  # P2 + A2
         break
 
     if not batch:
@@ -193,7 +232,8 @@ while pages_fetched < MAX_PAGES:
 
     tail = parse_ts(batch[-1].get("updated_at") or "")
     if tail is not None and tail < day_start:
-        stop_reason = "covered_target_day"
+        stop_reason = "covered_target_day"   # P1
+        tail_passed_day = True
         break
     # tail unparseable -> keep paging rather than stop on a guess.
 
@@ -231,40 +271,33 @@ for e in entries:
             continue  # never summarise our own journals
         activity[kind or "other"] = activity.get(kind or "other", 0) + 1
 
-# ---------------------------------------------------------------------
-# Completeness is derived from EVIDENCE, not from the label we broke on.
-# The question is only ever: "did the scan reach back past the target
-# day's first instant?" Two ways to have proof:
-#   - covered_target_day: a page tail older than day_start. Direct proof.
-#   - end_of_list: the whole list was walked. That only proves coverage
-#     if what we saw actually reaches past day_start (or the list was
-#     empty). A list that "ended" while everything in it is NEWER than
-#     the target day proves nothing about the day — the far more likely
-#     reading is a lying/absent pagination, so say so instead of
-#     reporting a confident zero. (A genuinely empty history before the
-#     target day lands here too: loud and wrong beats silent and wrong.)
-# And the filter itself must have worked: an unparsable created_at is
-# dropped from every bucket, which is how #147 (nanoseconds) and its
-# 5-digit sibling both hid. Any of those and the scan is not complete.
-# ---------------------------------------------------------------------
+# Complete == P1 or P2 held, and the filter worked. See COVERAGE
+# CONTRACT above for what those are; this block only evaluates them and
+# says, in words the caller can act on, which one failed.
+total_last = totals[-1] if totals else None
+covered = tail_passed_day or walked_whole_list
 incomplete_because = []
-if stop_reason == "covered_target_day":
-    covered = True
-elif stop_reason == "end_of_list":
-    oldest_ts = parse_ts(oldest_updated_at or "")
-    covered = not entries or (oldest_ts is not None and oldest_ts < day_start)
-    if not covered:
-        incomplete_because.append(
-            "list claimed to end at %s, which is not older than the target day — "
-            "coverage unproven" % oldest_updated_at)
-else:
-    covered = False
+
+if not covered:
     if stop_reason == "page_limit":
         incomplete_because.append(
-            "page budget (%d) exhausted before reaching the target day" % MAX_PAGES)
-    else:  # empty_page
+            "page budget (%d pages) ran out before the scan reached the target "
+            "day — raise SUMMARIZER_MAX_PAGES and re-run" % MAX_PAGES)
+    elif stop_reason == "empty_page":
         incomplete_because.append(
             "server returned an empty page without saying the list had ended")
+    elif total_last is None:
+        incomplete_because.append(
+            "list claimed to end but reported no total — nothing to check the "
+            "scan against")
+    elif total_last == 0:
+        incomplete_because.append(
+            "the whole list came back empty (total=0) — a lost read view looks "
+            "exactly like this, so it is not being reported as a quiet day")
+    else:
+        incomplete_because.append(
+            "list claimed to end after %d of %d rows — %d never arrived"
+            % (offset, total_last, total_last - offset))
 if unparsed_created_at:
     incomplete_because.append(
         "%d entries had a created_at this script could not parse and were "
@@ -281,14 +314,19 @@ out = {"date": target,
        # The caller must be able to tell "the day was quiet" from "we
        # never got far enough back to see the day".
        "scan": {"complete": complete, "stop_reason": stop_reason,
+                "covered_by": ("tail_passed_day" if tail_passed_day else
+                               "whole_list_walked" if walked_whole_list else None),
                 "pages_fetched": pages_fetched, "entries_scanned": len(entries),
+                "rows_accounted": offset,
                 "unparsed_created_at": unparsed_created_at,
+                "next_offset_skips_ignored": skips_ignored,
                 "oldest_updated_at": oldest_updated_at,
                 # total as the server reported it on the first and last
-                # page: differing values mean the list moved under the
-                # scan (writes land while we page).
+                # page: `list_total_last` is what P2 is checked against,
+                # and a difference between the two means the list moved
+                # under the scan (entries updated while we paged).
                 "list_total_first": totals[0] if totals else None,
-                "list_total_last": totals[-1] if totals else None,
+                "list_total_last": total_last,
                 "incomplete_because": incomplete_because}}
 print(json.dumps(out, ensure_ascii=False))
 
@@ -296,9 +334,8 @@ if not complete:
     sys.stderr.write(
         "INCOMPLETE SCAN for %s (stopped: %s after %d pages / %d entries, "
         "oldest updated_at %s):\n%s\n"
-        "The counts above are a floor, not the day. Fix the cause (raise "
-        "SUMMARIZER_MAX_PAGES if it was the page budget) and re-run; do NOT "
-        "write a journal from this.\n"
+        "The counts above are a floor, not the day: do NOT write a journal "
+        "from this.\n"
         % (target, stop_reason, pages_fetched, len(entries), oldest_updated_at,
            "".join("  - %s\n" % r for r in incomplete_because).rstrip("\n")))
     sys.exit(3)

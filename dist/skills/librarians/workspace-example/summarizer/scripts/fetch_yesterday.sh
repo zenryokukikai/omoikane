@@ -31,14 +31,22 @@ curl --retry 5 --retry-connrefused -fsS -H "Authorization: Bearer $KB_TOKEN" \
 # NOTE: read the entries JSON from a FILE, not stdin — the python
 # program itself comes via the heredoc, which occupies stdin.
 TARGET="$TARGET" RESP_FILE="$RESP_FILE" python3 - <<'PY'
-import os, json, datetime
+import os, json, datetime, re
 target = os.environ["TARGET"]
 data = json.load(open(os.environ["RESP_FILE"]))
 entries = data.get("entries", [])
 
 def jst_date(iso):
     # created_at like "2026-05-31T19:55:02Z" or with offset; treat as UTC.
+    #
+    # kb-server stamps NANOSECOND precision (9 digits:
+    # "2026-08-31T05:42:36.718262515Z"). Python's fromisoformat accepts at
+    # most 6 fractional digits before 3.11, and this box runs 3.10 — so
+    # every single entry raised ValueError and was silently skipped as
+    # "not yesterday". The journal then reported "no new entries" on days
+    # with 300+ of them (2026-08-31). Trim to microseconds before parsing.
     s = iso.replace("Z", "+00:00")
+    s = re.sub(r"\.(\d{6})\d+", r".\1", s)
     try:
         dt = datetime.datetime.fromisoformat(s)
     except ValueError:

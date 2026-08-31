@@ -136,11 +136,6 @@ confirm | reject — <relationship type and one-line reason, EN> / <日本語>
 <2–4 sentences citing the entries' actual claims/bodies, in English>
 <同じ理由付けの日本語訳(英日併記)。>
 
-(英日併記: keep `## Verdict`, `kind`, `winner`, `loser`, and the action
-verb in English; write the reason, each `rationale:`, and `## Rationale`
-in both English and Japanese so a human auditing the merge reads it in
-Japanese.)
-
 ## Source
 - curator examined: [[<proposal_id>]]
 - entries compared: [[<A>]], [[<B>]]
@@ -191,6 +186,16 @@ entries, or a lookup you actually made — `post_resolution.sh` checks
 existence and rejects invented ids. Always read full bodies before
 proposing a supersede; titles lie.
 
+## Bilingual resolutions (英日併記)
+
+Keep the structural keys (`## Verdict`, `kind`, `winner`, `loser`,
+the action verb you pass to `post_resolution.sh`) in English, but
+write the `## Verdict` reason, each `rationale:`, and `## Rationale`
+in **both English and Japanese**. A human auditing why two entries
+were merged (or kept apart) reads the dashboard in Japanese; an
+English-only resolution forces them to translate before they can
+trust your call.
+
 ## Common failure modes (don't do these)
 
 - ❌ Rubber-stamping a detective proposal without verifying it from
@@ -204,3 +209,47 @@ proposing a supersede; titles lie.
 - ❌ Walking the whole entry corpus looking for work. Your feed
   (`next_work.sh`) already isolates real work; reaching exit-42
   "caught up" quickly is the correct, efficient outcome.
+
+## Feedback rule for your role (NOT optional)
+
+You read entries every tick. **Reading without filing feedback hides
+which entries actually save people** — ranking degrades, stale entries
+pile up, and the next reader (possibly future-you in a fresh session)
+re-derives a trap that should have been a one-shot match.
+
+Default-policy table across the librarian rota:
+
+| role | default signal when you USE an entry | when it's wrong / stale |
+|---|---|---|
+| cataloger  | `confirmed` (you summarised it) | `outdated` / `wrong` + context |
+| detective  | `helpful` on entries cited as evidence | `wrong` / `incomplete` + context if it disqualified a candidate |
+| curator    | `helpful` on canonical, `confirmed` on superseded | `outdated` / `wrong` + context if drift drove the supersede |
+| indexer    | `confirmed` (you derived UseCases from it) | `incomplete` + context if too thin to index |
+| scout      | `confirmed` on existing entry the finding correlates to | `outdated` if the finding supersedes it |
+| summarizer | `confirmed` on entries cited in the journal | `outdated` / `wrong` + context if you noticed drift |
+| conservator | `outdated` + context whenever you propose re-enrich/archive | — |
+
+**Your default (`curator`): `helpful/confirmed`.** Post `helpful` on the entry you picked as canonical and `confirmed` on the one you superseded. If drift drove the supersede, also post `outdated` / `wrong` + context on the loser.
+
+File it **inline, in the same tick** — not in a batch later (you'll
+lose the context). One line of curl:
+
+```bash
+curl -fsS -X POST "$KB_URL/v1/feedback" \
+  -H "Authorization: Bearer $KB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"entry_id":"<id>","signal":"<signal>","context":"<one line>"}'
+```
+
+`signal` ∈ `helpful` | `confirmed` | `outdated` | `wrong` |
+`incomplete` | `surfaced_gap`. `context` is required-in-spirit for
+everything except `helpful` and `confirmed` — one sentence so the next
+reader (and curator / conservator) knows what to act on.
+
+Don't over-think the threshold. If you cited the id in your output,
+post `helpful` or `confirmed`. The cost of one extra POST is zero;
+the cost of NOT posting is real.
+
+In-band reminders: every API response carries `X-Skill-Version`
+(re-fetch `/skill.md` on drift) and `X-Feedback-Hint` (a standing
+reminder of the contract).

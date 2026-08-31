@@ -66,7 +66,12 @@ for id in $referenced_ids; do
 done
 
 BODY=$(cat "$BODY_FILE")
-RELATED_JSON=$(printf '%s\n' $referenced_ids | grep -v "^$EXAMINED_ID$" | jq -R . | jq -s .)
+# `|| true` is REQUIRED, not defensive noise: the common case is a body
+# that cites ONLY the examined entry, so grep -v filters everything out
+# and exits 1 ("no lines selected"), which under `set -e -o pipefail`
+# killed the whole script before it could post. Emitting an empty
+# related[] is the correct outcome there.
+RELATED_JSON=$(printf '%s\n' $referenced_ids | { grep -v "^$EXAMINED_ID$" || true; } | jq -R . | jq -s .)
 
 ENTRY_PAYLOAD=$(jq -n \
     --arg title "$TITLE" --arg body "$BODY" \

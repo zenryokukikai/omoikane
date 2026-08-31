@@ -26,14 +26,30 @@ fi
 
 TARGET="${1:-$(TZ=Asia/Tokyo date -v-1d +%Y-%m-%d 2>/dev/null || TZ=Asia/Tokyo date -d 'yesterday' +%Y-%m-%d)}"
 
-# Find the daily_journal entry for TARGET.
-RESP=$(curl --retry 5 --retry-connrefused -fsS -H "Authorization: Bearer $KB_TOKEN" \
-    "$KB_URL/v1/entries?type=librarian_meta&limit=80")
+# The link in the message is clicked by a HUMAN, so it must be the public
+# base URL. KB_URL is the API endpoint and in production is
+# http://127.0.0.1:<port> — journal announcements really did go out to
+# Slack pointing at 127.0.0.1, unopenable for everyone. Refuse to send
+# rather than send a dead link; the fix is one key in kb-agent.json.
+if [ -z "${KB_PUBLIC_URL:-}" ]; then
+    echo "[slack] kb-agent.json has no \"kb_public_url\" — refusing to post a journal link nobody can open" >&2
+    exit 2
+fi
 
-PAYLOAD=$(KB_URL="$KB_URL" TARGET="$TARGET" python3 - "$RESP" <<'PY'
+# Find the daily_journal entry for TARGET.
+# The response goes through a temp FILE, never an argv: Linux caps a
+# single argument at 128KB (MAX_ARG_STRLEN) and this payload is well past
+# it, so passing it as `python3 - "$RESP"` died with E2BIG on the server
+# while working fine on macOS, which has no such cap. Keep it a file.
+RESPF=$(mktemp)
+trap 'rm -f "$RESPF"' EXIT
+curl --retry 5 --retry-connrefused -fsS -H "Authorization: Bearer $KB_TOKEN" \
+    "$KB_URL/v1/entries?type=librarian_meta&limit=400" -o "$RESPF"
+
+PAYLOAD=$(KB_PUBLIC_URL="$KB_PUBLIC_URL" TARGET="$TARGET" python3 - "$RESPF" <<'PY'
 import os, sys, json
-target = os.environ["TARGET"]; kb = os.environ["KB_URL"].rstrip("/")
-data = json.loads(sys.argv[1], strict=False)
+target = os.environ["TARGET"]; kb = os.environ["KB_PUBLIC_URL"].rstrip("/")
+data = json.load(open(sys.argv[1]), strict=False)
 j = None
 for e in data.get("entries", []):
     m = e.get("metadata") or {}

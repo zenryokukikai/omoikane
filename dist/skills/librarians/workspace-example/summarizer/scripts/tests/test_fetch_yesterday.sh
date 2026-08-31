@@ -108,6 +108,23 @@ day_counts() {
           "first instant of the JST day is included"
 }
 
+# Same rule for the tree: the fixture answers, nothing is hard-coded.
+tree_counts() {
+    local exp
+    exp=$(cd "$HERE" && python3 expected.py "$DAY")
+    check "o['tree_snapshot']['complete'] is True" "tree_snapshot.complete"
+    check "o['tree_snapshot']['total_use_cases'] == $(jq .total_use_cases <<<"$exp")" \
+          "paged past the 200 ?limit cap — the whole tree, not the first page"
+    check "o['tree_snapshot']['top_level_count'] == $(jq .top_level_count <<<"$exp")" \
+          "top-level headcount from ?level=top"
+    check "o['counts']['use_cases_created'] == $(jq .use_cases_created <<<"$exp")" \
+          "UseCases created on $DAY"
+    check "o['counts']['use_cases_touched'] == $(jq .use_cases_touched <<<"$exp")" \
+          "UseCases touched (not created) on $DAY"
+    check "o['counts']['empty_leaves'] == $(jq .empty_leaves <<<"$exp")" \
+          "empty leaves exclude metas (child_count>0)"
+}
+
 echo "== honest server: the whole day, provably covered"
 run_case "honest" honest "$TARGET_DAY"
 check_rc 0
@@ -115,6 +132,10 @@ check "o['scan']['complete'] is True" "scan.complete"
 check "o['scan']['covered_by'] == 'tail_passed_day'" "covered by proof P1"
 check "o['scan']['unparsed_created_at'] == 0" "every created_at parsed (#147 + its 5-digit sibling)"
 day_counts
+# The tree snapshot is fetched in the same run; the fixture has 250
+# UseCases against a ?limit the server caps at 200, so a client that
+# takes one page reports 200 and a short "touched" list.
+tree_counts
 
 echo "== oldest day in the KB (P1 can never happen there)"
 # Regression: requiring a page tail older than the day made the KB's

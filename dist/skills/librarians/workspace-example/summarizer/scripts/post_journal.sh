@@ -8,6 +8,14 @@
 # The journal is type=librarian_meta, kind=daily_journal, status=ACTIVE
 # (the one sanctioned ACTIVE write by a Phase-5 librarian — it exists to
 # be read and searched immediately; see the bundle's status exception).
+#
+# metadata.date is the key the server's date range filter reads
+# (`/v1/entries?date_from=…&date_to=…`, issue #144) — the same key
+# chronicler's daily reports use. Without it the journals, which are the
+# best answer to "what happened this week", were the one thing a date
+# query could not find. journal_date carries the same value and stays for
+# the readers that already use it (notify_slack.sh, the dashboard journal
+# index); `date` is the one the filter looks at.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/load_env.sh"
 
@@ -33,7 +41,8 @@ ENTRY=$(jq -n --arg title "$TITLE" --arg body "$BODY" --arg date "$DATE" \
         project_id:"omoikane", type:"librarian_meta", status:"ACTIVE",
         title:$title, body:$body, body_format:"markdown",
         tags:["journal","daily","summarizer"],
-        metadata:{role:"summarizer", instance_id:$instance, kind:"daily_journal", journal_date:$date}
+        metadata:{role:"summarizer", instance_id:$instance, kind:"daily_journal",
+                  date:$date, journal_date:$date}
     }')
 RESP=$(curl --retry 5 --retry-connrefused -fsS -X POST "$KB_URL/v1/entries" \
     -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" -d "$ENTRY")

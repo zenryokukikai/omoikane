@@ -178,8 +178,14 @@ type EntryFilter struct {
 	// record" progress, and that entry stops re-appearing in its feed even
 	// though it never got a use_case link.
 	NotProgressedByRole string
-	Limit               int
-	Offset              int
+	// DateFrom / DateTo narrow to entries whose metadata.date (ISO
+	// `YYYY-MM-DD`) falls in the range, both ends inclusive; either end
+	// may be empty. Entries WITHOUT metadata.date never match — see
+	// dateRangeCond for why there is no updated_at fallback (issue #144).
+	DateFrom string
+	DateTo   string
+	Limit    int
+	Offset   int
 }
 
 // User is the human (or service principal) behind a token. From Phase A

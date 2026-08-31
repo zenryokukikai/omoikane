@@ -50,6 +50,13 @@ type indexHit struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Score     float64   `json:"score"`
 	Snippet   string    `json:"snippet"`
+	// Date is metadata.date (the day a dated report is ABOUT), omitted
+	// for the majority of entries that have none. Results pulled by a
+	// date range are unreadable without it — updated_at says when the
+	// row last changed, which is a different fact (issue #144). One
+	// field, ~15 B, well inside the ~320 B/hit budget from #138;
+	// shipping the whole metadata blob would blow it.
+	Date string `json:"date,omitempty"`
 }
 
 func indexHits(results []*store.SearchResult) []indexHit {
@@ -63,9 +70,25 @@ func indexHits(results []*store.SearchResult) []indexHit {
 			UpdatedAt: sr.Entry.UpdatedAt,
 			Score:     sr.Score,
 			Snippet:   sr.Snippet,
+			Date:      metadataDate(sr.Entry.Metadata),
 		})
 	}
 	return out
+}
+
+// metadataDate pulls $.date out of an entry's metadata. Only top_k hits
+// are unmarshalled, so this stays cheap.
+func metadataDate(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m struct {
+		Date string `json:"date"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	return m.Date
 }
 
 // ZeroHitHint replaces feedback_prompt on a count:0 response. The prompt
@@ -84,6 +107,12 @@ type searchFilters struct {
 	Status            string `json:"status"`
 	Tag               string `json:"tag"`
 	IncludeSuperseded bool   `json:"include_superseded"`
+	// DateFrom / DateTo mirror the /v1/entries query params: ISO
+	// `YYYY-MM-DD`, both ends inclusive, matching metadata.date only
+	// (issue #144). Here they serve "topic T during week W"; a bare
+	// "what happened this week" belongs on the query-less list.
+	DateFrom string `json:"date_from"`
+	DateTo   string `json:"date_to"`
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +147,9 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		filter.Status = req.Filters.Status
 		filter.Tag = req.Filters.Tag
 		filter.IncludeSuperseded = req.Filters.IncludeSuperseded
+		if !applyDateRange(w, &filter, req.Filters.DateFrom, req.Filters.DateTo) {
+			return
+		}
 	}
 	// store.SearchFTS rejects empty queries with ErrInvalidInput, but the
 	// handler-level guard above prevents that path from being reached —

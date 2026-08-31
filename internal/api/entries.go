@@ -289,6 +289,44 @@ func entryWithFeedbackPrompt(e *store.Entry) entryGetEnvelope {
 	return entryGetEnvelope{Entry: e, FeedbackPrompt: FeedbackPrompt}
 }
 
+// applyDateRange validates a date_from / date_to pair and writes it onto
+// the filter. It reports false after having already written the 400, so
+// the caller just returns.
+//
+// A malformed or reversed range is a 400, never a silent ignore. Silence
+// is exactly what produced the bug this exists to fix (issue #144): a
+// librarian asked "what happened this week", got an unfiltered or empty
+// answer, and reported "there is no data" while 32 daily reports sat in
+// the KB. Same discipline as the `view` param (#138) and `as_of`.
+func applyDateRange(w http.ResponseWriter, f *store.EntryFilter, from, to string) bool {
+	for _, p := range []struct {
+		name, val string
+		dst       *string
+	}{{"date_from", from, &f.DateFrom}, {"date_to", to, &f.DateTo}} {
+		if p.val == "" {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", p.val); err != nil {
+			writeError(w, http.StatusBadRequest, CodeBadRequest,
+				p.name+" must be YYYY-MM-DD",
+				map[string]any{"got": p.val})
+			return false
+		}
+		*p.dst = p.val
+	}
+	// A reversed range can only ever match nothing, so it is a typo, not
+	// a query. Answering it with an empty page would look exactly like
+	// "no data" — the false negative all over again. ISO dates compare
+	// correctly as strings.
+	if f.DateFrom != "" && f.DateTo != "" && f.DateFrom > f.DateTo {
+		writeError(w, http.StatusBadRequest, CodeBadRequest,
+			"date_from must not be after date_to",
+			map[string]any{"date_from": f.DateFrom, "date_to": f.DateTo})
+		return false
+	}
+	return true
+}
+
 func (h *Handler) listEntries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.EntryFilter{
@@ -301,6 +339,9 @@ func (h *Handler) listEntries(w http.ResponseWriter, r *http.Request) {
 		Uncategorized:       q.Get("uncategorized") == "true",
 		OldestFirst:         q.Get("order") == "oldest",
 		NotProgressedByRole: q.Get("not_progressed_by"),
+	}
+	if !applyDateRange(w, &f, q.Get("date_from"), q.Get("date_to")) {
+		return
 	}
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

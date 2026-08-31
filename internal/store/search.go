@@ -361,6 +361,13 @@ func (s *Store) searchEntries(ctx context.Context, long, short []string, f Entry
 		conds = append(conds, "t.tag = ?")
 		args = append(args, f.Tag)
 	}
+	// Same helper the list path uses — the date-range contract has one
+	// definition (issue #144). On search this serves "topic T during
+	// week W"; the primary surface for "what happened this week" is the
+	// query-less list, since FTS needs a term to match.
+	dc, da := dateRangeCond(f, "e")
+	conds = append(conds, dc...)
+	args = append(args, da...)
 	limit := f.Limit
 	// Clamp explicitly: cap at the upper bound rather than
 	// silently dropping to the default on overflow.

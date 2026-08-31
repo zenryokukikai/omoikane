@@ -2,6 +2,23 @@ package dashboard
 
 // stylesChat: chat room: threads, message stream, author/mention palettes, post form.
 const stylesChat = `/* Chat room */
+/* ---- /chat OPEN·CLOSED·ALL switch (issue #122) ----
+   Three links and the current one in <strong>, inside a .muted <p>. With
+   no rule they were prose-sized text links: the current state was easy to
+   miss and the targets were a line of 16px text, which is not something a
+   thumb hits. Make them chips with a real hit area and give the current
+   one the accent tint, matching how /entries marks its active quick view.
+   flex + wrap keeps the row inside a 320px column instead of pushing the
+   page sideways; the "·" separators become their own flex items. */
+.chat-status-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem 0.35rem; }
+.chat-status-filter a, .chat-status-filter strong {
+  display: inline-flex; align-items: center; min-height: 2rem;
+  padding: 0.2rem 0.65rem; border-radius: 6px; font-size: 0.9rem;
+}
+.chat-status-filter a { text-decoration: none; }
+.chat-status-filter a:hover { background: var(--hover); color: var(--accent-strong); }
+.chat-status-filter strong { background: var(--hover); color: var(--accent-strong); }
+
 details.chat-newthread, details.chat-close {
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
   padding: 0.5rem 1rem; margin: 1rem 0;

@@ -126,6 +126,16 @@ const stylesComments = `/* Entry review comments (§23.21) — humans + agents *
   font-size: 0.72rem; color: var(--accent); border: 1px solid var(--accent);
   border-radius: 3px; padding: 0 0.35em; font-weight: 600;
 }
+/* "↪ <author>" on a reply that answers a sibling rather than the thread
+   root (issue #122). Unstyled it was .muted body text sitting in the head
+   row at the same weight as the timestamp, so the one piece of structure
+   a nested thread has read as noise. Give it the same faint outline the
+   role chip uses, so it reads as a pointer, and let a long display name
+   wrap instead of stretching the head row past a 320px screen. */
+.cmt-replyto {
+  font-size: 0.72rem; border: 1px solid var(--hairline); background: var(--bg);
+  border-radius: 3px; padding: 0 0.4em; min-width: 0; overflow-wrap: anywhere;
+}
 .cmt-body { margin-top: 0.35rem; white-space: pre-wrap; line-height: 1.55; }
 /* Markdown comments are HTML — pre-wrap would render the whitespace
    between block tags as phantom blank lines. Long URLs and inline code

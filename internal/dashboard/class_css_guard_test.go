@@ -40,13 +40,12 @@ import (
 // way to close one out is to add its CSS rule and DELETE its line here;
 // the guard fails if a line here has gained a rule (stale) or is no longer
 // used by any template, so the ledger cannot rot.
-var forwardKnownGaps = map[string]string{
-	"btn":                "KNOWN GAP #122: buttons render as plain links (user-visible, top priority)",
-	"badge-space":        "KNOWN GAP #122: space badge not visually distinct from the default badge",
-	"entry-new-form":     "KNOWN GAP #122: new-entry form has no layout rule",
-	"chat-status-filter": "KNOWN GAP #122: chat status filter unstyled",
-	"cmt-replyto":        "KNOWN GAP #122: reply-to indicator unstyled",
-}
+// Empty is the goal state: every class a template writes now has a rule.
+// The five #122 gaps (btn, badge-space, entry-new-form, chat-status-filter,
+// cmt-replyto) were closed by giving each its CSS, not by relaxing the
+// check. Add a line here only for a class that is INTENTIONALLY unstyled,
+// with the reason; anything else is the defect this guard exists to catch.
+var forwardKnownGaps = map[string]string{}
 
 // reverseGoPrefixes are class-name PREFIXES composed outside any template
 // class="" attribute, so the reverse check cannot see them as literals.
@@ -77,7 +76,6 @@ var reverseExternalUse = map[string]string{
 // (someone started using it) or its rule was deleted (already cleaned up),
 // so this list cannot silently hide a real orphan either.
 var reverseKnownOrphans = map[string]string{
-	"filter-form":            "KNOWN GAP #122: dead CSS, no template uses it (named in the issue)",
 	"journal-today":          "KNOWN GAP #122: dead CSS, home journal-today block never rendered",
 	"jt-label":               "KNOWN GAP #122: dead CSS, part of the journal-today block",
 	"jt-title":               "KNOWN GAP #122: dead CSS, part of the journal-today block",

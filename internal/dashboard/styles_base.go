@@ -115,6 +115,19 @@ a { color: var(--accent); }
 .badge-status-ARCHIVED { background: var(--badge-bg); color: #615B52; }
 .badge-status-INVESTIGATING { background: var(--badge-bg); color: #83451F; }
 .badge-status-SUPERSEDED, .badge-status-DUPLICATE, .badge-status-RESOLVED { background: var(--badge-bg); color: #615B52; }
+/* Space badge (issue #122): "🔒 <space>" says this entry is NOT public.
+   Sharing the neutral --badge-bg with the id/type/status badges beside
+   it made that the one badge in the row nobody could pick out. Take the
+   accent tint + accent outline instead — the same "interaction accent
+   means something" vocabulary the rest of the page uses — and the body
+   font, since a space name is prose (Japanese), not an identifier.
+   Padding drops to 0/5px so the 1px border keeps the outer box the same
+   height as its neutral neighbours and the meta row stays on one line. */
+.badge-space {
+  background: var(--hover); color: var(--accent-strong);
+  border: 1px solid var(--accent); padding: 0 5px;
+  font-family: var(--font-body); font-size: 0.75rem; font-weight: 600;
+}
 .muted { color: var(--muted); font-size: 0.9rem; }
 .field { margin: 1rem 0; }
 .field > .label {
@@ -157,5 +170,47 @@ footer { padding: 1rem; text-align: center; color: var(--muted); font-size: 0.85
 .pager-link { text-decoration: none; padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; color: var(--accent); font-size: 0.9rem; }
 .pager-link:hover { background: var(--hover); color: var(--accent-strong); }
 .pager-disabled { color: var(--muted); border-color: var(--hairline); pointer-events: none; opacity: 0.5; }
+
+/* ---- .btn — the primary call-to-action (issue #122) ----
+   The reported defect: /entries' "✏️ このスペースに書く" and /talk's
+   "サインインして始める" carry class="btn" but no rule existed, so the
+   page's single most important action rendered as a bare underlined
+   link. A phone user reported it. The class is written on BOTH <a>
+   (those two) and <button type=submit> (/entries/new "保存"), so one
+   rule has to cover both element types: anchors need the colour and
+   text-decoration reset, buttons need the font/border reset. Class
+   specificity (0,1,0) beats the generic "form button" rule in
+   stylesLogin (0,0,2), so a .btn submit gets THIS look regardless of
+   section order.
+
+   min-height is the tap target: 2.75rem = 44px, the smallest control a
+   thumb hits reliably. Everything else is the existing vocabulary —
+   --accent fill with --accent-strong on hover (as .header-search
+   button and .cmt-submit already do), 6px radius (as .pager-link),
+   --shadow from :root. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 2.75rem; padding: 0.5rem 1.15rem;
+  background: var(--accent); color: #fff;
+  border: 1px solid transparent; border-radius: 6px;
+  font: inherit; font-weight: 600; line-height: 1.35;
+  text-align: center; text-decoration: none; cursor: pointer;
+  box-shadow: var(--shadow); transition: background 0.15s;
+}
+.btn:hover { background: var(--accent-strong); color: #fff; }
+/* :focus-visible only — a mouse click must not leave a ring behind,
+   but a keyboard user has to see where they are. Offset so the ring
+   sits outside the fill instead of on top of it. */
+.btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.btn:active { background: var(--accent-strong); box-shadow: none; transform: translateY(1px); }
+/* /entries/new disables the button for the duration of the POST. */
+.btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; transform: none; }
+/* Narrow screens (the dashboard's 720px breakpoint): every .btn today
+   is a standalone call to action in its own <p>, so give it the full
+   column — the same shape .entries-filter's submit already takes. This
+   also removes any chance of the label overflowing at 320px. */
+@media (max-width: 720px) {
+  .btn { width: 100%; }
+}
 
 `

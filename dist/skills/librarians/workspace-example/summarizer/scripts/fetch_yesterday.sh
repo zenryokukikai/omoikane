@@ -15,6 +15,10 @@
 #     "new_knowledge":    [ {id,type,title,body} ... ],   // trap/lesson/decision/incident/design
 #     "librarian_activity": { "cataloger_summary": N, "relation_proposal": M,
 #                             "curator_resolution": K, ... },  // librarian_meta kinds
+#     "tree_snapshot": { "complete": true|false, "top_level_count": N,
+#                        "total_use_cases": N, "tidy_target": 20,
+#                        "touched": [...], "created": [...],
+#                        "empty_leaves": [...] },   // "🌳 ツリーの動き"
 #     "counts": { "external_findings": .., "new_knowledge": .. },
 #     "scan":   { "complete": true|false, "stop_reason": "...",
 #                 "covered_by": "tail_passed_day"|"whole_list_walked"|null,
@@ -30,6 +34,9 @@
 # established; `incomplete_because` says what was missing and the script
 # exits 3. Empty counts with scan.complete=true is a genuinely quiet day.
 # The proof rules live in ONE place — see COVERAGE CONTRACT below.
+# `tree_snapshot.complete` says the same thing about the UseCase tree,
+# and is reported separately: a half-paged tree does not invalidate the
+# day's entries, it only means the journal must omit the tree paragraph.
 #
 # WHAT THIS DELIBERATELY DOES NOT SEE: the list endpoint excludes
 # SUPERSEDED / ARCHIVED / DUPLICATE, and we do not pass
@@ -113,14 +120,13 @@ def jst_date(iso):
     return dt.astimezone(JST).strftime("%Y-%m-%d") if dt else None
 
 
-def fetch_page(offset):
-    """One page of the entry list, with retries for transient failures."""
-    url = "%s/v1/entries?limit=%d&offset=%d" % (KB_URL, PAGE_SIZE, offset)
+def fetch_json(path):
+    """One GET against the KB, with retries for transient failures."""
     # Name ourselves. The daily run talks to a loopback kb-core, but a
     # copy of this workspace pointed at the public host would meet an
     # edge that can judge on User-Agent — and a 403 there would surface
     # as "fetch failed", far from its cause. Costs nothing to avoid.
-    req = urllib.request.Request(url, headers={
+    req = urllib.request.Request(KB_URL + path, headers={
         "Authorization": "Bearer " + KB_TOKEN,
         "User-Agent": "omoikane-summarizer/1.0",
     })
@@ -132,7 +138,12 @@ def fetch_page(offset):
         except Exception as err:  # network hiccup / 5xx / restart mid-deploy
             last_err = err
             time.sleep(2 ** attempt)
-    raise SystemExit("fetch failed at offset %d: %s" % (offset, last_err))
+    raise SystemExit("fetch failed for %s: %s" % (path, last_err))
+
+
+def fetch_page(offset):
+    """One page of the entry list."""
+    return fetch_json("/v1/entries?limit=%d&offset=%d" % (PAGE_SIZE, offset))
 
 
 # =====================================================================
@@ -271,6 +282,71 @@ for e in entries:
             continue  # never summarise our own journals
         activity[kind or "other"] = activity.get(kind or "other", 0) + 1
 
+# ---------------------------------------------------------------------
+# Tree snapshot — the journal's "🌳 ツリーの動き" paragraph.
+#
+# It reports how the UseCase tree moved on the target day, which needs
+# EVERY UseCase, not the first page: /v1/use_cases caps ?limit at 200, so
+# a tree bigger than that is truncated unless we page it. Same rule as
+# the entry scan — we page until the server's own `total` is accounted
+# for, and if it never is we SAY so (tree_snapshot.complete=false) rather
+# than let the journal describe a tree it only half saw.
+# ---------------------------------------------------------------------
+UC_PAGE = 200            # the server's cap; asking for more just gets 200
+UC_MAX_PAGES = 50        # 10k UseCases; a stop for a paging bug, not a policy
+
+ucs, uc_seen = [], set()
+uc_offset, uc_total = 0, None
+for _ in range(UC_MAX_PAGES):
+    page = fetch_json("/v1/use_cases?limit=%d&offset=%d" % (UC_PAGE, uc_offset))
+    batch = page.get("use_cases") or []
+    if isinstance(page.get("total"), int):
+        uc_total = page["total"]
+    for uc in batch:
+        # Offsets shift under concurrent writes; dedupe like the entries.
+        if uc.get("id") not in uc_seen:
+            uc_seen.add(uc.get("id"))
+            ucs.append(uc)
+    uc_offset += len(batch)
+    if not batch or (uc_total is not None and uc_offset >= uc_total):
+        break
+
+uc_complete = uc_total is not None and len(ucs) >= uc_total
+
+# Headcount of the tree's front page (level=top). limit=1 because we only
+# want the `total`, not the rows.
+top_total = fetch_json("/v1/use_cases?level=top&limit=1").get("total", 0)
+
+touched, created, empty_leaves = [], [], []
+for uc in ucs:
+    cc = uc.get("child_count", 0) or 0
+    ec = uc.get("entry_count", 0) or 0
+    is_meta = cc > 0            # has children => a grouping node, not a leaf
+    item = {"slug": uc.get("slug", ""), "name_ja": uc.get("name_ja", ""),
+            "name_en": uc.get("name_en", ""),
+            "entry_count": ec, "child_count": cc, "is_meta": is_meta}
+    if jst_date(uc.get("created_at", "") or "") == target:
+        created.append(item)
+    elif jst_date(uc.get("updated_at", "") or "") == target:
+        touched.append(item)
+    if not is_meta and ec == 0:
+        empty_leaves.append(item)
+
+# Sort by entry_count desc so the journal can lead with the busiest
+# movers without further work in the prompt.
+touched.sort(key=lambda x: -x["entry_count"])
+created.sort(key=lambda x: -x["entry_count"])
+
+tree_snapshot = {
+    "complete": uc_complete,   # false => do not state tree facts in the journal
+    "top_level_count": top_total,
+    "total_use_cases": len(ucs),
+    "tidy_target": 20,             # indexer triggers Tidy mode above this
+    "touched": touched,            # updated_at == target day
+    "created": created,            # created_at == target day (leaves or metas)
+    "empty_leaves": empty_leaves,  # entry_count=0 AND not a meta
+}
+
 # Complete == P1 or P2 held, and the filter worked. See COVERAGE
 # CONTRACT above for what those are; this block only evaluates them and
 # says, in words the caller can act on, which one failed.
@@ -309,8 +385,12 @@ out = {"date": target,
        "external_findings": ext,
        "new_knowledge": knowledge,
        "librarian_activity": activity,
+       "tree_snapshot": tree_snapshot,
        "counts": {"external_findings": len(ext), "new_knowledge": len(knowledge),
-                  "librarian_meta": sum(activity.values())},
+                  "librarian_meta": sum(activity.values()),
+                  "use_cases_touched": len(touched),
+                  "use_cases_created": len(created),
+                  "empty_leaves": len(empty_leaves)},
        # The caller must be able to tell "the day was quiet" from "we
        # never got far enough back to see the day".
        "scan": {"complete": complete, "stop_reason": stop_reason,
@@ -329,6 +409,16 @@ out = {"date": target,
                 "list_total_last": total_last,
                 "incomplete_because": incomplete_because}}
 print(json.dumps(out, ensure_ascii=False))
+
+if not uc_complete:
+    # Not fatal: the day's entries are the journal, the tree paragraph is
+    # a garnish. But it must never be a SILENT half-view — say it here so
+    # the journal can leave "🌳 ツリーの動き" out instead of inventing it.
+    sys.stderr.write(
+        "TREE SNAPSHOT INCOMPLETE: paged %d of %s UseCases in %d-sized pages. "
+        "tree_snapshot.complete=false — do not state tree facts from it.\n"
+        % (len(ucs), uc_total if uc_total is not None else "an unreported number",
+           UC_PAGE))
 
 if not complete:
     sys.stderr.write(

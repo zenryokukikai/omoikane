@@ -5,6 +5,12 @@ Each MODE reproduces one way a paging client can believe it saw a whole
 day when it did not. fetch_yesterday.sh must either get the day right or
 say `scan.complete=false` — never return a confident zero.
 
+Also serves GET /v1/use_cases (the tree snapshot the journal's
+"🌳 ツリーの動き" paragraph is built from). That endpoint is honest in
+every MODE — the modes are about the entry scan — but it enforces the
+real server's ?limit cap of 200 over a 250-row fixture, so a client that
+takes the first page and calls it the tree is caught.
+
 Usage: fake_kb.py <port> <mode>
 
 Modes:
@@ -96,7 +102,43 @@ def build():
     return entries
 
 
+TREE_DAY = datetime.datetime(2026, 8, 20, 3, 0, 0, tzinfo=JST)  # the target day
+UC_TOTAL = 250        # > the server's 200 ?limit cap, so paging is mandatory
+UC_TOP = 12           # what ?level=top reports as `total`
+UC_LIMIT_CAP = 200    # internal/api/use_cases.go clamps ?limit here
+
+
+def build_use_cases():
+    """250 UseCases with a known shape, so the buckets are countable:
+
+      i in 0..4     created on the target day        -> created  = 5
+      i in 5..11    created earlier, touched that day-> touched  = 7
+      i in 12..249  neither
+      child_count 4 for i < 3                        -> 3 metas
+      entry_count 0 for every 10th i; i=0 is a meta  -> empty_leaves = 24
+    """
+    ucs = []
+    for i in range(UC_TOTAL):
+        if i < 5:
+            created = updated = TREE_DAY
+        elif i < 12:
+            created, updated = datetime.datetime(2026, 8, 11, 9, 0, tzinfo=JST), TREE_DAY
+        else:
+            created = datetime.datetime(2026, 8, 12, 9, 0, tzinfo=JST)
+            updated = datetime.datetime(2026, 8, 25, 9, 0, tzinfo=JST)
+        ucs.append({
+            "id": "U-%05d" % i, "slug": "uc-%d" % i,
+            "name_ja": "ユースケース%d" % i, "name_en": "use case %d" % i,
+            "child_count": 4 if i < 3 else 0,
+            "entry_count": 0 if i % 10 == 0 else i,
+            # Nanosecond stamps here too — parse_ts must handle the tree.
+            "created_at": stamp(created, 9), "updated_at": stamp(updated, 9),
+        })
+    return ucs
+
+
 ALL = build()
+USE_CASES = build_use_cases()
 MODE = "honest"
 
 
@@ -139,19 +181,35 @@ def page_for(offset, limit):
     return batch, pagination
 
 
+def use_cases_payload(q):
+    """The real endpoint's shape: use_cases + total/limit/offset (no
+    `pagination` object, no next_offset — the client pages on total)."""
+    limit = min(int(q.get("limit", ["30"])[0]), UC_LIMIT_CAP)
+    offset = int(q.get("offset", ["0"])[0])
+    if q.get("level", [""])[0] == "top":
+        # Only the count matters to the caller; serve one row.
+        return {"use_cases": USE_CASES[:limit], "total": UC_TOP,
+                "limit": limit, "offset": offset}
+    return {"use_cases": USE_CASES[offset:offset + limit], "total": UC_TOTAL,
+            "limit": limit, "offset": offset}
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
-        if not parsed.path.startswith("/v1/entries"):
+        q = parse_qs(parsed.query)
+        if parsed.path.startswith("/v1/use_cases"):
+            payload = use_cases_payload(q)
+        elif parsed.path.startswith("/v1/entries"):
+            limit = int(q.get("limit", ["50"])[0])
+            offset = int(q.get("offset", ["0"])[0])
+            batch, pagination = page_for(offset, limit)
+            payload = {"entries": batch}
+            if pagination is not None:
+                payload["pagination"] = pagination
+        else:
             self.send_error(404)
             return
-        q = parse_qs(parsed.query)
-        limit = int(q.get("limit", ["50"])[0])
-        offset = int(q.get("offset", ["0"])[0])
-        batch, pagination = page_for(offset, limit)
-        payload = {"entries": batch}
-        if pagination is not None:
-            payload["pagination"] = pagination
         body = json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

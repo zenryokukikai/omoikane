@@ -71,12 +71,15 @@ A workspace directory (outside this repo) contains:
 <workspace>/
 ├── AGENTS.md                         # points back to the canonical bundle
 └── .agents/
-    ├── .local/kb-agent.json          # { kb_core_url, api_key, instance_id, librarian_role }
+    ├── .local/kb-agent.json          # { kb_core_url, kb_public_url, api_key, instance_id, librarian_role }
     └── skills/<runtime>-<role>/
         ├── SKILL.md                  # runnable protocol; "derived_from" the bundle
         └── scripts/                  # load_env, backlog_next, post_*, ...
 ```
 
+- `kb_public_url` is the base URL a HUMAN clicks (Slack links). Keep it
+  separate from `kb_core_url`: the API URL is often internal, and links
+  built from it reach nobody. Required for roles that notify Slack.
 - `kb-agent.json` is the ONLY place the token lives. Never echo,
   commit, or copy it out. Keep a second file (e.g. `kb-agent.local.json`)
   pointed at a local server for validation; switching local↔prod is a

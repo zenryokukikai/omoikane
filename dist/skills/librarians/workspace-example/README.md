@@ -18,7 +18,7 @@ workspace-example/
 ├── cataloger/   batch summaries        (interval ~30m)
 ├── detective/   relation proposals     (interval ~45m)
 ├── curator/     resolve proposals      (interval ~60m)
-├── scout/       external findings      (interval ~3h)  — HN/arXiv/HF + SQLite seen-store
+├── scout/       external findings      (interval ~3h)  — HN/arXiv/HF/はてブ/Publickey/vendor RSS + SQLite seen-store
 ├── indexer/     reverse-lookup index   (interval ~90m) — fills symptoms/triggers via /v1/entries/{id}/index
 └── summarizer/  daily journal (ACTIVE) (calendar, morning)
 ```
@@ -54,10 +54,23 @@ Each `<role>/` is self-contained:
 
    ```json
    { "kb_core_url": "https://<your-omoikane>",
+     "kb_public_url": "https://<your-omoikane>",
      "api_key": "<role-scoped token>",
      "instance_id": "<role>-xxxxxxxx",
      "librarian_role": "<role>" }
    ```
+
+   `kb_public_url` is the base URL a **human** clicks, and it is separate
+   from `kb_core_url` on purpose: the API URL is often internal
+   (`http://127.0.0.1:<port>` behind a proxy), and Slack messages built
+   from it went out pointing at 127.0.0.1, unopenable. Set it for any
+   role that notifies Slack (**scout**, **summarizer**) — without it
+   `notify_slack.sh` refuses to post and `notify_slack_finding.sh`
+   announces without the KB link. Other roles can omit it.
+
+   Slack webhooks live in a **separate** file, `.agents/.local/slack-webhook.json`
+   (`{ "webhook_url": "https://hooks.slack.com/services/…" }`), or in
+   `$SLACK_WEBHOOK_URL`. No webhook configured = the notify step skips.
 
 3. **Validate locally** — point `kb_core_url` at a local server first:
 

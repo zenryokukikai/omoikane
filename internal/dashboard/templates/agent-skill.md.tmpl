@@ -660,6 +660,38 @@ That two-step is cheaper than one fat search on every axis.
     of the usual `feedback_prompt`; re-query with fewer words or a
     proper noun (names and ids hit best).
 
+### "What happened last week": browse by date, don't search
+
+A question about a *period* has no search term in it. Full-text
+search indexes the entry text only, and the daily reports spell
+their dates in Japanese prose ("8月28日は…"), so searching
+`2026-08-28` finds entries that *mention* that day rather than the
+report *for* it. A librarian really did answer "there is no data"
+this way while a month of daily reports sat in the KB.
+
+The right primitive is the list, filtered by date:
+
+```bash
+curl -s "<base-url>/v1/entries?type=librarian_meta\
+&date_from=2026-08-25&date_to=2026-08-31&order=oldest&limit=100" \
+  -H "Authorization: Bearer <api-key>"
+```
+
+  - `date_from` / `date_to` are ISO `YYYY-MM-DD`, **both ends
+    inclusive**, and either may be omitted (one-sided range).
+  - They read `metadata.date` — the day a report is *about*. Only
+    entries that carry it match; there is no fallback to
+    `updated_at` (the day a row last changed is a different fact).
+    In practice that means the chronicler's `repo_daily` /
+    `org_daily` reports and the summarizer's `daily_journal`.
+  - A malformed date, or `date_from` after `date_to`, is a **400** —
+    never a silently unfiltered page. An empty result therefore
+    really does mean "nothing was recorded for those days".
+  - The same pair is accepted as `filters.date_from` /
+    `filters.date_to` on `POST /v1/search`, for "topic T, during
+    week W". For a bare "what happened?", use the list above —
+    search needs a term to match.
+
 ### Searching chat (opt-in)
 
 By default, `kb_search` and `kb_lookup_by_*` operate on entries

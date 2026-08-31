@@ -512,6 +512,44 @@ func buildListConditions(f EntryFilter) (conds []string, args []any, joinTag str
 			"NOT EXISTS (SELECT 1 FROM librarian_progress lp WHERE lp.entry_id = e.id AND lp.role = ?)")
 		args = append(args, f.NotProgressedByRole)
 	}
+	dc, da := dateRangeCond(f, "e")
+	conds = append(conds, dc...)
+	args = append(args, da...)
+	return
+}
+
+// dateRangeCond builds the metadata.date range predicate shared by the
+// list path (buildListConditions) and the search path (searchEntries).
+// One helper, so the contract of "what a date range means" lives in one
+// place instead of being re-typed on each surface (issue #144).
+//
+// Only entries that HAVE metadata.date match. There is deliberately NO
+// fallback to updated_at: "the day the report is about" and "the day the
+// row last changed" are different facts, and mixing them returns
+// quietly-wrong answers. Excluding is the smaller surprise — a date
+// query is asking for the dated reports, not for every row touched.
+//
+// Comparison is plain string >= / <=, which is correct because ISO 8601
+// sorts lexicographically in date order, and because the stored values
+// are date-only `YYYY-MM-DD` (chronicler + summarizer both write that
+// form), making both ends inclusive. If a datetime value ever gets
+// stored under $.date, date_to would have to become `< nextday` —
+// change it only then.
+//
+// No index is added: a full scan of 18k rows measured 33 ms, and the
+// real queries also carry type/project narrowing. If that stops being
+// enough, a VIRTUAL generated column over json_extract plus an index can
+// be added later with NO change to this SQL or to the API.
+func dateRangeCond(f EntryFilter, alias string) (conds []string, args []any) {
+	col := "json_extract(" + alias + ".metadata,'$.date')"
+	if f.DateFrom != "" {
+		conds = append(conds, col+" >= ?")
+		args = append(args, f.DateFrom)
+	}
+	if f.DateTo != "" {
+		conds = append(conds, col+" <= ?")
+		args = append(args, f.DateTo)
+	}
 	return
 }
 

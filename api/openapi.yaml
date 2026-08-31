@@ -113,6 +113,19 @@ paths:
           schema: { type: boolean, default: false }
           description: include SUPERSEDED / ARCHIVED / DUPLICATE in results
         - in: query
+          name: date_from
+          schema: { type: string, format: date }
+          description: >
+            Earliest metadata.date (ISO YYYY-MM-DD), inclusive. Matches ONLY
+            entries that carry metadata.date (daily reports and journals);
+            there is no updated_at fallback. Malformed date => 400.
+        - in: query
+          name: date_to
+          schema: { type: string, format: date }
+          description: >
+            Latest metadata.date (ISO YYYY-MM-DD), inclusive. Malformed date,
+            or date_from later than date_to, => 400.
+        - in: query
           name: limit
           schema: { type: integer, default: 50, maximum: 500 }
         - in: query
@@ -520,3 +533,14 @@ components:
             status: { type: string }
             tag: { type: string }
             include_superseded: { type: boolean, default: false }
+            date_from:
+              type: string
+              format: date
+              description: >
+                Earliest metadata.date (ISO YYYY-MM-DD), inclusive. Same
+                contract as the /v1/entries query param. Malformed or
+                reversed range => 400.
+            date_to:
+              type: string
+              format: date
+              description: Latest metadata.date (ISO YYYY-MM-DD), inclusive.

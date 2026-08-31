@@ -95,7 +95,9 @@ check_rc() {  # <expected rc>
 # The fixture answers for itself — no hard-coded counts to drift.
 day_counts() {
     local exp
-    exp=$(cd "$HERE" && python3 expected.py "$DAY")
+    # DONTWRITEBYTECODE: expected.py imports fake_kb; without this the
+    # suite leaves a __pycache__ dir behind in the repo.
+    exp=$(cd "$HERE" && PYTHONDONTWRITEBYTECODE=1 python3 expected.py "$DAY")
     check "o['counts']['external_findings'] == $(jq .external_findings <<<"$exp")" "external_findings for $DAY"
     check "o['counts']['new_knowledge'] == $(jq .new_knowledge <<<"$exp")" "new_knowledge for $DAY"
     check "o['counts']['librarian_meta'] == $(jq .librarian_meta <<<"$exp")" "librarian_meta for $DAY (journal excluded)"

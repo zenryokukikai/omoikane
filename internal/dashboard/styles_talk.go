@@ -14,7 +14,7 @@ main:has(.talk-layout) { max-width: none; }
   border: 1px dashed var(--border); color: var(--accent); text-decoration: none;
   font-size: 0.9rem;
 }
-.talk-new:hover, .talk-new.talk-active { border-style: solid; background: var(--bg-soft); }
+.talk-new:hover, .talk-new.talk-active { border-style: solid; background: var(--hover); }
 .talk-threads { display: flex; flex-direction: column; gap: 0.15rem; overflow-y: auto; }
 /* Thread-list disclosure (#131). The past-thread list lives in a <details>
    so mobile can collapse it (media block below); desktop must keep the
@@ -41,8 +41,8 @@ main:has(.talk-layout) { max-width: none; }
   display: flex; flex-direction: column; padding: 0.4rem 0.6rem; border-radius: 6px;
   text-decoration: none; color: inherit;
 }
-.talk-thread:hover { background: var(--bg-soft); }
-.talk-thread.talk-active { background: var(--bg-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.talk-thread:hover { background: var(--hover); }
+.talk-thread.talk-active { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
 .talk-thread-title {
   font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -91,7 +91,7 @@ main:has(.talk-layout) { max-width: none; }
 .talk-msg-me .talk-bubble { background: var(--accent); color: #fff; border-color: var(--accent); }
 .talk-msg-me .talk-bubble a { color: #eaf2ff; }
 .talk-msg-me .talk-time { color: rgba(255,255,255,0.75); }
-.talk-msg-bot .talk-bubble { background: var(--bg-soft); }
+.talk-msg-bot .talk-bubble { background: var(--surface); }
 .talk-bubble .md p:first-child { margin-top: 0; }
 .talk-bubble .md p:last-child { margin-bottom: 0; }
 .talk-time { font-size: 0.68rem; text-align: right; margin-top: 0.2rem; }
@@ -149,7 +149,7 @@ main:has(.talk-layout) { max-width: none; }
   }
   .talk-side-bar::-webkit-details-marker { display: none; }
   .talk-side-bar::after { content: "▾"; margin-left: auto; transition: transform 0.15s ease; }
-  .talk-side-menu[open] > .talk-side-bar { background: var(--bg-soft); }
+  .talk-side-menu[open] > .talk-side-bar { background: var(--hover); }
   .talk-side-menu[open] > .talk-side-bar::after { transform: rotate(180deg); }
   .talk-side-menu:not([open]) > .talk-threads { display: none; }
   .talk-side-menu[open] > .talk-threads { margin-top: 0.4rem; max-height: 55vh; }

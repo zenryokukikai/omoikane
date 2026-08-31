@@ -124,7 +124,19 @@ input.copy-target {
 input.copy-target:focus { outline: 2px solid var(--accent); }
 form button { padding: 0.45rem 1rem; font: inherit; cursor: pointer; background: var(--accent); color: #fff; border: none; border-radius: 4px; }
 form button:hover { background: var(--accent-strong); }
-form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; font: inherit; min-width: 320px; }
+/* Appearance only — this rule sets NO width (issue #123). It used to
+   carry "min-width: 320px", a floor on every text input on the site that
+   was wider than the narrowest supported viewport: /chat, /agents,
+   /members and /admin/spaces scrolled sideways at 320px even though
+   their own forms already ask for "width: 100%". The floor also
+   out-specified the generic "form label input { min-width: 0 }" reset
+   (0,1,2 beats 0,0,3), so .entries-filter and .entry-new-form each had
+   to write a rule whose only job was to take it back.
+   It is gone rather than capped because no form needs it: every form
+   with a text input states its own width — 100% for the stacked forms,
+   flex-basis for .lookup-form, the template's size= attribute for the
+   /entries filter. A global floor nobody asks for is not a default. */
+form input[type=text] { padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; font: inherit; }
 
 `
 

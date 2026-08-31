@@ -38,11 +38,6 @@ header {
      scroll at 375px). */
   flex-wrap: wrap; row-gap: 0.4rem;
 }
-@media (max-width: 720px) {
-  header { padding: 0.6rem 0.9rem; gap: 0.7rem; }
-  header .header-search { flex-basis: 100%; }
-  header .header-search input { flex: 1; min-width: 0; }
-}
 header a { text-decoration: none; color: var(--fg); font-weight: 600; }
 header a:hover { color: var(--accent); }
 header a.nav-journal { color: var(--accent); font-weight: 600; }
@@ -88,6 +83,24 @@ header .avatar {
 header .avatar-placeholder {
   background: var(--accent); color: #fff; font-weight: 600;
   font-size: 0.85rem; text-transform: uppercase;
+}
+/* Narrow screens. THIS BLOCK MUST STAY BELOW THE HEADER RULES ABOVE.
+   It was written above them, and that alone was issue #123: its
+   "min-width: 0" for the search input and the desktop
+   "header input[type=search] { min-width: 280px }" have IDENTICAL
+   specificity (0,1,2 both — one class + one attribute + elements), so
+   the cascade fell through to source order and the desktop floor won at
+   every viewport. The box could not shrink, and its 280px + gap + "go"
+   button held EVERY page open at 343px on a 320px screen.
+   Moving the block is the whole fix: nothing here needs extra weight,
+   an !important, or a narrower selector — it only needs to come last,
+   which is the rule this stylesheet already states at the top of
+   styles.go ("later rules deliberately override earlier ones"). */
+@media (max-width: 720px) {
+  header { padding: 0.6rem 0.9rem; gap: 0.7rem; }
+  /* The search cluster takes a row of its own and the input fills it. */
+  header .header-search { flex-basis: 100%; }
+  header .header-search input { flex: 1; min-width: 0; }
 }
 main { max-width: 880px; margin: 0 auto; padding: 1.5rem 1.25rem 2.5rem; }
 h1 { font-family: var(--font-serif); font-size: 1.9rem; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 1rem; }
@@ -135,7 +148,11 @@ a { color: var(--accent); }
   color: var(--muted); margin-bottom: 0.25rem;
 }
 .body { white-space: pre-wrap; background: var(--surface); padding: 1rem; border: 1px solid var(--border); border-radius: 6px; }
-.body pre, code { background: var(--code-bg); padding: 0 0.25em; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+/* overflow-wrap on inline code is load-bearing, not cosmetic (issue
+   #123): an identifier like KB_OAUTH_GOOGLE_CLIENT_SECRET has no break
+   opportunity, so it sets a min-content width its container cannot go
+   below — that alone made /login 350px wide at a 320px viewport. */
+.body pre, code { background: var(--code-bg); padding: 0 0.25em; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; overflow-wrap: anywhere; }
 .body pre { padding: 0.6rem 0.8rem; overflow-x: auto; }
 /* JSON metadata blob: wrap rather than overflow horizontally — long JSON
    lines (chronicler stats, situation membership, etc.) routinely exceed

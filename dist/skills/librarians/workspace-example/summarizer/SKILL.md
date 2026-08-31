@@ -64,11 +64,40 @@ a digest a human reads over coffee.
 bash .agents/skills/omoikane-summarizer/scripts/fetch_yesterday.sh
 ```
 
-Emits `{date, external_findings[], new_knowledge[], librarian_activity{}, counts{}}`
-for yesterday (JST). Prior daily journals are already excluded. If
-everything is empty, you may still post a brief "quiet day" journal —
-or, if truly nothing at all, print "nothing to journal for <date>" and
-exit without posting.
+Emits `{date, external_findings[], new_knowledge[], librarian_activity{},
+counts{}, scan{}}` for yesterday (JST). Pass `YYYY-MM-DD` as the only
+argument to backfill an older day; the script pages back until that day
+is covered.
+
+**Check `scan.complete` before you believe an empty result.** `false`
+(the script also exits **3**) means the day was never provably covered —
+the counts are a floor, not the day. `scan.incomplete_because` names the
+cause; there are four:
+
+1. the page budget ran out before the scan reached the day,
+2. the server returned an empty page without saying the list had ended,
+3. the list claimed to end but the rows did not add up (including the
+   whole list coming back empty — a lost read view looks exactly like a
+   quiet day, so it is reported as a fault, not as silence),
+4. `created_at` values that could not be parsed and were dropped.
+
+Do **not** post a journal from an incomplete scan: if it was the budget
+(1), re-run with a bigger one
+(`SUMMARIZER_MAX_PAGES=300 bash …/fetch_yesterday.sh <date>`); for 2–4
+print `incomplete scan for <date>: <reason>` and exit without posting —
+those are faults to report, not to work around. (An earlier version
+silently returned 0 for any day older than the newest 500 entries, and
+four journals said "nothing happened" on days with hundreds of entries.)
+
+**What the scan does not see:** entries later marked SUPERSEDED,
+ARCHIVED or DUPLICATE are excluded by the list endpoint, on purpose —
+the journal reports the knowledge still standing, not what was later
+retracted. If a day looks thinner than you expect, that is why.
+
+Prior daily journals are already excluded. If everything is empty **and
+`scan.complete` is true**, you may still post a brief "quiet day"
+journal — or, if truly nothing at all, print "nothing to journal for
+<date>" and exit without posting.
 
 ### 2. Write the journal
 

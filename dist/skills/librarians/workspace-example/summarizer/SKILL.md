@@ -64,11 +64,25 @@ a digest a human reads over coffee.
 bash .agents/skills/omoikane-summarizer/scripts/fetch_yesterday.sh
 ```
 
-Emits `{date, external_findings[], new_knowledge[], librarian_activity{}, counts{}}`
-for yesterday (JST). Prior daily journals are already excluded. If
-everything is empty, you may still post a brief "quiet day" journal —
-or, if truly nothing at all, print "nothing to journal for <date>" and
-exit without posting.
+Emits `{date, external_findings[], new_knowledge[], librarian_activity{},
+counts{}, scan{}}` for yesterday (JST). Pass `YYYY-MM-DD` as the only
+argument to backfill an older day; the script pages back until that day
+is covered.
+
+**Check `scan.complete` before you believe an empty result.** `false`
+(the script also exits **3**) means the scan stopped before reaching the
+target day — the counts are a floor, not the day. Do **not** post a
+journal from an incomplete scan: re-run with a bigger budget
+(`SUMMARIZER_MAX_PAGES=120 bash …/fetch_yesterday.sh <date>`) and if it
+still comes back incomplete, print `incomplete scan for <date>` and exit
+without posting. (An earlier version silently returned 0 for any day
+older than the newest 500 entries, and four journals said "nothing
+happened" on days with hundreds of entries.)
+
+Prior daily journals are already excluded. If everything is empty **and
+`scan.complete` is true**, you may still post a brief "quiet day"
+journal — or, if truly nothing at all, print "nothing to journal for
+<date>" and exit without posting.
 
 ### 2. Write the journal
 

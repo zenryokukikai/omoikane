@@ -137,6 +137,12 @@ func TestMyLibrarianSaveAndTokenIdempotency(t *testing.T) {
 		p.UserName != "Alice" {
 		t.Fatalf("params: %+v", p)
 	}
+	// Issue #137: the owner written into the runtime's trust row is the
+	// saving user's kb user id — the same identity the gateway stamps on
+	// their messages.
+	if p.OwnerID != "alice" {
+		t.Fatalf("owner id: %q, want the saving user's kb user id", p.OwnerID)
+	}
 	if p.KBToken == "" {
 		t.Fatal("first save must mint a kb token")
 	}
@@ -430,6 +436,54 @@ func TestMyLibrarianSaveTouchesOnlyOwnConfig(t *testing.T) {
 	alice, err := s.GetUserLibrarian(ctx, "alice")
 	if err != nil || alice.AgentID != "plib-alice" || alice.Name != "alice librarian" {
 		t.Fatalf("attacker's own row wrong: %+v err=%v", alice, err)
+	}
+}
+
+// Issue #137: the librarian's owner follows the user who saved it. Two
+// different users saving through the SAME deployment must each be
+// provisioned as the owner of their own librarian — the defect this
+// pins is a single deployment-wide owner id, where whoever saved
+// second still got the configured operator as owner and lost the
+// owner-gated tools on their own librarian.
+func TestMyLibrarianOwnerFollowsSavingUser(t *testing.T) {
+	fake := &fakeProvisioner{}
+	srv, s, aliceTok := mountLibrarian(t, fake) // alice: admin
+	ctx := context.Background()
+
+	// A second, ordinary member — the case the deployment-wide owner id
+	// got wrong.
+	if err := s.CreateUser(ctx, &store.User{
+		ID: "u-0f784100", Name: "Bob", Role: "member", Email: "bob@x.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bobTok, err := s.CreateToken(ctx, "u-0f784100", "test", []string{"read", "write"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ token, wantOwner, name string }{
+		{aliceTok, "alice", "しおり"},
+		{bobTok, "u-0f784100", "ボブの司書"},
+	} {
+		if code, _ := postFormBody(t, srv, "/my/librarian", tc.token,
+			map[string]string{"name": tc.name, "persona": "p"}); code != http.StatusSeeOther {
+			t.Fatalf("save as %s: want 303, got %d", tc.wantOwner, code)
+		}
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("provision calls: %d", len(fake.calls))
+	}
+	for i, want := range []string{"alice", "u-0f784100"} {
+		if got := fake.calls[i].OwnerID; got != want {
+			t.Fatalf("provision %d owner: %q, want %q (owner must be per user, not a deployment constant)", i, got, want)
+		}
+		if wantAgent := "plib-" + want; fake.calls[i].AgentID != wantAgent {
+			t.Fatalf("provision %d agent: %q, want %q", i, fake.calls[i].AgentID, wantAgent)
+		}
+	}
+	if fake.calls[0].OwnerID == fake.calls[1].OwnerID {
+		t.Fatal("both librarians got the same owner — the per-user contract is broken")
 	}
 }
 

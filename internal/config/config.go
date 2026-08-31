@@ -54,10 +54,16 @@ type Config struct {
 	// Personal librarian provisioning (issue #73). OPENCRAB_URL is the
 	// base URL of the opencrab agent runtime (internal network, no
 	// auth); empty disables the whole feature (no /my/librarian page).
-	// OPENCRAB_OWNER_ID is the runtime's trusted caller id written into
-	// each provisioned agent's trust row (owner_discord_id).
-	OpencrabURL     string // OPENCRAB_URL (empty = feature disabled)
-	OpencrabOwnerID string // OPENCRAB_OWNER_ID
+	//
+	// There is deliberately NO owner-id setting (issue #137): a personal
+	// librarian's owner is the kb user who saved it, so the owner id is
+	// a per-user value read from the request, never a deployment-wide
+	// constant. The retired OPENCRAB_OWNER_ID made every librarian —
+	// whoever created it — owned by one configured person, and its value
+	// (a Discord snowflake) could not match what the gateway stamps as
+	// the speaker anyway. Any leftover OPENCRAB_OWNER_ID in a deployment
+	// env is ignored.
+	OpencrabURL string // OPENCRAB_URL (empty = feature disabled)
 
 	// External gate admin registration (issue #104 slice G2).
 	// GATE_ADMIN_URL is the gate admin plane's base URL; empty disables
@@ -169,7 +175,6 @@ func Load() (*Config, error) {
 	c.RegisterOpen = envBool("KB_REGISTER_OPEN", false)
 
 	c.OpencrabURL = strings.TrimRight(os.Getenv("OPENCRAB_URL"), "/")
-	c.OpencrabOwnerID = strings.TrimSpace(os.Getenv("OPENCRAB_OWNER_ID"))
 
 	c.GateAdminURL = strings.TrimRight(os.Getenv("GATE_ADMIN_URL"), "/")
 	c.GateOperatorToken = strings.TrimSpace(os.Getenv("GATE_OPERATOR_TOKEN"))

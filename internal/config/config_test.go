@@ -63,26 +63,24 @@ func TestBadFloatRejected(t *testing.T) {
 func TestOpencrabConfig(t *testing.T) {
 	// Default: unset → feature disabled (empty URL).
 	t.Setenv("OPENCRAB_URL", "")
-	t.Setenv("OPENCRAB_OWNER_ID", "")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.OpencrabURL != "" || c.OpencrabOwnerID != "" {
-		t.Fatalf("defaults: %q %q", c.OpencrabURL, c.OpencrabOwnerID)
+	if c.OpencrabURL != "" {
+		t.Fatalf("default OpencrabURL: %q", c.OpencrabURL)
 	}
-	// Set: trailing slash trimmed, owner id whitespace trimmed.
+	// Set: trailing slash trimmed.
 	t.Setenv("OPENCRAB_URL", "http://crab.internal:3000/")
-	t.Setenv("OPENCRAB_OWNER_ID", " owner-1 ")
+	// A leftover owner id in the environment is ignored: the librarian
+	// owner is per-user now, not a deployment constant (issue #137).
+	t.Setenv("OPENCRAB_OWNER_ID", "390732846236434452")
 	c, err = Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.OpencrabURL != "http://crab.internal:3000" {
 		t.Fatalf("OpencrabURL: %q", c.OpencrabURL)
-	}
-	if c.OpencrabOwnerID != "owner-1" {
-		t.Fatalf("OpencrabOwnerID: %q", c.OpencrabOwnerID)
 	}
 }
 

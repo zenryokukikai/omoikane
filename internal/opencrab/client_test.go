@@ -67,7 +67,7 @@ func (f *fakeRuntime) sequence() []string {
 }
 
 func (f *fakeRuntime) client() *Client {
-	return New(f.srv.URL, "owner-123", "https://kb.example.com")
+	return New(f.srv.URL, "https://kb.example.com")
 }
 
 // Fresh provision: agent absent, trust row absent, token supplied →
@@ -83,7 +83,7 @@ func TestProvisionFresh(t *testing.T) {
 		if discordState == 0 {
 			return 200, `{"configured":false}`
 		}
-		return 200, `{"configured":true,"enabled":true,"owner_discord_id":"owner-123"}`
+		return 200, `{"configured":true,"enabled":true,"owner_discord_id":"u-abc"}`
 	}
 	f.handlers["PUT /api/agents/"+agent+"/discord"] = func(recordedCall) (int, string) {
 		discordState = 1
@@ -95,6 +95,7 @@ func TestProvisionFresh(t *testing.T) {
 
 	err := f.client().Provision(context.Background(), ProvisionParams{
 		AgentID:  agent,
+		OwnerID:  "u-abc",
 		UserName: "Kojira",
 		Name:     "しおり",
 		Persona:  "丁寧で簡潔。",
@@ -140,7 +141,7 @@ func TestProvisionFresh(t *testing.T) {
 		t.Fatal("instructions must not embed the plaintext token")
 	}
 	discordPut := f.calls[4].Body
-	if discordPut["owner_discord_id"] != "owner-123" || discordPut["bot_token"] != "" {
+	if discordPut["owner_discord_id"] != "u-abc" || discordPut["bot_token"] != "" {
 		t.Fatalf("discord put payload: %+v", discordPut)
 	}
 	ws := f.calls[6].Body
@@ -158,12 +159,12 @@ func TestProvisionResave(t *testing.T) {
 	f.on("GET", "/api/agents/"+agent, `{"agent_id":"`+agent+`","name":"旧名"}`)
 	f.on("PUT", "/api/agents/"+agent, `{"updated":true}`)
 	f.on("GET", "/api/agents/"+agent+"/discord",
-		`{"configured":true,"enabled":true,"owner_discord_id":"owner-123"}`)
+		`{"configured":true,"enabled":true,"owner_discord_id":"u-abc"}`)
 	f.on("PATCH", "/api/agents/"+agent+"/discord",
-		`{"ok":true,"configured":true,"owner_discord_id":"owner-123"}`)
+		`{"ok":true,"configured":true,"owner_discord_id":"u-abc"}`)
 
 	err := f.client().Provision(context.Background(), ProvisionParams{
-		AgentID: agent, UserName: "Kojira", Name: "新名", Persona: "p", KBToken: "",
+		AgentID: agent, OwnerID: "u-abc", UserName: "Kojira", Name: "新名", Persona: "p", KBToken: "",
 	})
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -178,7 +179,7 @@ func TestProvisionResave(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("call sequence: got %v want %v", got, want)
 	}
-	if f.calls[3].Body["owner_discord_id"] != "owner-123" {
+	if f.calls[3].Body["owner_discord_id"] != "u-abc" {
 		t.Fatalf("patch payload: %+v", f.calls[3].Body)
 	}
 }
@@ -192,7 +193,7 @@ func TestProvisionStepError(t *testing.T) {
 	f.on("PUT", "/api/agents/"+agent, `{"updated":false,"error":"boom"}`)
 
 	err := f.client().Provision(context.Background(), ProvisionParams{
-		AgentID: agent, UserName: "u", Name: "n",
+		AgentID: agent, OwnerID: "u-x", UserName: "u", Name: "n",
 	})
 	if err == nil {
 		t.Fatal("want error")
@@ -213,7 +214,7 @@ func TestProvisionTrustRowNotPersisted(t *testing.T) {
 	f.on("PUT", "/api/agents/"+agent+"/discord", `{"ok":true}`)
 
 	err := f.client().Provision(context.Background(), ProvisionParams{
-		AgentID: agent, UserName: "u", Name: "n",
+		AgentID: agent, OwnerID: "u-x", UserName: "u", Name: "n",
 	})
 	if err == nil || !strings.Contains(err.Error(), "trust row") {
 		t.Fatalf("want trust-row error, got %v", err)
@@ -228,7 +229,7 @@ func TestProvisionHTTPError(t *testing.T) {
 		return 502, "bad gateway"
 	}
 	err := f.client().Provision(context.Background(), ProvisionParams{
-		AgentID: agent, UserName: "u", Name: "n",
+		AgentID: agent, OwnerID: "u-x", UserName: "u", Name: "n",
 	})
 	if err == nil || !strings.Contains(err.Error(), "HTTP 502") {
 		t.Fatalf("want HTTP 502 error, got %v", err)
@@ -236,9 +237,49 @@ func TestProvisionHTTPError(t *testing.T) {
 }
 
 func TestProvisionValidatesParams(t *testing.T) {
-	c := New("http://unused", "o", "http://kb")
+	c := New("http://unused", "http://kb")
 	if err := c.Provision(context.Background(), ProvisionParams{}); err == nil {
 		t.Fatal("want error for empty params")
+	}
+	// An owner is not optional (issue #137): provisioning without one
+	// would write a trust row nobody owns. It must fail before any
+	// runtime call — the base URL above is unreachable, so reaching the
+	// network at all would hang/error differently.
+	err := c.Provision(context.Background(), ProvisionParams{AgentID: "plib-u1", Name: "n"})
+	if err == nil || !strings.Contains(err.Error(), "owner id required") {
+		t.Fatalf("want owner-id validation error, got %v", err)
+	}
+}
+
+// Issue #137: the trust row owner is the kb user id of the user who
+// saved the librarian — a per-user value, not one deployment-wide
+// constant. Two different users provisioning through the SAME client
+// must each end up owning their own agent.
+func TestProvisionOwnerIsPerUser(t *testing.T) {
+	provision := func(t *testing.T, userID string) map[string]any {
+		t.Helper()
+		f := newFakeRuntime(t)
+		agent := "plib-" + userID
+		f.on("GET", "/api/agents/"+agent, `{"agent_id":"`+agent+`"}`)
+		f.on("PUT", "/api/agents/"+agent, `{"updated":true}`)
+		f.on("GET", "/api/agents/"+agent+"/discord",
+			`{"configured":true,"enabled":true,"owner_discord_id":"`+userID+`"}`)
+		f.on("PATCH", "/api/agents/"+agent+"/discord",
+			`{"ok":true,"configured":true,"owner_discord_id":"`+userID+`"}`)
+		if err := f.client().Provision(context.Background(), ProvisionParams{
+			AgentID: agent, OwnerID: userID, UserName: "u", Name: "n",
+		}); err != nil {
+			t.Fatalf("Provision(%s): %v", userID, err)
+		}
+		return f.calls[len(f.calls)-1].Body
+	}
+	// The admin-ish hand-typed id and an ordinary member id: the owner
+	// written must follow the saving user, not the deployment.
+	for _, userID := range []string{"me", "u-0f784100"} {
+		body := provision(t, userID)
+		if body["owner_discord_id"] != userID {
+			t.Fatalf("owner for %s: %+v (owner must be the saving user's kb user id)", userID, body)
+		}
 	}
 }
 
@@ -259,7 +300,7 @@ func TestDispatchTalkRetriesTransient(t *testing.T) {
 	}
 	c := f.client()
 	c.talkBackoff = time.Millisecond
-	reply, err := c.DispatchTalk(context.Background(), "plib-u1", "hello")
+	reply, err := c.DispatchTalk(context.Background(), "plib-u1", "u-0f784100", "hello")
 	if err != nil {
 		t.Fatalf("dispatch after transient failures: %v", err)
 	}
@@ -270,7 +311,8 @@ func TestDispatchTalkRetriesTransient(t *testing.T) {
 		t.Fatalf("attempts = %d, want 3", attempts)
 	}
 	last := f.calls[len(f.calls)-1]
-	if last.Body["user_id"] != "owner-123" || last.Body["content"] != "hello" {
+	// Caller identity = the librarian's owner, per librarian (#137).
+	if last.Body["user_id"] != "u-0f784100" || last.Body["content"] != "hello" {
 		t.Fatalf("delivered body wrong: %v", last.Body)
 	}
 }
@@ -288,7 +330,7 @@ func TestDispatchTalkNoRetryOnFinal(t *testing.T) {
 		f.handlers["POST /api/agents/a/messages"] = h
 		c := f.client()
 		c.talkBackoff = time.Millisecond
-		if _, err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
+		if _, err := c.DispatchTalk(context.Background(), "a", "u-1", "x"); err == nil {
 			t.Fatalf("%s: want error", name)
 		}
 		if len(f.calls) != 1 {
@@ -317,7 +359,7 @@ func TestDispatchTalkReplyExtraction(t *testing.T) {
 		f := newFakeRuntime(t)
 		body := tc.body
 		f.handlers["POST /api/agents/a/messages"] = func(recordedCall) (int, string) { return 200, body }
-		reply, err := f.client().DispatchTalk(context.Background(), "a", "x")
+		reply, err := f.client().DispatchTalk(context.Background(), "a", "u-1", "x")
 		if tc.wantErr {
 			if err == nil {
 				t.Fatalf("%s: want error, got reply %q", tc.name, reply)
@@ -340,10 +382,10 @@ func TestDispatchTalkConnectionErrorRetries(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
 	srv.Close() // connections now refused
-	c := New(url, "o", "http://kb")
+	c := New(url, "http://kb")
 	c.talkBackoff = 2 * time.Millisecond
 	start := time.Now()
-	if _, err := c.DispatchTalk(context.Background(), "a", "x"); err == nil {
+	if _, err := c.DispatchTalk(context.Background(), "a", "u-1", "x"); err == nil {
 		t.Fatal("want error against a dead runtime")
 	}
 	// Both backoff sleeps (2ms + 4ms) must have run — proof the
@@ -365,11 +407,11 @@ func TestDispatchTalkNoRetryOnResponseTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer close(release)
-	c := New(srv.URL, "o", "http://kb")
+	c := New(srv.URL, "http://kb")
 	c.talkHC.Timeout = 20 * time.Millisecond
 	c.talkBackoff = time.Millisecond
 	start := time.Now()
-	_, err := c.DispatchTalk(context.Background(), "a", "x")
+	_, err := c.DispatchTalk(context.Background(), "a", "u-1", "x")
 	if err == nil {
 		t.Fatal("want error on response timeout")
 	}

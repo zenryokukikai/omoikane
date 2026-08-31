@@ -223,7 +223,10 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 		// it, the webhook dispatcher routes /talk messages with it
 		// (slice B). Must be set before apiH.Mount (which starts the
 		// dispatcher goroutine).
-		oc := opencrab.New(cfg.OpencrabURL, cfg.OpencrabOwnerID, cfg.OAuthRedirectBase)
+		// No owner id here: a librarian's owner is the kb user who
+		// saved it and travels per call (issue #137), so the client
+		// holds no deployment-wide owner identity.
+		oc := opencrab.New(cfg.OpencrabURL, cfg.OAuthRedirectBase)
 		dashH.Librarian = oc
 		apiH.TalkDispatch = oc
 		logger.Info("personal librarian enabled", "opencrab_url", cfg.OpencrabURL)

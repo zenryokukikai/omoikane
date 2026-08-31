@@ -121,7 +121,7 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 
 	// The REAL client — the request shape the runtime sees is part of
 	// the contract under test.
-	oc := opencrab.New(crab.URL, "owner-1", "http://kb.test")
+	oc := opencrab.New(crab.URL, "http://kb.test")
 	var events <-chan Event
 	base, adminTok, st := testServerWithTalkDispatchOpts(t, oc, func(h *Handler) {
 		// Tap the event bus before Mount starts the dispatcher, so the
@@ -205,8 +205,12 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &msg); err != nil {
 		t.Fatalf("runtime body not JSON: %q", body)
 	}
-	if msg.UserID != "owner-1" {
-		t.Fatalf("runtime caller id: %q, want owner-1", msg.UserID)
+	// Issue #137: the caller identity handed to the runtime is the
+	// librarian's OWNER (its kb user id), not a deployment-wide
+	// constant — it must match the trust row provisioning wrote, or the
+	// owner-gated tools resolve to a stranger's privileges.
+	if msg.UserID != "u1" {
+		t.Fatalf("runtime caller id: %q, want the librarian owner's kb user id u1", msg.UserID)
 	}
 	// The human text (and the thread title as context) must be in the
 	// content. The thread id and the posting-recipe wording must NOT:
@@ -297,15 +301,17 @@ func TestTalkRoutingPersonalLibrarian(t *testing.T) {
 type fakeTalkDispatcher struct {
 	mu       sync.Mutex
 	calls    []string // agent ids, in dispatch order
+	owners   []string // owner user ids handed to the runtime, same order
 	contents []string // dispatched framing+body, same order
 	reply    string   // returned as the agent's reply
 	err      error    // returned as the dispatch error
 }
 
-func (f *fakeTalkDispatcher) DispatchTalk(_ context.Context, agentID, content string) (string, error) {
+func (f *fakeTalkDispatcher) DispatchTalk(_ context.Context, agentID, ownerUserID, content string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, agentID)
+	f.owners = append(f.owners, ownerUserID)
 	f.contents = append(f.contents, content)
 	return f.reply, f.err
 }

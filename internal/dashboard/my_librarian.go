@@ -218,7 +218,12 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Librarian.Provision(r.Context(), opencrab.ProvisionParams{
-		AgentID:  personalLibrarianAgentID(me.ID),
+		AgentID: personalLibrarianAgentID(me.ID),
+		// The librarian's owner is the signed-in user who saved it
+		// (issue #137) — their kb user id, the same identity the
+		// gateway stamps on their messages, taken from the auth
+		// context like the agent id above, never from the form.
+		OwnerID:  me.ID,
 		UserName: me.Name,
 		Name:     name,
 		Persona:  persona,

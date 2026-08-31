@@ -65,7 +65,7 @@ const stylesEntryLists = `/* ---- entry row lists (/entries, /search — issue #
    <option> is ~390px sizes its label, form, and details to match.
    Pin the controls to the container width instead. */
 form label input, form label select { max-width: 100%; min-width: 0; }
-.filter-form, .chat-newthread form { flex-wrap: wrap; }
+.chat-newthread form { flex-wrap: wrap; }
 .chat-newthread label { display: block; width: 100%; }
 .chat-newthread label input, .chat-newthread label select { width: 100%; box-sizing: border-box; }
 
@@ -105,6 +105,47 @@ form label input, form label select { max-width: 100%; min-width: 0; }
   .entries-filter label.checkbox-inline { flex-direction: row; align-items: center; width: auto; }
   .entries-filter button[type="submit"] { width: 100%; }
 }
+
+/* ---- /entries/new compose form (issue #122) ----
+   The template is <p><label>text<br><control></label></p> repeated, with
+   size=/cols= attributes doing the sizing. With no rule at all that gave
+   two problems: the controls were browser-default boxes in a page where
+   every other input is a 1px --border box, and at 320px the form scrolled
+   sideways — the global "form input[type=text] { min-width: 320px }"
+   (stylesLogin, specificity 0,1,2) out-specifies the generic
+   "form label input" reset (0,0,3), so the title/project/tag inputs
+   refused to shrink. ".entry-new-form input[type=text]" is 0,2,1 and
+   wins, which is what actually stops the horizontal scroll.
+
+   Layout: each <p> is a wrap-able row. The lone title/body labels take
+   the full column; the four-up type/project/space/tags row flows from
+   one line down to one-per-line as the viewport narrows, with no
+   breakpoint needed (flex-basis 12rem + wrap does it). */
+.entry-new-form p { margin: 0 0 1rem; display: flex; flex-wrap: wrap; gap: 0.7rem 1rem; }
+.entry-new-form label {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  flex: 1 1 12rem; min-width: 0;
+  font-size: 0.8rem; color: var(--muted);
+}
+/* The <br> after each label's text becomes a blank flex item once the
+   label is a column flex container — it would open a phantom line. The
+   column direction already puts the control under its text. */
+.entry-new-form label br { display: none; }
+.entry-new-form input[type="text"],
+.entry-new-form select,
+.entry-new-form textarea {
+  width: 100%; min-width: 0; box-sizing: border-box;
+  padding: 0.5rem 0.7rem; font: inherit; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+}
+.entry-new-form textarea { resize: vertical; line-height: 1.7; }
+.entry-new-form input[type="text"]:focus,
+.entry-new-form select:focus,
+.entry-new-form textarea:focus {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+}
+/* The submit row is a single .btn; keep it clear of the last field. */
+.entry-new-form p:last-child { margin-bottom: 0; }
 
 /* ---- /entries quick-views active marker + empty state (issue #120) ---- */
 .entries-quick-filter a.active { font-weight: 700; color: var(--accent-strong); text-decoration: underline; }

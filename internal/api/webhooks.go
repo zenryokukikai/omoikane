@@ -154,9 +154,9 @@ func (h *Handler) startWebhookDispatcher() {
 // runtime's messages API is synchronous over the whole turn). Implemented
 // by *opencrab.Client; an interface so tests can stand in a fake runtime.
 //
-// ownerUserID is the kb user id of the librarian's owner — the identity
-// the runtime resolves the caller by (issue #137). It is per librarian:
-// the same value provisioning wrote into that agent's trust row.
+// ownerUserID is the kb user id of the librarian's owner (issue #137),
+// per librarian. The runtime resolves the REST caller from its own
+// api_principals; the owner role proper travels on the gateway lane.
 type TalkDispatcher interface {
 	DispatchTalk(ctx context.Context, agentID, ownerUserID, content string) (reply string, err error)
 }
@@ -246,9 +246,8 @@ func (h *Handler) routeTalkToPersonalLibrarian(data any) bool {
 		ctx, cancel := context.WithTimeout(context.Background(), talkDispatchTimeout)
 		defer cancel()
 		// Caller identity = the librarian's owner (the thread owner
-		// whose row we just read): the value provisioning wrote into
-		// its trust row, so the runtime resolves this dispatch as the
-		// owner and the owner-gated tools stay available (issue #137).
+		// whose row we just read, issue #137). This REST lane is the
+		// fallback for threads not routed through the gateway.
 		reply, err := h.TalkDispatch.DispatchTalk(ctx, ul.AgentID, ul.UserID,
 			talkDispatchContent(title, content))
 		if err != nil {

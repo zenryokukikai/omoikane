@@ -102,18 +102,18 @@ func TestValidateFrameShapeMalformedJSON(t *testing.T) {
 // V3 §3.1: unrecognized members are IGNORED (the old strict rejection
 // is gone); required-member presence is checked against the raw frame.
 func TestDecodeFrameIgnoresUnknownMembers(t *testing.T) {
-	var f bindFrame
-	members, err := decodeFrame([]byte(`{"id":"1","m":"bind","binding_id":"b","address":"a","extra":true}`), &f)
+	var f sayFrame
+	members, err := decodeFrame([]byte(`{"id":"1","m":"say","session":"k","payload":{"text":"a"},"extra":true}`), &f)
 	if err != nil {
 		t.Fatalf("frame with unknown member rejected: %v", err)
 	}
-	if f.ID != "1" || f.BindingID != "b" || f.Address != "a" {
+	if f.ID != "1" || f.Session != "k" || string(f.Payload) != `{"text":"a"}` {
 		t.Fatalf("decoded = %+v", f)
 	}
-	if err := requireMembers(members, "id", "m", "binding_id", "address"); err != nil {
+	if err := requireMembers(members, "id", "m", "session", "payload"); err != nil {
 		t.Fatalf("required members reported missing: %v", err)
 	}
-	if err := requireMembers(members, "payload"); err == nil {
+	if err := requireMembers(members, "binding_id"); err == nil {
 		t.Fatal("missing member not reported")
 	}
 	// Wrong member type is still a decode error.

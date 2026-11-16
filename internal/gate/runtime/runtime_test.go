@@ -3,7 +3,7 @@ package runtime
 // Behaviour pins: say dispatch (delivered / external_rejected /
 // unknown), activity translation, SSE inbound, discovery, and cursor
 // replay — each against the real httpKB client (httptest server) and
-// the real V3 Conn (net.Pipe fake core).
+// the real protocol 3 Conn (net.Pipe fake core).
 
 import (
 	"net/http"
@@ -11,15 +11,21 @@ import (
 	"time"
 )
 
-// startBoundInstance boots a runtime serving testLibA, serves the V3
-// hello, and binds testThread.
+// startBoundInstance boots a runtime serving testLibA with testThread
+// routed through the gateway (unless the test already routed it with a
+// cursor), and serves the protocol 3 hello.
 func startBoundInstance(t *testing.T, kb *fakeKBServer, cursors CursorStore) (*harness, *fakeCore) {
 	t.Helper()
 	kb.setRoster(testLibA())
+	kb.mu.Lock()
+	_, routed := kb.threadOwner[testThread]
+	kb.mu.Unlock()
+	if !routed {
+		kb.routeThread(testInstanceA, testThread, "")
+	}
 	h := startRuntime(t, kb, cursors)
 	core := h.nextCore()
 	core.serveHandshake(testInstanceA)
-	core.bind("bind:"+testBinding1, testBinding1, testThread)
 	return h, core
 }
 
@@ -32,7 +38,7 @@ func TestSayDelivered(t *testing.T) {
 
 	// Unknown payload members must be ignored (§3.4).
 	core.send(map[string]any{
-		"id": testDeliveryID, "m": "say", "binding_id": testBinding1,
+		"id": testDeliveryID, "m": "say", "session": testThread,
 		"payload": map[string]any{"text": "the reply", "future_member": true},
 	})
 	m := core.recv()
@@ -69,7 +75,7 @@ func TestSayEmptyTextExternallyRejected(t *testing.T) {
 	_, core := startBoundInstance(t, kb, nil)
 
 	core.send(map[string]any{
-		"id": testDeliveryID, "m": "say", "binding_id": testBinding1,
+		"id": testDeliveryID, "m": "say", "session": testThread,
 		"payload": map[string]any{},
 	})
 	m := core.recv()
@@ -89,7 +95,7 @@ func TestSayEmptyTextExternallyRejected(t *testing.T) {
 	// Connection kept: a valid say right after still works.
 	kb.nextMsgID = "m-after"
 	core.send(map[string]any{
-		"id": testDeliveryID, "m": "say", "binding_id": testBinding1,
+		"id": testDeliveryID, "m": "say", "session": testThread,
 		"payload": map[string]any{"text": "ok"},
 	})
 	m = core.recv()
@@ -106,7 +112,7 @@ func TestSayKBRejection(t *testing.T) {
 	_, core := startBoundInstance(t, kb, nil)
 
 	core.send(map[string]any{
-		"id": testDeliveryID, "m": "say", "binding_id": testBinding1,
+		"id": testDeliveryID, "m": "say", "session": testThread,
 		"payload": map[string]any{"text": "hi"},
 	})
 	m := core.recv()
@@ -124,7 +130,7 @@ func TestSayKBServerErrorClosesWithoutAnswering(t *testing.T) {
 	_, core := startBoundInstance(t, kb, nil)
 
 	core.send(map[string]any{
-		"id": testDeliveryID, "m": "say", "binding_id": testBinding1,
+		"id": testDeliveryID, "m": "say", "session": testThread,
 		"payload": map[string]any{"text": "hi"},
 	})
 	core.expectClosed()
@@ -137,11 +143,11 @@ func TestActivityTranslation(t *testing.T) {
 	_, core := startBoundInstance(t, kb, nil)
 
 	core.send(map[string]any{
-		"m": "activity", "binding_id": testBinding1, "activity_id": "act-1",
+		"m": "activity", "session": testThread, "activity_id": "act-1",
 		"state": "started",
 	})
 	core.send(map[string]any{
-		"m": "activity", "binding_id": testBinding1, "activity_id": "act-1",
+		"m": "activity", "session": testThread, "activity_id": "act-1",
 		"state": "ended",
 	})
 
@@ -186,8 +192,11 @@ func TestSSEInboundBecomesSaid(t *testing.T) {
 	if got := core.str(m, "origin"); got != "m-human-7" {
 		t.Fatalf("said origin=%q, want the message id", got)
 	}
-	if got := core.str(m, "binding_id"); got != testBinding1 {
-		t.Fatalf("said binding_id=%q, want %q", got, testBinding1)
+	if got := core.str(m, "session"); got != testThread {
+		t.Fatalf("said session=%q, want %q", got, testThread)
+	}
+	if got := string(m["caller"]); got != `{"role":"owner"}` {
+		t.Fatalf("said caller=%s, want the owner role (the thread owner speaks)", got)
 	}
 	if got := core.str(m, "author_id"); got != testLibA().UserID {
 		t.Fatalf("said author_id=%q", got)
@@ -297,8 +306,12 @@ func TestDiscoveryDisconnectsRemovedLibrarian(t *testing.T) {
 	default:
 	}
 
-	// A is unaffected: its live connection still serves a bind.
-	coreA.bind("bind:"+testBinding1, testBinding1, testThread)
+	// A is unaffected: its live connection still serves a say.
+	coreA.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testThread,
+		"payload": map[string]any{"text": "still here"}})
+	if m := coreA.recv(); coreA.str(m, "m") != "ok" {
+		t.Fatalf("A say after B left = %v, want ok", m)
+	}
 
 	// B reappearing on a later poll reconnects like any new librarian.
 	kb.setRoster(testLibA(), testLibB())
@@ -315,11 +328,12 @@ func TestReconnectReplaysFromCursor(t *testing.T) {
 		{ID: "m-2", AuthorRole: "assistant", AuthorUserID: testLibA().UserID, Content: "old reply"},
 		{ID: "m-3", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "missed while down"},
 	}
-	cursors := newMemCursors(map[string]string{testThread: "m-1"})
+	kb.routeThread(testInstanceA, testThread, "m-1")
+	cursors := newMemCursors(nil)
 	_, core := startBoundInstance(t, kb, cursors)
 
-	// The bind triggers the replay: m-2 is skipped (not human), m-3 is
-	// re-sent with origin m-3.
+	// The connect triggers the replay from the listed cursor: m-2 is
+	// skipped (not human), m-3 is re-sent with origin m-3.
 	m := core.recvSaid()
 	if got := core.str(m, "origin"); got != "m-3" {
 		t.Fatalf("replayed origin=%q, want m-3", got)
@@ -341,17 +355,16 @@ func TestReconnectReplaysFromCursor(t *testing.T) {
 	}
 }
 
-// The production default cursor store is the httpKB itself (nil Cursors
-// + real KB): with no binding row the GET cursor 404s, so replay runs
-// from the beginning, and the replay read is stamped with the thread
-// owner (?author_user_id=) so the user-less gateway token clears the
-// ownership check. Never fails the runner.
-func TestReplayReadsCursorOverHTTPNoBinding(t *testing.T) {
+// With no cursor yet, the connect replay runs from the thread start,
+// and the replay read is stamped with the thread owner
+// (?author_user_id=) so the user-less gateway token clears the
+// ownership check.
+func TestReplayFromThreadStartWithoutCursor(t *testing.T) {
 	kb := newFakeKBServer(t)
 	kb.messages[testThread] = []ChatMessage{
 		{ID: "m-1", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "first"},
 	}
-	_, core := startBoundInstance(t, kb, nil) // nil → httpKB CursorStore
+	_, core := startBoundInstance(t, kb, nil) // nil → httpKB cursor advance
 
 	m := core.recvSaid()
 	if got := core.str(m, "origin"); got != "m-1" {
@@ -363,30 +376,28 @@ func TestReplayReadsCursorOverHTTPNoBinding(t *testing.T) {
 	since := append([]string(nil), kb.sinceSeen...)
 	kb.mu.Unlock()
 	if len(since) == 0 || since[0] != "" {
-		t.Fatalf("since=%v, want replay from the beginning (no binding → GET cursor 404)", since)
+		t.Fatalf("since=%v, want replay from the beginning", since)
 	}
 	if authors := kb.authorList(); len(authors) == 0 || authors[0] != testLibA().UserID {
 		t.Fatalf("replay author stamp=%v, want owner %q on the first read", authors, testLibA().UserID)
 	}
 }
 
-// With a binding row, the default httpKB cursor store reads the stored
-// cursor over HTTP (GET) and advances it over HTTP (PUT) after the
-// confirmed send — no in-memory stub involved.
+// The listed cursor (GET /v1/gateway/instances/{id}/threads) is where
+// the replay resumes, and the default httpKB advances it over HTTP
+// (PUT) after the confirmed send.
 func TestReplayReadsAndAdvancesCursorOverHTTP(t *testing.T) {
 	kb := newFakeKBServer(t)
 	kb.messages[testThread] = []ChatMessage{
 		{ID: "m-1", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "already sent"},
 		{ID: "m-2", AuthorRole: "human", AuthorUserID: testLibA().UserID, Content: "missed while down"},
 	}
-	// Seed a binding row with cursor at m-1: GET must return it so replay
-	// resumes after m-1 (m-2 only).
-	kb.cursors[testThread] = "m-1"
-	_, core := startBoundInstance(t, kb, nil) // nil → httpKB CursorStore
+	kb.routeThread(testInstanceA, testThread, "m-1")
+	_, core := startBoundInstance(t, kb, nil) // nil → httpKB cursor advance
 
 	m := core.recvSaid()
 	if got := core.str(m, "origin"); got != "m-2" {
-		t.Fatalf("replayed origin=%q, want m-2 (resumed after the HTTP cursor m-1)", got)
+		t.Fatalf("replayed origin=%q, want m-2 (resumed after the listed cursor m-1)", got)
 	}
 	core.okSeq(core.str(m, "id"), 9)
 
@@ -398,11 +409,55 @@ func TestReplayReadsAndAdvancesCursorOverHTTP(t *testing.T) {
 	since := append([]string(nil), kb.sinceSeen...)
 	kb.mu.Unlock()
 	if len(since) == 0 || since[0] != "m-1" {
-		t.Fatalf("replay listed since=%v, want first query from the HTTP cursor m-1", since)
+		t.Fatalf("replay listed since=%v, want first query from the cursor m-1", since)
 	}
-	if authors := kb.authorList(); len(authors) == 0 || authors[0] != testLibA().UserID {
-		t.Fatalf("replay author stamp=%v, want owner %q", authors, testLibA().UserID)
+}
+
+// A thread routed AFTER the instance connected (a new /talk thread) is
+// picked up on its first SSE message: the unknown id refreshes the
+// routed set once and the message goes out as a said.
+func TestSSEInboundNewThreadRefreshesRouting(t *testing.T) {
+	kb := newFakeKBServer(t)
+	_, core := startBoundInstance(t, kb, nil)
+	const newThread = "thread-0000cccc"
+	kb.routeThread(testInstanceA, newThread, "")
+
+	kb.pushChatMessage(chatMessageEvent{
+		ID: "m-new-1", ThreadID: newThread,
+		AuthorUserID: testLibA().UserID, AuthorRole: "human",
+		Content: "first message of a new thread", ThreadIntent: "talk",
+		ThreadCreatedBy: testLibA().UserID,
+	})
+	m := core.recvSaid()
+	if got := core.str(m, "session"); got != newThread {
+		t.Fatalf("said session=%q, want the new thread", got)
 	}
+	core.okSeq(core.str(m, "id"), 1)
+}
+
+// A /talk thread that is NOT gateway-routed (pre-gateway thread, REST
+// dispatch answers it) never becomes a said.
+func TestSSEInboundUnroutedThreadIgnored(t *testing.T) {
+	kb := newFakeKBServer(t)
+	_, core := startBoundInstance(t, kb, nil)
+
+	kb.pushChatMessage(chatMessageEvent{
+		ID: "m-rest-1", ThreadID: "thread-0000dddd",
+		AuthorUserID: testLibA().UserID, AuthorRole: "human",
+		Content: "REST thread", ThreadIntent: "talk",
+		ThreadCreatedBy: testLibA().UserID,
+	})
+	kb.pushChatMessage(chatMessageEvent{
+		ID: "m-gw-1", ThreadID: testThread,
+		AuthorUserID: testLibA().UserID, AuthorRole: "human",
+		Content: "gateway thread", ThreadIntent: "talk",
+		ThreadCreatedBy: testLibA().UserID,
+	})
+	m := core.recvSaid()
+	if got := core.str(m, "origin"); got != "m-gw-1" {
+		t.Fatalf("first said origin=%q, want m-gw-1 (unrouted thread leaked)", got)
+	}
+	core.okSeq(core.str(m, "id"), 1)
 }
 
 // A replayed said the core answers with seq null (discarded) does not
@@ -432,7 +487,7 @@ func TestReplayContinuesPastDiscardedSaid(t *testing.T) {
 func TestConfigRefusesIncomplete(t *testing.T) {
 	cfg := Config{
 		SocketPath: "", KBBaseURL: "http://kb", Token: "",
-		DiscoveryInterval: 1, ReconnectMin: 1, ReconnectMax: 1, HelloRevision: 1,
+		DiscoveryInterval: 1, ReconnectMin: 1, ReconnectMax: 1,
 	}
 	if _, err := New(cfg, nil); err == nil {
 		t.Fatal("New accepted a config without socket and token")

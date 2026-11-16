@@ -1,14 +1,17 @@
-// Message types and field grammar for the external gate V3 minimal
-// contract (DESIGN-EXTGATE-V3.md §2, §3), gateway seat. The wire union
-// is exactly: gate→core hello and said; core→gate bind, say, activity;
-// and the ok/err responses (every response carries m:"ok"|"err").
+// Message types and field grammar for the external gate contract,
+// gateway seat — protocol 3 (opencrab docs/design/external-gate.md,
+// "D-1099 改訂": the core owns sessions only). The subset omoikane uses
+// is: gate→core hello and said; core→gate say and activity; and the
+// ok/err responses (every response carries m:"ok"|"err"). Every
+// session-scoped frame carries the gateway's opaque session key
+// ("session") — for omoikane that is the /talk thread id. There is no
+// bind/provision/binding_id any more.
 // Unknown members are ignored at every nesting level; duplicate members
 // are rejected (wire.go). Client-side validation rejects outgoing
 // grammar violations before any bytes reach the wire.
 package gate
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,21 +43,59 @@ type Attachment struct {
 	URL  string `json:"url"`
 }
 
-// Said is one gate→core said message (§3.3): one external utterance,
-// idempotent on (binding_id, origin). Text may be empty only when
+// Said is one gate→core said message: one external utterance,
+// idempotent on (session, origin). Text may be empty only when
 // Attachments is nonempty. Attachments is always present on the wire
 // ([] when there are no images).
 type Said struct {
-	BindingID   string // canonical lowercase UUID
+	Session     string // opaque session key (the /talk thread id)
 	Origin      string // nonempty, stable per external utterance
 	AuthorID    string // nonempty
+	AuthorLabel string // optional display name ("" = omitted)
+	// Caller is the gateway-asserted caller role ("owner",
+	// "trusted_user", "agent"; "" = omitted, which the core reads as
+	// "agent"). The core trusts it as-is — the operator-installed
+	// gateway is the sole authority on who the speaker is.
+	Caller      string
 	Text        string
 	Attachments []Attachment
 }
 
+// Caller roles the gateway may assert (protocol 3 said.caller.role).
+const (
+	CallerOwner       = "owner"
+	CallerTrustedUser = "trusted_user"
+	CallerAgent       = "agent"
+)
+
+// MaxSessionKeyBytes is the protocol 3 upper bound of a session key.
+const MaxSessionKeyBytes = 512
+
+// validateSessionKey enforces the protocol 3 session key grammar:
+// nonempty, at most 512 bytes, no control characters.
+func validateSessionKey(key string) error {
+	if key == "" {
+		return errors.New("gate: session key must be nonempty")
+	}
+	if len(key) > MaxSessionKeyBytes {
+		return fmt.Errorf("gate: session key exceeds %d bytes", MaxSessionKeyBytes)
+	}
+	for _, r := range key {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return errors.New("gate: session key must not contain control characters")
+		}
+	}
+	return nil
+}
+
 func validateSaid(s *Said) error {
-	if !IsCanonicalUUID(s.BindingID) {
-		return errors.New("gate: said binding_id must be a canonical lowercase UUID")
+	if err := validateSessionKey(s.Session); err != nil {
+		return fmt.Errorf("said: %w", err)
+	}
+	switch s.Caller {
+	case "", CallerOwner, CallerTrustedUser, CallerAgent:
+	default:
+		return fmt.Errorf("gate: said caller %q is not a supported role", s.Caller)
 	}
 	if s.Origin == "" {
 		return errors.New("gate: said origin must be nonempty")
@@ -77,27 +118,23 @@ func validateSaid(s *Said) error {
 	return nil
 }
 
-// Binding is one core→gate bind target.
-type Binding struct {
-	BindingID string
-	Address   string
-}
-
 // Say is one core→gate say request. ID is the delivery_id (canonical
 // lowercase UUID); the response must echo it. Payload is the core's
 // {"text": body} object; the gateway ignores members other than text
 // (§3.4).
 type Say struct {
-	ID        string
-	BindingID string
-	Payload   json.RawMessage
+	ID      string
+	Session string
+	Payload json.RawMessage
 }
 
 // Activity is one core→gate activity notification (display-only,
 // best-effort, no response frame exists for it). State is "started" or
-// "ended" (§3.4).
+// "ended" (protocol 3 also sends "read" — the core is about to call
+// the LLM with new inbound included; omoikane has no display for it and
+// drops it).
 type Activity struct {
-	BindingID  string
+	Session    string
 	ActivityID string
 	State      string
 }
@@ -134,23 +171,21 @@ func SayRejected(detail *string) SayResult {
 // closes without answering.
 func SayUnknown() SayResult { return SayResult{} }
 
-// HelloParams carries the per-instance values of the hello frame.
-// protocol=2 is fixed by the spec and hardcoded.
+// HelloParams carries the per-instance values of the protocol 3 hello.
+// protocol=3 / operation_protocol=1 / final_delivery="automatic" /
+// operations=[] are fixed: omoikane declares no gateway operations, so
+// the core delivers each turn's final text as a plain say.
 type HelloParams struct {
-	InstanceID   string // canonical lowercase UUID
-	Revision     uint64 // positive
-	ConfigDigest string // 64 lowercase hex (SHA-256 of the config bytes)
+	InstanceID string // canonical lowercase UUID (stable per librarian)
+	AgentID    string // the core agent this instance speaks for
 }
 
 func (p *HelloParams) validate() error {
 	if !IsCanonicalUUID(p.InstanceID) {
 		return errors.New("gate: hello instance_id must be a canonical lowercase UUID")
 	}
-	if p.Revision == 0 {
-		return errors.New("gate: hello revision must be positive")
-	}
-	if !isLowerHexDigest(p.ConfigDigest) {
-		return errors.New("gate: hello config_digest must be 64 lowercase hex")
+	if p.AgentID == "" {
+		return errors.New("gate: hello agent_id must be nonempty")
 	}
 	return nil
 }
@@ -158,26 +193,34 @@ func (p *HelloParams) validate() error {
 // ---- wire frames ----------------------------------------------------
 
 type helloFrame struct {
-	ID           string `json:"id"`
-	M            string `json:"m"`
-	Protocol     int    `json:"protocol"`
-	InstanceID   string `json:"instance_id"`
-	Revision     uint64 `json:"revision"`
-	ConfigDigest string `json:"config_digest"`
+	ID                string            `json:"id"`
+	M                 string            `json:"m"`
+	Protocol          int               `json:"protocol"`
+	InstanceID        string            `json:"instance_id"`
+	AgentID           string            `json:"agent_id"`
+	OperationProtocol int               `json:"operation_protocol"`
+	FinalDelivery     string            `json:"final_delivery"`
+	Operations        []json.RawMessage `json:"operations"`
+}
+
+type saidCaller struct {
+	Role string `json:"role"`
 }
 
 type saidFrame struct {
 	ID          string       `json:"id"`
 	M           string       `json:"m"`
-	BindingID   string       `json:"binding_id"`
+	Session     string       `json:"session"`
 	Origin      string       `json:"origin"`
 	AuthorID    string       `json:"author_id"`
+	AuthorLabel string       `json:"author_label,omitempty"`
+	Caller      *saidCaller  `json:"caller,omitempty"`
 	Text        string       `json:"text"`
 	Attachments []Attachment `json:"attachments"`
 }
 
 // okFrame is a gateway-written ok response: exactly {id, m:"ok"} —
-// hello/bind/say responses never carry seq.
+// a say response never carries seq.
 type okFrame struct {
 	ID string `json:"id"`
 	M  string `json:"m"`
@@ -193,23 +236,17 @@ type errFrame struct {
 	Detail *string `json:"detail"`
 }
 
-// bindFrame / sayFrame / activityFrame are the incoming core→gate
-// shapes. Decoding ignores unknown members (§3.1); required-member
-// presence is checked against the raw frame by the caller.
-type bindFrame struct {
-	ID        string `json:"id"`
-	BindingID string `json:"binding_id"`
-	Address   string `json:"address"`
-}
-
+// sayFrame / activityFrame are the incoming core→gate shapes. Decoding
+// ignores unknown members (§3.1); required-member presence is checked
+// against the raw frame by the caller.
 type sayFrame struct {
-	ID        string          `json:"id"`
-	BindingID string          `json:"binding_id"`
-	Payload   json.RawMessage `json:"payload"`
+	ID      string          `json:"id"`
+	Session string          `json:"session"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 type activityFrame struct {
-	BindingID  string `json:"binding_id"`
+	Session    string `json:"session"`
 	ActivityID string `json:"activity_id"`
 	State      string `json:"state"`
 }
@@ -222,28 +259,14 @@ func validateRequestID(id string) error {
 	return nil
 }
 
-// validateBind checks an incoming bind frame after decode.
-func validateBind(f *bindFrame) error {
-	if err := validateRequestID(f.ID); err != nil {
-		return err
-	}
-	if !IsCanonicalUUID(f.BindingID) {
-		return errors.New("gate: bind binding_id must be a canonical lowercase UUID")
-	}
-	if f.Address == "" {
-		return errors.New("gate: bind address must be nonempty")
-	}
-	return nil
-}
-
 // validateSay checks an incoming say frame after decode. Its id is the
 // delivery_id (canonical lowercase UUID text).
 func validateSay(f *sayFrame) error {
 	if !IsCanonicalUUID(f.ID) {
 		return errors.New("gate: say id must be a canonical lowercase UUID (delivery_id)")
 	}
-	if !IsCanonicalUUID(f.BindingID) {
-		return errors.New("gate: say binding_id must be a canonical lowercase UUID")
+	if err := validateSessionKey(f.Session); err != nil {
+		return fmt.Errorf("say: %w", err)
 	}
 	if f.Payload == nil {
 		return errors.New("gate: say payload is required")
@@ -255,13 +278,13 @@ func validateSay(f *sayFrame) error {
 // close the connection: activity is best-effort and the caller drops
 // the frame.
 func validateActivity(f *activityFrame) error {
-	if !IsCanonicalUUID(f.BindingID) {
-		return errors.New("gate: activity binding_id must be a canonical lowercase UUID")
+	if err := validateSessionKey(f.Session); err != nil {
+		return fmt.Errorf("activity: %w", err)
 	}
 	if f.ActivityID == "" {
 		return errors.New("gate: activity activity_id must be nonempty")
 	}
-	if f.State != "started" && f.State != "ended" {
+	if f.State != "started" && f.State != "ended" && f.State != "read" {
 		return fmt.Errorf("gate: activity state %q unknown", f.State)
 	}
 	return nil
@@ -291,33 +314,6 @@ func IsCanonicalUUID(s string) bool {
 		}
 	}
 	return true
-}
-
-// isLowerHexDigest reports a 64-char lowercase hex digest.
-func isLowerHexDigest(s string) bool {
-	if len(s) != 64 {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-// isStdPaddedBase64 reports canonical RFC 4648 standard padded base64:
-// nonempty, strict decode, byte-exact round trip.
-func isStdPaddedBase64(s string) bool {
-	if s == "" {
-		return false
-	}
-	b, err := base64.StdEncoding.Strict().DecodeString(s)
-	if err != nil {
-		return false
-	}
-	return base64.StdEncoding.EncodeToString(b) == s
 }
 
 // isAbsoluteHTTPSURL reports an absolute https URL with a host.

@@ -2,9 +2,10 @@
 // #104): it discovers the personal librarians to serve
 // (GET /v1/gateway/librarians), holds one V3 connection per gate
 // instance (platform ruling: one process may hold N sockets), and
-// translates between the gate wire and omoikane's chat HTTP surface —
-// say → POST /v1/librarian/chat, activity → chat.status broadcasts,
-// SSE chat.message → said.
+// translates between the gate wire (protocol 3: session key = /talk
+// thread id) and omoikane's chat HTTP surface — say → POST
+// /v1/librarian/chat, activity → chat.status broadcasts, SSE
+// chat.message → said.
 //
 // The package deliberately splits policy from transport: internal/gate
 // speaks the wire, the KB interface (kb.go) speaks omoikane HTTP, and
@@ -12,17 +13,12 @@
 // drive the wire with a scripted fake core over net.Pipe and omoikane
 // with an httptest server, and the real deployment swaps nothing but a
 // socket path and a base URL.
-//
-// NOT END-TO-END VERIFIED: the platform's real UDS core does not exist
-// yet (opencrab protocol 2 is a draft). This code stays on the
-// integration branch until a real core exists to verify against.
 package runtime
 
 import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -39,8 +35,10 @@ const (
 	EnvDiscoveryInterval = "GATE_DISCOVERY_INTERVAL"
 	EnvReconnectMin      = "GATE_RECONNECT_MIN"
 	EnvReconnectMax      = "GATE_RECONNECT_MAX"
-	EnvHelloRevision     = "GATE_HELLO_REVISION"
 	EnvStaticInstances   = "GATE_STATIC_INSTANCES"
+	// EnvStaticAgent names the core agent static instances speak for
+	// (protocol 3 hello requires agent_id). Static mode only.
+	EnvStaticAgent = "GATE_STATIC_AGENT"
 )
 
 // Config parameterizes one Runtime.
@@ -63,15 +61,18 @@ type Config struct {
 	// comma-separated canonical lowercase instance UUIDs). In this
 	// mode the runtime has NO omoikane KB: roster discovery and the
 	// inbound SSE loop are skipped, each listed instance is dialed
-	// and helloed directly, binds are acked (in-memory only, no
-	// replay), activity is a no-op, and EVERY say answers
+	// and helloed directly (agent_id = StaticAgent), there is no
+	// replay, activity is a no-op, and EVERY say answers
 	// err(code="external_rejected") — honest under the V3 trust
 	// principle, because with no KB the gateway performs zero external
 	// I/O and the delivery is definitively not accepted. Static mode
 	// exists so a platform-side test harness can drive the core side
 	// of the wire with this gate as the subject
-	// (hello/bind/activity/said + the say err path).
+	// (hello/activity/said + the say err path).
 	StaticInstances []string
+	// StaticAgent is the agent_id static instances present in hello
+	// (required when StaticInstances is set).
+	StaticAgent string
 
 	// DiscoveryInterval is how often the librarian roster is re-polled
 	// to pick up newly provisioned librarians. Default 60s.
@@ -82,12 +83,6 @@ type Config struct {
 	ReconnectMin time.Duration
 	ReconnectMax time.Duration
 
-	// HelloRevision is the active config revision presented in hello.
-	// The omoikane-talk instance config is immutable (the empty object,
-	// registered once, no revision flow), so this is 1 unless a future
-	// revision flow appears. Default 1.
-	HelloRevision uint64
-
 	// Dial opens the byte stream to the core. nil = Unix-socket dial of
 	// SocketPath. Tests inject net.Pipe here.
 	Dial DialFunc
@@ -96,8 +91,8 @@ type Config struct {
 	// from KBBaseURL/Token. Tests may inject a fake.
 	KB KB
 
-	// Cursors is the per-thread catch-up cursor store. nil = the real
-	// httpKB (GET/PUT /v1/gateway/threads/{id}/cursor) when the KB is the
+	// Cursors advances the per-thread catch-up cursor. nil = the real
+	// httpKB (PUT /v1/gateway/threads/{id}/cursor) when the KB is the
 	// production client, else the no-op noCursorStore. The no-op replays
 	// from the beginning of a thread and relies on origin idempotency.
 	Cursors CursorStore
@@ -112,10 +107,10 @@ func FromEnv() (Config, error) {
 		KBBaseURL:         os.Getenv(EnvKBBaseURL),
 		Token:             os.Getenv(EnvToken),
 		StaticInstances:   splitInstanceList(os.Getenv(EnvStaticInstances)),
+		StaticAgent:       os.Getenv(EnvStaticAgent),
 		DiscoveryInterval: 60 * time.Second,
 		ReconnectMin:      time.Second,
 		ReconnectMax:      60 * time.Second,
-		HelloRevision:     1,
 	}
 	var errs []error
 	if d, err := envDuration(EnvDiscoveryInterval); err != nil {
@@ -132,14 +127,6 @@ func FromEnv() (Config, error) {
 		errs = append(errs, err)
 	} else if d > 0 {
 		cfg.ReconnectMax = d
-	}
-	if v := os.Getenv(EnvHelloRevision); v != "" {
-		n, err := strconv.ParseUint(v, 10, 64)
-		if err != nil || n == 0 {
-			errs = append(errs, fmt.Errorf("%s must be a positive integer, got %q", EnvHelloRevision, v))
-		} else {
-			cfg.HelloRevision = n
-		}
 	}
 	if err := cfg.validate(); err != nil {
 		errs = append(errs, err)
@@ -204,8 +191,8 @@ func (c *Config) validate() error {
 	if c.DiscoveryInterval <= 0 || c.ReconnectMin <= 0 || c.ReconnectMax < c.ReconnectMin {
 		errs = append(errs, errors.New("intervals must be positive and reconnect max >= min"))
 	}
-	if c.HelloRevision == 0 {
-		errs = append(errs, errors.New("hello revision must be positive"))
+	if len(c.StaticInstances) > 0 && c.StaticAgent == "" {
+		errs = append(errs, fmt.Errorf("%s is required with %s: the agent_id the static instances speak for", EnvStaticAgent, EnvStaticInstances))
 	}
 	return errors.Join(errs...)
 }

@@ -55,6 +55,33 @@ func (s *Store) GetTalkGateBinding(ctx context.Context, threadID string) (*TalkG
 	return &b, nil
 }
 
+// ListTalkGateBindingsByInstance returns every /talk thread routed
+// through the gateway for instanceID, oldest first. Empty instanceID →
+// ErrInvalidInput.
+func (s *Store) ListTalkGateBindingsByInstance(ctx context.Context, instanceID string) ([]*TalkGateBinding, error) {
+	if instanceID == "" {
+		return nil, ErrInvalidInput
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT thread_id, binding_id, instance_id, created_at, last_sent_message_id
+		  FROM talk_gate_bindings WHERE instance_id = ?
+		 ORDER BY created_at, thread_id`, instanceID)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	defer rows.Close()
+	var out []*TalkGateBinding
+	for rows.Next() {
+		var b TalkGateBinding
+		if err := rows.Scan(&b.ThreadID, &b.BindingID, &b.InstanceID, &b.CreatedAt,
+			&b.LastSentMessageID); err != nil {
+			return nil, translateErr(err)
+		}
+		out = append(out, &b)
+	}
+	return out, translateErr(rows.Err())
+}
+
 // SetTalkGateBindingCursor records the newest message id the gateway
 // dispatched for threadID (the reconnect catch-up cursor, issue #104
 // G3a). ErrNotFound when the thread has no binding row — the cursor

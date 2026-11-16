@@ -11,18 +11,18 @@
 //     (memory bounded by what the core pipelines ahead of the handler)
 //     and enqueueing never blocks. Dispatch begins once Start
 //     registered the handler; frames queue in arrival order until then.
-//  2. Gateway failure codes (V3 §3.3/§10): a bind the gateway cannot
-//     accept is err(code="bind_failed"); a say the external API
-//     definitely did not accept — malformed payload included (§3.4) —
-//     is err(code="external_rejected"). No other gateway failure codes
-//     exist. An indeterminate say outcome closes the socket without
-//     answering (no fabrication).
-//  3. A structurally invalid bind/say frame from the core (missing
-//     required members, wrong types) is a contract violation by a
-//     trusted peer: the connection closes (the core moves pending
-//     deliveries to indeterminate). Invalid activity frames are dropped
-//     (display-only best-effort). An unknown message m is dropped and
-//     the connection kept (write 0).
+//  2. Gateway failure codes: a say the external API definitely did not
+//     accept — malformed payload included (§3.4) — is
+//     err(code="external_rejected"). An indeterminate say outcome
+//     closes the socket without answering (no fabrication).
+//  3. A structurally invalid say frame from the core (missing required
+//     members, wrong types) is a contract violation by a trusted peer:
+//     the connection closes (the core moves pending deliveries to
+//     indeterminate). Invalid activity frames are dropped (display-only
+//     best-effort). An unknown message m — protocol 3 also streams
+//     partial / tool_activity / subtask_lifecycle / turn_failed /
+//     provisional_result, which omoikane does not display — is dropped
+//     and the connection kept (write 0).
 package gate
 
 import (
@@ -81,7 +81,7 @@ func (q *dispatchQueue) close() {
 
 // dispatchLoop runs handler callbacks strictly one at a time, in
 // arrival order. It waits for Start (or close) before the first pop, so
-// binds arriving right after the hello ok are held until a handler
+// frames arriving right after the hello ok are held until a handler
 // exists.
 func (c *Conn) dispatchLoop() {
 	select {
@@ -105,26 +105,13 @@ func (c *Conn) dispatchLoop() {
 // queues its handler dispatch. A returned error closes the connection.
 func (c *Conn) handleCoreMessage(m string, data []byte) error {
 	switch m {
-	case "bind":
-		var f bindFrame
-		members, err := decodeFrame(data, &f)
-		if err != nil {
-			return err
-		}
-		if err := requireMembers(members, "id", "m", "binding_id", "address"); err != nil {
-			return fmt.Errorf("gate: bind frame: %w", err)
-		}
-		if err := validateBind(&f); err != nil {
-			return err
-		}
-		c.dq.push(func(h Handler) { c.dispatchBind(h, f) })
 	case "say":
 		var f sayFrame
 		members, err := decodeFrame(data, &f)
 		if err != nil {
 			return err
 		}
-		if err := requireMembers(members, "id", "m", "binding_id", "payload"); err != nil {
+		if err := requireMembers(members, "id", "m", "session", "payload"); err != nil {
 			return fmt.Errorf("gate: say frame: %w", err)
 		}
 		if err := validateSay(&f); err != nil {
@@ -142,29 +129,20 @@ func (c *Conn) handleCoreMessage(m string, data []byte) error {
 			return nil
 		}
 		c.dq.push(func(h Handler) {
-			h.OnActivity(Activity{BindingID: f.BindingID, ActivityID: f.ActivityID, State: f.State})
+			h.OnActivity(Activity{Session: f.Session, ActivityID: f.ActivityID, State: f.State})
 		})
 	default:
-		// Unknown message m: keep the connection, effect 0. The core is
-		// a trusted peer that only sends the V3 union; anything else is
-		// a version skew this side does not police (§1).
+		// Unknown/undisplayed message m: keep the connection, effect 0.
+		// The core is a trusted peer; frames omoikane has no use for
+		// are not policed here (§1).
 	}
 	return nil
 }
 
 // ---- handler dispatch (runs on the dispatch goroutine) --------------
 
-func (c *Conn) dispatchBind(h Handler, f bindFrame) {
-	if err := h.OnBind(Binding{BindingID: f.BindingID, Address: f.Address}); err != nil {
-		detail := err.Error()
-		c.respondErr(f.ID, "bind_failed", &detail)
-		return
-	}
-	c.respondOk(f.ID)
-}
-
 func (c *Conn) dispatchSay(h Handler, f sayFrame) {
-	res := h.OnSay(Say{ID: f.ID, BindingID: f.BindingID, Payload: f.Payload})
+	res := h.OnSay(Say{ID: f.ID, Session: f.Session, Payload: f.Payload})
 	switch res.kind {
 	case sayDelivered:
 		c.respondOk(f.ID)
@@ -178,8 +156,8 @@ func (c *Conn) dispatchSay(h Handler, f sayFrame) {
 	}
 }
 
-// respondOk writes {id, m:"ok"} — the exact success response for bind
-// and say (no seq, no origin).
+// respondOk writes {id, m:"ok"} — the exact success response for a say
+// (no seq, no origin).
 func (c *Conn) respondOk(id string) {
 	if err := c.fw.writeFrame(okFrame{ID: id, M: "ok"}); err != nil {
 		c.closeWith(err)

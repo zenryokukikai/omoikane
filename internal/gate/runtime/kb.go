@@ -10,7 +10,7 @@ package runtime
 //	PostAssistantReply  POST /v1/librarian/chat                 (author stamped)
 //	BroadcastStatus     POST /v1/events/broadcast               (author stamped)
 //	ListMessagesSince   GET  /v1/librarian/threads/{id}/messages (author stamped)
-//	Cursor              GET  /v1/gateway/threads/{id}/cursor
+//	ListGatewayThreads  GET  /v1/gateway/instances/{id}/threads
 //	Advance             PUT  /v1/gateway/threads/{id}/cursor
 //	StreamEvents        GET  /v1/events                         (SSE)
 //
@@ -51,6 +51,14 @@ type Librarian struct {
 	GateInstanceID string `json:"gate_instance_id"`
 }
 
+// GatewayThread is one row of GET /v1/gateway/instances/{id}/threads:
+// a /talk thread routed through the gateway, with its replay cursor
+// (the newest message id confirmed sent; "" = replay from the start).
+type GatewayThread struct {
+	ThreadID          string `json:"thread_id"`
+	LastSentMessageID string `json:"last_sent_message_id"`
+}
+
 // ChatMessage is the slice of a stored librarian_chat message the
 // replay path needs. Extra members in the server response are ignored.
 type ChatMessage struct {
@@ -83,6 +91,9 @@ func (e *RejectedError) Error() string {
 type KB interface {
 	// ListLibrarians returns the connection roster.
 	ListLibrarians(ctx context.Context) ([]Librarian, error)
+	// ListGatewayThreads returns the gateway-routed /talk threads of
+	// one gate instance with their replay cursors.
+	ListGatewayThreads(ctx context.Context, instanceID string) ([]GatewayThread, error)
 	// PostAssistantReply stores one librarian reply into threadID,
 	// attributed to authorUserID (the instance's owner), and returns
 	// the stored message id. A *RejectedError means definitively not
@@ -103,28 +114,22 @@ type KB interface {
 	StreamEvents(ctx context.Context) (<-chan StreamEvent, error)
 }
 
-// CursorStore reads and advances the per-thread replay cursor
-// (talk_gate_bindings.last_sent_message_id).
+// CursorStore advances the per-thread replay cursor
+// (talk_gate_bindings.last_sent_message_id). The cursor is READ from
+// the thread list (GatewayThread.LastSentMessageID).
 type CursorStore interface {
-	// Cursor returns the last message id confirmed sent for threadID
-	// ("" = replay from the beginning).
-	Cursor(ctx context.Context, threadID string) (string, error)
 	// Advance records messageID as sent for threadID.
 	Advance(ctx context.Context, threadID, messageID string) error
 }
 
-// noCursorStore degrades cursor tracking to a no-op: Cursor answers ""
-// (replay from the beginning) and Advance drops the write. It is the
+// noCursorStore degrades cursor tracking to a no-op: Advance drops the
+// write, so every connect replays from the thread start. It is the
 // fallback for a Config whose injected KB does not implement
 // CursorStore (the real httpKB does — see New()). Correctness holds
 // without a cursor: event origin (= message id) is the idempotency key,
 // so re-sent history dedupes core-side; the cursor is purely a
 // replay-cost optimization.
 type noCursorStore struct{}
-
-func (noCursorStore) Cursor(context.Context, string) (string, error) {
-	return "", nil
-}
 
 func (noCursorStore) Advance(context.Context, string, string) error {
 	return nil
@@ -282,23 +287,16 @@ func (k *httpKB) ListMessagesSince(ctx context.Context, threadID, sinceID, autho
 	return out.Messages, nil
 }
 
-// Cursor reads the reconnect replay cursor for threadID via
-// GET /v1/gateway/threads/{id}/cursor. A 404 (no gate binding row yet)
-// is not an error — it means "no cursor", so replay starts from the
-// beginning. *httpKB thus doubles as the production CursorStore.
-func (k *httpKB) Cursor(ctx context.Context, threadID string) (string, error) {
+// ListGatewayThreads reads GET /v1/gateway/instances/{id}/threads.
+func (k *httpKB) ListGatewayThreads(ctx context.Context, instanceID string) ([]GatewayThread, error) {
 	var out struct {
-		LastSentMessageID string `json:"last_sent_message_id"`
+		Threads []GatewayThread `json:"threads"`
 	}
-	path := "/v1/gateway/threads/" + url.PathEscape(threadID) + "/cursor"
+	path := "/v1/gateway/instances/" + url.PathEscape(instanceID) + "/threads"
 	if err := k.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
-		var rej *RejectedError
-		if errors.As(err, &rej) && rej.Status == http.StatusNotFound {
-			return "", nil // no binding row: replay from the beginning
-		}
-		return "", err
+		return nil, err
 	}
-	return out.LastSentMessageID, nil
+	return out.Threads, nil
 }
 
 // Advance records messageID as the newest dispatched id for threadID via

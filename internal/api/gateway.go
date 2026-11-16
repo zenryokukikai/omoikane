@@ -34,10 +34,9 @@ import (
 	"github.com/zenryokukikai/omoikane/internal/store"
 )
 
-// ThreadGateBinder registers one /talk thread as a gate binding on the
-// external admin plane (issue #104 G3a). Implemented by
-// opencrab.GateProvisioner; nil on the Handler = gate feature off
-// (GATE_ADMIN_URL unset).
+// ThreadGateBinder routes one /talk thread through the gateway
+// (protocol 3: a local routing id, no core call). Implemented by
+// opencrab.GateProvisioner; nil on the Handler = gate feature off.
 type ThreadGateBinder interface {
 	EnsureThreadBinding(ctx context.Context, instanceID, threadID string) (bindingID string, err error)
 }
@@ -92,25 +91,29 @@ func (h *Handler) gatewayListLibrarians(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"librarians": out})
 }
 
-// GET /v1/gateway/threads/{threadID}/cursor — the reconnect replay
-// cursor for one /talk thread: the newest message id the gateway
-// confirmed dispatching (last_sent_message_id, "" = nothing sent yet).
-// 404 when the thread has no gate binding row — same shape as the
-// store's ErrNotFound, and the gate reads that as "replay from the
-// beginning" (origin idempotency keeps the overlap harmless).
-// RequireScope("gateway") gates the route; every other token gets the
-// uniform 403 (pinned in gateway_test.go).
-func (h *Handler) gatewayGetThreadCursor(w http.ResponseWriter, r *http.Request) {
-	threadID := chi.URLParam(r, "threadID")
-	b, err := h.Store.GetTalkGateBinding(httpCtx(r), threadID)
+// GET /v1/gateway/instances/{instanceID}/threads — the /talk threads
+// routed through the gateway for one gate instance, with each thread's
+// reconnect replay cursor (last_sent_message_id: the newest message id
+// the gateway confirmed dispatching, "" = nothing sent yet). The gate
+// reads it on connect to catch up, and on an unknown thread id to learn
+// a freshly created thread. RequireScope("gateway") gates the route;
+// every other token gets the uniform 403 (pinned in gateway_test.go).
+func (h *Handler) gatewayListInstanceThreads(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceID")
+	list, err := h.Store.ListTalkGateBindingsByInstance(httpCtx(r), instanceID)
 	if err != nil {
-		writeStoreError(w, err) // ErrNotFound → 404
+		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"thread_id":            threadID,
-		"last_sent_message_id": b.LastSentMessageID,
-	})
+	type row struct {
+		ThreadID          string `json:"thread_id"`
+		LastSentMessageID string `json:"last_sent_message_id"`
+	}
+	out := make([]row, 0, len(list))
+	for _, b := range list {
+		out = append(out, row{ThreadID: b.ThreadID, LastSentMessageID: b.LastSentMessageID})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"threads": out})
 }
 
 type gatewayCursorRequest struct {
@@ -162,16 +165,14 @@ func (h *Handler) gatewaySetThreadCursor(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// talkGateBindTimeout caps the admin-plane PUT during thread creation.
-// The call is synchronous BY CHOICE: the first message dispatch follows
-// the thread-creation response, so completing the PUT before responding
-// guarantees the binding exists by then; the short cap keeps a slow
-// admin plane from stalling thread creation for more than a moment.
+// talkGateBindTimeout caps the routing step during thread creation.
+// It is synchronous BY CHOICE: the first message dispatch follows the
+// thread-creation response, so the routing row must exist by then.
 const talkGateBindTimeout = 5 * time.Second
 
-// bindTalkThreadGate registers a freshly created /talk thread as a gate
-// binding when the creator has an ACTIVE personal librarian with a
-// registered gate instance. Best-effort by design: ANY failure logs and
+// bindTalkThreadGate routes a freshly created /talk thread through the
+// gateway when the creator has an ACTIVE personal librarian with a gate
+// instance id. Best-effort by design: ANY failure logs and
 // returns — thread creation must never fail on the gate leg (the /talk
 // flow works without a gate; delivery falls back to the current
 // webhook/dispatch path).

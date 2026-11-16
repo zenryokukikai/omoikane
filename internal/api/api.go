@@ -298,9 +298,10 @@ func (h *Handler) Mount(r chi.Router) {
 			// one service token, webhook-dispatcher trust level (see
 			// gateway.go).
 			r.With(auth.RequireScope("gateway")).Get("/gateway/librarians", h.gatewayListLibrarians)
-			// Reconnect replay cursor per /talk thread (issue #104 G3c):
-			// the gate reads it on connect and advances it after dispatch.
-			r.With(auth.RequireScope("gateway")).Get("/gateway/threads/{threadID}/cursor", h.gatewayGetThreadCursor)
+			// Gateway-routed /talk threads of one gate instance, with their
+			// reconnect replay cursors (protocol 3: the gate catches up on
+			// connect), and the cursor advance after each dispatch.
+			r.With(auth.RequireScope("gateway")).Get("/gateway/instances/{instanceID}/threads", h.gatewayListInstanceThreads)
 			r.With(auth.RequireScope("gateway")).Put("/gateway/threads/{threadID}/cursor", h.gatewaySetThreadCursor)
 
 			// Phase 6 — tier listing

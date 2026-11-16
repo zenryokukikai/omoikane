@@ -24,7 +24,6 @@ import (
 	"github.com/zenryokukikai/omoikane/internal/config"
 	"github.com/zenryokukikai/omoikane/internal/dashboard"
 	"github.com/zenryokukikai/omoikane/internal/enrich"
-	"github.com/zenryokukikai/omoikane/internal/gate"
 	"github.com/zenryokukikai/omoikane/internal/opencrab"
 	"github.com/zenryokukikai/omoikane/internal/store"
 	"github.com/zenryokukikai/omoikane/internal/version"
@@ -231,25 +230,19 @@ func BuildRouter(st *store.Store, cfg *config.Config, logger *slog.Logger) (http
 		apiH.TalkDispatch = oc
 		logger.Info("personal librarian enabled", "opencrab_url", cfg.OpencrabURL)
 
-		// External gate admin registration (issue #104 G2) — extends
-		// the librarian save flow, so it only exists inside the
-		// opencrab feature. Subject ids resolve through the runtime's
-		// agents API (GET /api/agents/{id} carries subject_id); on a
-		// runtime without the field the resolver answers
-		// ErrSubjectUnresolved and instance registration stays a
-		// logged skip.
-		if cfg.GateAdminURL != "" {
-			gp := &opencrab.GateProvisioner{
-				Admin:    gate.NewAdminClient(cfg.GateAdminURL, cfg.GateOperatorToken),
-				Resolver: &opencrab.RuntimeSubjectResolver{Client: oc},
-				Log:      logger,
-			}
+		// External gate (protocol 3, opencrab D-1099). No admin plane:
+		// the core creates an instance on its first hello, so a
+		// librarian's gate instance id is minted omoikane-side on save,
+		// and a /talk thread is routed through the gateway by its
+		// talk_gate_bindings row alone. GATE_ENABLED turns the gateway
+		// path on (GATE_ADMIN_URL, the protocol 2 admin plane, is still
+		// honoured as "on" so an existing deployment keeps routing).
+		if cfg.GateEnabled {
+			gp := opencrab.GateProvisioner{}
 			dashH.Gate = gp
-			// Same provisioner, second consumer (issue #104 G3a): the
-			// API registers each fresh /talk thread as a gate binding.
 			// Must be set before apiH.Mount below.
 			apiH.GateBinder = gp
-			logger.Info("gate admin registration enabled", "gate_admin_url", cfg.GateAdminURL)
+			logger.Info("gate routing enabled (protocol 3)")
 		}
 		// Gateway-cutover kill switch (issue #104): forces every /talk
 		// message back onto the REST dispatch path. Must be set before

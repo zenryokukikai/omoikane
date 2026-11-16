@@ -2,8 +2,8 @@ package runtime
 
 // Static conformance mode pins (GATE_STATIC_INSTANCES, issue #104 QC
 // E2E): fixed instance set, no KB at all (rt.kb stays nil — any KB call
-// would panic the test, which is the point), bind acked without replay,
-// every say external_rejected, activity a no-op.
+// would panic the test, which is the point), no replay, every say
+// external_rejected, activity a no-op.
 
 import (
 	"context"
@@ -22,10 +22,10 @@ func startStaticRuntime(t *testing.T, instances ...string) *harness {
 	cfg := Config{
 		SocketPath:        "/nonexistent/test.sock",
 		StaticInstances:   instances,
+		StaticAgent:       "agent-static",
 		DiscoveryInterval: 25 * time.Millisecond,
 		ReconnectMin:      10 * time.Millisecond,
 		ReconnectMax:      50 * time.Millisecond,
-		HelloRevision:     1,
 		Dial: func(ctx context.Context, _ string) (io.ReadWriteCloser, error) {
 			client, server := net.Pipe()
 			cores <- server
@@ -58,11 +58,12 @@ func startStaticRuntime(t *testing.T, instances ...string) *harness {
 }
 
 // Static mode: both listed instances hello directly (no roster
-// discovery — there is no KB to discover from), a bind is acked, and a
-// say with a perfectly valid payload still answers external_rejected —
+// discovery — there is no KB to discover from) as the configured
+// agent, and a say with a perfectly valid payload still answers
+// external_rejected —
 // the rejection is the mode (no KB, zero external I/O), not payload
 // validation. The connection survives the err (rejected ≠ violation).
-func TestStaticModeHelloBindSayRejected(t *testing.T) {
+func TestStaticModeHelloSayRejected(t *testing.T) {
 	h := startStaticRuntime(t, testInstanceA, testInstanceB)
 
 	// Dial order is slice order, but identify by hello to stay robust.
@@ -76,12 +77,9 @@ func TestStaticModeHelloBindSayRejected(t *testing.T) {
 	}
 	core := cores[testInstanceA]
 
-	// Bind: acked and recorded; no replay can follow (nothing to list).
-	core.bind("bind:"+testBinding1, testBinding1, testThread)
-
 	// Say with a VALID payload → err external_rejected.
 	core.send(map[string]any{
-		"id": testDeliveryID, "m": "say", "binding_id": testBinding1,
+		"id": testDeliveryID, "m": "say", "session": testThread,
 		"payload": map[string]any{"text": "a real reply"},
 	})
 	m := core.recv()
@@ -95,12 +93,12 @@ func TestStaticModeHelloBindSayRejected(t *testing.T) {
 	// Activity: dropped silently (no KB to broadcast to), connection
 	// kept — the next say still gets answered.
 	core.send(map[string]any{
-		"m": "activity", "binding_id": testBinding1, "activity_id": "act-1",
+		"m": "activity", "session": testThread, "activity_id": "act-1",
 		"state": "started",
 	})
 	const delivery2 = "0190a1b2-c3d4-7e5f-8a6b-0000000000ef"
 	core.send(map[string]any{
-		"id": delivery2, "m": "say", "binding_id": testBinding1,
+		"id": delivery2, "m": "say", "session": testThread,
 		"payload": map[string]any{"text": "again"},
 	})
 	m = core.recv()
@@ -116,13 +114,20 @@ func TestStaticModeValidateRelaxesOnlyKBVars(t *testing.T) {
 	base := Config{
 		SocketPath:        "/tmp/core.sock",
 		DiscoveryInterval: time.Second, ReconnectMin: time.Second,
-		ReconnectMax: time.Second, HelloRevision: 1,
+		ReconnectMax: time.Second,
 	}
 
 	static := base
 	static.StaticInstances = []string{testInstanceA}
+	static.StaticAgent = "agent-static"
 	if err := static.validate(); err != nil {
 		t.Fatalf("static config without KB vars refused: %v", err)
+	}
+
+	noAgent := static
+	noAgent.StaticAgent = ""
+	if err := noAgent.validate(); err == nil {
+		t.Fatal("static mode accepted a config without GATE_STATIC_AGENT")
 	}
 
 	normal := base
@@ -143,7 +148,7 @@ func TestStaticModeValidateInstanceGrammar(t *testing.T) {
 	base := Config{
 		SocketPath:        "/tmp/core.sock",
 		DiscoveryInterval: time.Second, ReconnectMin: time.Second,
-		ReconnectMax: time.Second, HelloRevision: 1,
+		ReconnectMax: time.Second, StaticAgent: "agent-static",
 	}
 	for name, list := range map[string][]string{
 		"uppercase":  {"0190A1B2-C3D4-7E5F-8A6B-000000000001"},
@@ -165,6 +170,7 @@ func TestFromEnvStaticInstances(t *testing.T) {
 	t.Setenv(EnvKBBaseURL, "")
 	t.Setenv(EnvToken, "")
 	t.Setenv(EnvStaticInstances, testInstanceA+" , "+testInstanceB)
+	t.Setenv(EnvStaticAgent, "agent-static")
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)

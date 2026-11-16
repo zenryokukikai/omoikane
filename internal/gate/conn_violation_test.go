@@ -17,7 +17,7 @@ import (
 // must reach the handler and be answered.
 func expectStillServesSay(t *testing.T, fc *fakeCore, c *Conn) {
 	t.Helper()
-	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
 		"payload": map[string]any{"text": "still alive?"}})
 	resp, _ := fc.recv()
 	if got := fc.str(resp, "id"); got != testDeliveryID {
@@ -39,19 +39,23 @@ func expectStillServesSay(t *testing.T, fc *fakeCore, c *Conn) {
 func TestUnknownCoreMessageDroppedAndKept(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
 	fc.sendRaw(`{"id":"t-1","m":"tool"}`)
+	// Protocol 3 notifications omoikane does not display: dropped, kept.
+	fc.sendRaw(`{"m":"partial","session":"` + testSessionA + `","stream_id":"s","text":"x"}`)
+	fc.sendRaw(`{"m":"turn_failed","session":"` + testSessionA + `","origin":"o"}`)
+	fc.sendRaw(`{"m":"bind","binding_id":"x","address":"y","id":"bind:x"}`)
 	expectStillServesSay(t, fc, c)
 }
 
-// TestMalformedCoreRequestCloses: a structurally invalid bind/say from
-// the trusted core is a contract violation — the connection closes
-// (pending deliveries go indeterminate core-side).
+// TestMalformedCoreRequestCloses: a structurally invalid say from the
+// trusted core is a contract violation — the connection closes (pending
+// deliveries go indeterminate core-side).
 func TestMalformedCoreRequestCloses(t *testing.T) {
 	cases := []struct{ name, raw string }{
-		{"bind missing address", `{"id":"bind:x","m":"bind","binding_id":"` + testBindingA + `"}`},
-		{"bind bad binding uuid", `{"id":"b","m":"bind","binding_id":"NOT-A-UUID","address":"a"}`},
-		{"bind wrong type", `{"id":"b","m":"bind","binding_id":7,"address":"a"}`},
-		{"say missing payload", `{"id":"` + testDeliveryID + `","m":"say","binding_id":"` + testBindingA + `"}`},
-		{"say non-uuid delivery id", `{"id":"free-form","m":"say","binding_id":"` + testBindingA + `","payload":{"text":"x"}}`},
+		{"say missing payload", `{"id":"` + testDeliveryID + `","m":"say","session":"` + testSessionA + `"}`},
+		{"say missing session", `{"id":"` + testDeliveryID + `","m":"say","payload":{"text":"x"}}`},
+		{"say empty session", `{"id":"` + testDeliveryID + `","m":"say","session":"","payload":{"text":"x"}}`},
+		{"say wrong-typed session", `{"id":"` + testDeliveryID + `","m":"say","session":7,"payload":{"text":"x"}}`},
+		{"say non-uuid delivery id", `{"id":"free-form","m":"say","session":"` + testSessionA + `","payload":{"text":"x"}}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,7 +92,7 @@ func TestNeverIssuedResponseIDCloses(t *testing.T) {
 // kind and closes the connection.
 func TestSaidOkWithoutSeqCloses(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	fc.ok(fc.str(ev, "id")) // plain ok: legal for hello/bind/say, not for said
 	waitClosed(t, c)
@@ -102,7 +106,7 @@ func TestSaidOkWithoutSeqCloses(t *testing.T) {
 
 func TestSaidOkNonPositiveSeqCloses(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	fc.okSeq(fc.str(ev, "id"), 0)
 	waitClosed(t, c)
@@ -113,7 +117,7 @@ func TestSaidOkNonPositiveSeqCloses(t *testing.T) {
 
 func TestErrResponseWithoutCodeCloses(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	fc.send(map[string]any{"id": fc.str(ev, "id"), "m": "err", "detail": nil})
 	waitClosed(t, c)
@@ -124,7 +128,7 @@ func TestErrResponseWithoutCodeCloses(t *testing.T) {
 
 func TestConsumedResponseIDCloses(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	id := fc.str(ev, "id")
 	fc.okSeq(id, 1)
@@ -140,7 +144,7 @@ func TestConsumedResponseIDCloses(t *testing.T) {
 
 func TestDuplicateMemberInIncomingFrameCloses(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	id := fc.str(ev, "id")
 	fc.sendRaw(`{"id":"` + id + `","m":"ok","seq":1,"seq":2}`)
@@ -152,7 +156,7 @@ func TestDuplicateMemberInIncomingFrameCloses(t *testing.T) {
 
 func TestDuplicateMemberInsidePayloadCloses(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	fc.sendRaw(`{"id":"` + testDeliveryID + `","m":"say","binding_id":"` + testBindingA + `","payload":{"text":"a","text":"b"}}`)
+	fc.sendRaw(`{"id":"` + testDeliveryID + `","m":"say","session":"` + testSessionA + `","payload":{"text":"a","text":"b"}}`)
 	waitClosed(t, c)
 	if !errors.Is(c.Err(), errDuplicateMember) {
 		t.Fatalf("close reason = %v, want duplicate member", c.Err())
@@ -191,7 +195,7 @@ func TestDispatchQueueUnboundedKeepsReadLoopLive(t *testing.T) {
 		c := <-holder
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, _, err := c.SendSaid(ctx, said(testBindingA, "origin-nested")); err != nil {
+		if _, _, err := c.SendSaid(ctx, said(testSessionA, "origin-nested")); err != nil {
 			detail := err.Error()
 			return SayRejected(&detail)
 		}
@@ -200,10 +204,10 @@ func TestDispatchQueueUnboundedKeepsReadLoopLive(t *testing.T) {
 	c, fc := runningConn(t, h)
 	holder <- c
 
-	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
 		"payload": map[string]any{"text": "x"}})
 	for i := 0; i < pipelined; i++ {
-		fc.send(map[string]any{"m": "activity", "binding_id": testBindingA,
+		fc.send(map[string]any{"m": "activity", "session": testSessionA,
 			"activity_id": "act", "state": "ended"})
 	}
 	// Only now does the core read: the nested said frame first…

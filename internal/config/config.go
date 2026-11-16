@@ -65,13 +65,13 @@ type Config struct {
 	// env is ignored.
 	OpencrabURL string // OPENCRAB_URL (empty = feature disabled)
 
-	// External gate admin registration (issue #104 slice G2).
-	// GATE_ADMIN_URL is the gate admin plane's base URL; empty disables
-	// gate registration entirely (same gating pattern as OPENCRAB_URL).
-	// GATE_OPERATOR_TOKEN is the operator credential sent as a bearer
-	// token on every admin call.
-	GateAdminURL      string // GATE_ADMIN_URL (empty = gate registration disabled)
-	GateOperatorToken string // GATE_OPERATOR_TOKEN
+	// GateEnabled turns on gateway routing for /talk (protocol 3 —
+	// opencrab has no gate admin plane any more; see
+	// internal/opencrab/gate.go). GATE_ENABLED non-empty enables it; a
+	// leftover GATE_ADMIN_URL from the protocol 2 deployment also counts
+	// as enabled so an upgrade does not silently fall back to REST.
+	// GATE_OPERATOR_TOKEN is no longer read.
+	GateEnabled bool
 
 	// GateTalkRESTForce is the gateway-cutover kill switch (issue
 	// #104): GATE_TALK_REST_FORCE non-empty forces every /talk message
@@ -176,8 +176,8 @@ func Load() (*Config, error) {
 
 	c.OpencrabURL = strings.TrimRight(os.Getenv("OPENCRAB_URL"), "/")
 
-	c.GateAdminURL = strings.TrimRight(os.Getenv("GATE_ADMIN_URL"), "/")
-	c.GateOperatorToken = strings.TrimSpace(os.Getenv("GATE_OPERATOR_TOKEN"))
+	c.GateEnabled = strings.TrimSpace(os.Getenv("GATE_ENABLED")) != "" ||
+		strings.TrimSpace(os.Getenv("GATE_ADMIN_URL")) != ""
 	c.GateTalkRESTForce = strings.TrimSpace(os.Getenv("GATE_TALK_REST_FORCE")) != ""
 
 	c.URLSigningKey = strings.TrimSpace(os.Getenv("KB_URL_SIGNING_KEY"))

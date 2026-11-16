@@ -9,7 +9,7 @@ import (
 )
 
 func TestValidateSaidTable(t *testing.T) {
-	valid := func() Said { return said(testBindingA, "origin-1") }
+	valid := func() Said { return said(testSessionA, "origin-1") }
 	mutate := func(f func(*Said)) Said {
 		s := valid()
 		f(&s)
@@ -31,10 +31,12 @@ func TestValidateSaidTable(t *testing.T) {
 		{"no text no attachments", mutate(func(s *Said) { s.Text = "" }), false},
 		{"empty origin", mutate(func(s *Said) { s.Origin = "" }), false},
 		{"empty author id", mutate(func(s *Said) { s.AuthorID = "" }), false},
-		{"bad binding uuid", mutate(func(s *Said) { s.BindingID = "NOT-A-UUID" }), false},
-		{"uppercase binding uuid", mutate(func(s *Said) {
-			s.BindingID = strings.ToUpper(testBindingA)
-		}), false},
+		{"empty session", mutate(func(s *Said) { s.Session = "" }), false},
+		{"512-byte session", mutate(func(s *Said) { s.Session = strings.Repeat("k", 512) }), true},
+		{"513-byte session", mutate(func(s *Said) { s.Session = strings.Repeat("k", 513) }), false},
+		{"control char in session", mutate(func(s *Said) { s.Session = "thread-\x01" }), false},
+		{"owner caller", mutate(func(s *Said) { s.Caller = CallerOwner }), true},
+		{"unknown caller", mutate(func(s *Said) { s.Caller = "root" }), false},
 		{"attachment http url", mutate(func(s *Said) {
 			s.Attachments = []Attachment{{Kind: "image", URL: "http://example.invalid/a.png"}}
 		}), false},
@@ -64,10 +66,9 @@ func TestHelloParamsValidate(t *testing.T) {
 		t.Fatalf("valid params rejected: %v", err)
 	}
 	cases := map[string]HelloParams{
-		"bad instance uuid": {InstanceID: "nope", Revision: 1, ConfigDigest: testDigest},
-		"zero revision":     {InstanceID: testInstanceID, Revision: 0, ConfigDigest: testDigest},
-		"short digest":      {InstanceID: testInstanceID, Revision: 1, ConfigDigest: "abc"},
-		"uppercase digest":  {InstanceID: testInstanceID, Revision: 1, ConfigDigest: strings.ToUpper(testDigest)},
+		"bad instance uuid":       {InstanceID: "nope", AgentID: testAgentID},
+		"uppercase instance uuid": {InstanceID: strings.ToUpper(testInstanceID), AgentID: testAgentID},
+		"empty agent":             {InstanceID: testInstanceID},
 	}
 	for name, p := range cases {
 		if err := p.validate(); err == nil {
@@ -80,11 +81,11 @@ func TestHelloParamsValidate(t *testing.T) {
 // (ErrDetail = string|null) — a nil detail serializes as explicit null,
 // never as an absent member.
 func TestErrFrameDetailAlwaysPresent(t *testing.T) {
-	b, err := json.Marshal(errFrame{ID: "1", M: "err", Code: "bind_failed", Detail: nil})
+	b, err := json.Marshal(errFrame{ID: "1", M: "err", Code: "external_rejected", Detail: nil})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(b); got != `{"id":"1","m":"err","code":"bind_failed","detail":null}` {
+	if got := string(b); got != `{"id":"1","m":"err","code":"external_rejected","detail":null}` {
 		t.Fatalf("err frame = %s", got)
 	}
 	d := "why"
@@ -107,21 +108,13 @@ func TestValidateRequestID(t *testing.T) {
 }
 
 func TestGrammarHelpers(t *testing.T) {
-	if !IsCanonicalUUID(testBindingA) || IsCanonicalUUID(strings.ToUpper(testBindingA)) ||
+	if !IsCanonicalUUID(testDeliveryID) || IsCanonicalUUID(strings.ToUpper(testDeliveryID)) ||
 		IsCanonicalUUID("0190a1b2c3d47e5f8a6b0000000000aa") {
 		t.Fatal("IsCanonicalUUID misbehaves")
 	}
 	// V3 §2: UUID version is unrestricted — a v4 id is canonical too.
 	if !IsCanonicalUUID("123e4567-e89b-42d3-a456-426614174000") {
 		t.Fatal("v4 UUID rejected")
-	}
-	if !isLowerHexDigest(testDigest) || isLowerHexDigest(testDigest[:63]) ||
-		isLowerHexDigest(strings.ToUpper(testDigest)) {
-		t.Fatal("isLowerHexDigest misbehaves")
-	}
-	if !isStdPaddedBase64("AAECAw==") || isStdPaddedBase64("AAECAw") ||
-		isStdPaddedBase64("") || isStdPaddedBase64("AAECAw==\n") {
-		t.Fatal("isStdPaddedBase64 misbehaves")
 	}
 	if !isAbsoluteHTTPSURL("https://example.invalid/a.png") ||
 		isAbsoluteHTTPSURL("http://example.invalid/a.png") ||

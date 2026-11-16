@@ -1,6 +1,6 @@
 // omoikane-gate: the /talk delivery gateway (issue #104 slice G3b).
 //
-// One process holds one protocol 2 connection per ACTIVE personal
+// One process holds one protocol 3 connection per ACTIVE personal
 // librarian (platform ruling: one process, N sockets) and translates
 // between the external gate wire and omoikane's chat HTTP surface. All
 // logic lives in internal/gate/runtime; this main only parses the
@@ -19,22 +19,20 @@
 //	                      user_id blank.
 //
 // Optional: GATE_DISCOVERY_INTERVAL (60s), GATE_RECONNECT_MIN (1s),
-// GATE_RECONNECT_MAX (60s), GATE_HELLO_REVISION (1).
+// GATE_RECONNECT_MAX (60s).
 //
 // Conformance static mode (issue #104 QC E2E): setting
 // GATE_STATIC_INSTANCES to a comma-separated list of canonical
-// lowercase instance UUIDs runs the gate WITHOUT a KB —
-// KB_BASE_URL/GATEWAY_TOKEN are not required (the socket still is).
-// Each listed instance is dialed and helloed directly; binds are acked
-// (no replay), activity is a no-op, and every say answers
+// lowercase instance UUIDs (plus GATE_STATIC_AGENT, the agent_id they
+// hello as) runs the gate WITHOUT a KB — KB_BASE_URL/GATEWAY_TOKEN are
+// not required (the socket still is). Each listed instance is dialed
+// and helloed directly; there is no replay, activity is a no-op, and
+// every say answers
 // err(code="external_rejected") — honest, since with no KB the gateway
 // performs zero external I/O and can never deliver. Intended for a
 // platform-side test harness driving the core end of the wire with
 // this gate as the subject. See docs/gateway-runbook.md
 // (conformance 静的モード).
-//
-// NOT END-TO-END VERIFIED: the platform's real UDS core does not exist
-// yet. This binary stays on the integration branch until it does.
 package main
 
 import (

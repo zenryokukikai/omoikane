@@ -70,27 +70,16 @@ func (f *fakeRuntime) client() *Client {
 	return New(f.srv.URL, "https://kb.example.com")
 }
 
-// Fresh provision: agent absent, trust row absent, token supplied →
-// full pipeline in order, ending with the workspace credential write.
+// Fresh provision: agent absent, token supplied → full pipeline in
+// order, ending with the workspace credential write. No trust-row call
+// (the runtime has no such table since opencrab D-1097): an unexpected
+// /discord call fails the fake runtime.
 func TestProvisionFresh(t *testing.T) {
 	f := newFakeRuntime(t)
 	const agent = "plib-u-abc"
 	f.on("GET", "/api/agents/"+agent, `null`)
 	f.on("POST", "/api/agents", `{"id":"`+agent+`","name":"しおり"}`)
 	f.on("PUT", "/api/agents/"+agent, `{"updated":true}`)
-	discordState := 0
-	f.handlers["GET /api/agents/"+agent+"/discord"] = func(recordedCall) (int, string) {
-		if discordState == 0 {
-			return 200, `{"configured":false}`
-		}
-		return 200, `{"configured":true,"enabled":true,"owner_discord_id":"u-abc"}`
-	}
-	f.handlers["PUT /api/agents/"+agent+"/discord"] = func(recordedCall) (int, string) {
-		discordState = 1
-		// Mirror the real handler: row written, then the gateway start
-		// declines on the empty token and the handler reports ok:false.
-		return 200, `{"ok":false,"error":"discord ゲートウェイの起動条件を満たしていません"}`
-	}
 	f.on("PUT", "/api/agents/"+agent+"/workspace/.kb.curlrc", `{"written":true}`)
 
 	err := f.client().Provision(context.Background(), ProvisionParams{
@@ -109,9 +98,6 @@ func TestProvisionFresh(t *testing.T) {
 		"GET /api/agents/" + agent,
 		"POST /api/agents",
 		"PUT /api/agents/" + agent,
-		"GET /api/agents/" + agent + "/discord",
-		"PUT /api/agents/" + agent + "/discord",
-		"GET /api/agents/" + agent + "/discord",
 		"PUT /api/agents/" + agent + "/workspace/.kb.curlrc",
 	}
 	got := f.sequence()
@@ -140,28 +126,20 @@ func TestProvisionFresh(t *testing.T) {
 	if strings.Contains(instr, "kb_secret_token") {
 		t.Fatal("instructions must not embed the plaintext token")
 	}
-	discordPut := f.calls[4].Body
-	if discordPut["owner_discord_id"] != "u-abc" || discordPut["bot_token"] != "" {
-		t.Fatalf("discord put payload: %+v", discordPut)
-	}
-	ws := f.calls[6].Body
+	ws := f.calls[3].Body
 	content, _ := ws["content"].(string)
 	if !strings.Contains(content, "Authorization: Bearer kb_secret_token") {
 		t.Fatalf("curlrc content: %q", content)
 	}
 }
 
-// Re-save: agent + trust row already exist, no token → update path only
-// (PUT agent, PATCH discord), no create, no workspace write.
+// Re-save: agent already exists, no token → update path only (PUT
+// agent), no create, no workspace write.
 func TestProvisionResave(t *testing.T) {
 	f := newFakeRuntime(t)
 	const agent = "plib-u-abc"
 	f.on("GET", "/api/agents/"+agent, `{"agent_id":"`+agent+`","name":"旧名"}`)
 	f.on("PUT", "/api/agents/"+agent, `{"updated":true}`)
-	f.on("GET", "/api/agents/"+agent+"/discord",
-		`{"configured":true,"enabled":true,"owner_discord_id":"u-abc"}`)
-	f.on("PATCH", "/api/agents/"+agent+"/discord",
-		`{"ok":true,"configured":true,"owner_discord_id":"u-abc"}`)
 
 	err := f.client().Provision(context.Background(), ProvisionParams{
 		AgentID: agent, OwnerID: "u-abc", UserName: "Kojira", Name: "新名", Persona: "p", KBToken: "",
@@ -172,15 +150,10 @@ func TestProvisionResave(t *testing.T) {
 	want := []string{
 		"GET /api/agents/" + agent,
 		"PUT /api/agents/" + agent,
-		"GET /api/agents/" + agent + "/discord",
-		"PATCH /api/agents/" + agent + "/discord",
 	}
 	got := f.sequence()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("call sequence: got %v want %v", got, want)
-	}
-	if f.calls[3].Body["owner_discord_id"] != "u-abc" {
-		t.Fatalf("patch payload: %+v", f.calls[3].Body)
 	}
 }
 
@@ -200,24 +173,6 @@ func TestProvisionStepError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "agent update") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("error should name the step and cause: %v", err)
-	}
-}
-
-// Trust-row creation that doesn't stick (verify GET still shows no row)
-// is an error even though PUT "succeeded".
-func TestProvisionTrustRowNotPersisted(t *testing.T) {
-	f := newFakeRuntime(t)
-	const agent = "plib-u-x"
-	f.on("GET", "/api/agents/"+agent, `{"agent_id":"`+agent+`"}`)
-	f.on("PUT", "/api/agents/"+agent, `{"updated":true}`)
-	f.on("GET", "/api/agents/"+agent+"/discord", `{"configured":false}`)
-	f.on("PUT", "/api/agents/"+agent+"/discord", `{"ok":true}`)
-
-	err := f.client().Provision(context.Background(), ProvisionParams{
-		AgentID: agent, OwnerID: "u-x", UserName: "u", Name: "n",
-	})
-	if err == nil || !strings.Contains(err.Error(), "trust row") {
-		t.Fatalf("want trust-row error, got %v", err)
 	}
 }
 
@@ -248,38 +203,6 @@ func TestProvisionValidatesParams(t *testing.T) {
 	err := c.Provision(context.Background(), ProvisionParams{AgentID: "plib-u1", Name: "n"})
 	if err == nil || !strings.Contains(err.Error(), "owner id required") {
 		t.Fatalf("want owner-id validation error, got %v", err)
-	}
-}
-
-// Issue #137: the trust row owner is the kb user id of the user who
-// saved the librarian — a per-user value, not one deployment-wide
-// constant. Two different users provisioning through the SAME client
-// must each end up owning their own agent.
-func TestProvisionOwnerIsPerUser(t *testing.T) {
-	provision := func(t *testing.T, userID string) map[string]any {
-		t.Helper()
-		f := newFakeRuntime(t)
-		agent := "plib-" + userID
-		f.on("GET", "/api/agents/"+agent, `{"agent_id":"`+agent+`"}`)
-		f.on("PUT", "/api/agents/"+agent, `{"updated":true}`)
-		f.on("GET", "/api/agents/"+agent+"/discord",
-			`{"configured":true,"enabled":true,"owner_discord_id":"`+userID+`"}`)
-		f.on("PATCH", "/api/agents/"+agent+"/discord",
-			`{"ok":true,"configured":true,"owner_discord_id":"`+userID+`"}`)
-		if err := f.client().Provision(context.Background(), ProvisionParams{
-			AgentID: agent, OwnerID: userID, UserName: "u", Name: "n",
-		}); err != nil {
-			t.Fatalf("Provision(%s): %v", userID, err)
-		}
-		return f.calls[len(f.calls)-1].Body
-	}
-	// The admin-ish hand-typed id and an ordinary member id: the owner
-	// written must follow the saving user, not the deployment.
-	for _, userID := range []string{"me", "u-0f784100"} {
-		body := provision(t, userID)
-		if body["owner_discord_id"] != userID {
-			t.Fatalf("owner for %s: %+v (owner must be the saving user's kb user id)", userID, body)
-		}
 	}
 }
 

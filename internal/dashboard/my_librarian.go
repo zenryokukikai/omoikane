@@ -36,10 +36,9 @@ type LibrarianProvisioner interface {
 }
 
 // GateRegistrar is what the save flow needs from the external gate
-// provisioner (issue #104, V3 contract): the per-user instance PUT (the
-// V3 admin plane has no kind/schema registration). EnsureInstance
-// answers ("", nil) when registration was skipped (no subject mapping
-// yet) — the save proceeds without a gate instance.
+// provisioner (protocol 3): a stable gate instance id for the
+// librarian. The core creates the instance on the gate's first hello,
+// so this is an omoikane-side id, minted once.
 type GateRegistrar interface {
 	EnsureInstance(ctx context.Context, agentID, existingInstanceID string) (string, error)
 }
@@ -240,11 +239,11 @@ func (h *Handler) myLibrarianSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// External gate registration (issue #104 G2) — AFTER successful
-	// opencrab provisioning, before the row upsert. Failures here do
-	// NOT revoke a fresh kb token: Provision already wrote the curlrc,
-	// so the token⇔curlrc pairing holds. A skip (resolver still
-	// upstream work) returns an empty id and the save proceeds.
+	// External gate instance id (protocol 3) — AFTER successful
+	// opencrab provisioning (the core's hello needs the agent row),
+	// before the row upsert. Failures here do NOT revoke a fresh kb
+	// token: Provision already wrote the curlrc, so the token⇔curlrc
+	// pairing holds.
 	gateInstanceID := ""
 	if h.Gate != nil {
 		existing := ""

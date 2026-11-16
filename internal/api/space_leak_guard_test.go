@@ -112,7 +112,7 @@ var leakNotCovered = []leakLedgerEntry{
 	{"POST", "/v1/clusters/rebuild", "admin ops: admin-only; clusters the internal space exclusively (store-enforced)"},
 	{"POST", "/v1/librarian/emergency_stop", "admin ops: kill switch, no entry content"},
 	{"GET", "/v1/gateway/librarians", "gateway ops: infra-scope-gated librarian roster (user/agent metadata, no entry content); RequireScope's uniform 403 for every other token is pinned in gateway_test.go"},
-	{"GET", "/v1/gateway/threads/{threadID}/cursor", "gateway ops: infra-scope-gated /talk replay cursor (a single message id, no entry content); RequireScope's uniform 403 for every other token is pinned in gateway_test.go"},
+	{"GET", "/v1/gateway/instances/{instanceID}/threads", "gateway ops: infra-scope-gated list of gateway-routed /talk thread ids with their replay cursors (message ids, no entry content); RequireScope's uniform 403 for every other token is pinned in gateway_test.go"},
 	{"PUT", "/v1/gateway/threads/{threadID}/cursor", "gateway ops: infra-scope-gated /talk replay cursor advance (message id validated to belong to the thread, no entry content); RequireScope's uniform 403 for every other token is pinned in gateway_test.go"},
 
 	// ---- covered by dedicated leak tests outside the row tables ----

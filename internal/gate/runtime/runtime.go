@@ -158,13 +158,13 @@ func (rt *Runtime) syncRoster(ctx context.Context) {
 
 // startStatic starts one runner per configured static instance id
 // (validate() guarantees the ids are unique canonical UUIDs). The
-// Librarian rows are synthetic — instance id only; there is no owner
-// because there is no KB.
+// Librarian rows are synthetic — instance id and agent id only; there
+// is no owner because there is no KB.
 func (rt *Runtime) startStatic(ctx context.Context) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	for _, id := range rt.cfg.StaticInstances {
-		r := rt.newInstanceRunner(ctx, Librarian{GateInstanceID: id})
+		r := rt.newInstanceRunner(ctx, Librarian{GateInstanceID: id, AgentID: rt.cfg.StaticAgent})
 		rt.runners[id] = r
 		go r.run()
 		rt.log.Info("serving static gate instance (conformance mode)", "instance_id", id)
@@ -213,7 +213,7 @@ type chatMessageEvent struct {
 // inboundLoop keeps one SSE subscription alive, reconnecting with the
 // same bounded backoff as the socket side. The stream is a latency
 // path, not the source of truth: anything missed while resubscribing
-// is covered by the on-bind replay (origin idempotency dedupes the
+// is covered by the on-connect replay (origin idempotency dedupes the
 // overlap core-side).
 func (rt *Runtime) inboundLoop(ctx context.Context) {
 	backoff := rt.cfg.ReconnectMin
@@ -248,10 +248,11 @@ func (rt *Runtime) inboundLoop(ctx context.Context) {
 }
 
 // routeInbound forwards one chat.message to the serving instance as a
-// said, origin = the message id (idempotency key). Messages that
-// are not human /talk traffic for a served librarian are ignored; a
-// thread not yet bound on the live connection is dropped here and
-// covered by the replay when its bind arrives.
+// said (session = thread id, origin = message id — the idempotency
+// key). Messages that are not human /talk traffic on a gateway-routed
+// thread of a served librarian are ignored; a message arriving while
+// the instance is disconnected is covered by the next on-connect
+// replay.
 func (rt *Runtime) routeInbound(ctx context.Context, data json.RawMessage) {
 	var m chatMessageEvent
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -266,13 +267,16 @@ func (rt *Runtime) routeInbound(ctx context.Context, data json.RawMessage) {
 	if r == nil {
 		return // not a served librarian's thread
 	}
-	conn, bindingID := r.liveBinding(m.ThreadID)
-	if conn == nil || bindingID == "" {
-		rt.log.Debug("inbound message for unbound thread; deferred to bind replay",
+	if !r.isRoutedThread(ctx, m.ThreadID) {
+		return // pre-gateway thread: REST dispatch answers it
+	}
+	conn := r.liveConn()
+	if conn == nil {
+		rt.log.Debug("inbound message while disconnected; deferred to connect replay",
 			"thread_id", m.ThreadID, "message_id", m.ID)
 		return
 	}
-	r.sendSaid(ctx, conn, bindingID, m.ThreadID, m.ID, m.AuthorUserID, m.Content)
+	r.sendSaid(ctx, conn, m.ThreadID, m.ID, m.AuthorUserID, m.Content)
 }
 
 // logCursorGapOnce logs the first cursor read/advance failure once per

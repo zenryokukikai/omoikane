@@ -2,8 +2,8 @@
 # gateway-qc-e2e.sh — full-minimal /talk E2E bring-up (issue #104 QC).
 #
 # Runs on a fresh machine on which the PLATFORM side is already up:
-# the opencrab runtime + gate admin plane (default http://127.0.0.1:18700)
-# and the core's Unix socket. This script brings up the OMOIKANE side
+# the opencrab runtime (default http://127.0.0.1:18700) and the core's
+# external gate Unix socket (protocol 3 — there is no admin plane). This script brings up the OMOIKANE side
 # from zero and drives one human→librarian round trip through the gate:
 #
 #    1. build   kb-server + omoikane-gate
@@ -11,11 +11,11 @@
 #    3. mint    an admin token           (kb-server admin-token CLI)
 #    4. create  the QC owner user + API token (same CLI — see NOTE 1)
 #    5. save    the personal librarian via POST /my/librarian
-#               (provisions the agent on opencrab AND registers the
-#               gate instance via GATE_ADMIN_URL)
+#               (provisions the agent on opencrab AND mints the
+#               gate instance id — GATE_ENABLED)
 #    6. mint    the USER-LESS gateway token        (see NOTE 2)
 #    7. start   omoikane-gate against the core socket
-#    8. open    a /talk thread (server-side triggers the binding PUT)
+#    8. open    a /talk thread (server-side writes the routing row)
 #    9. post    a human message, poll for the assistant reply
 #   10. summary; all processes this script started are killed on exit
 #
@@ -24,8 +24,6 @@
 #   QC_DIR                work dir for db/logs/tokens   (default mktemp -d)
 #   KB_DB_PATH            sqlite path — must NOT exist  (default $QC_DIR/kb.db)
 #   OPENCRAB_URL          opencrab runtime base    (default http://127.0.0.1:18700)
-#   GATE_ADMIN_URL        gate admin plane base    (default = OPENCRAB_URL)
-#   GATE_OPERATOR_TOKEN   operator bearer for the admin plane (default empty)
 #   (no owner-id knob: since issue #137 the librarian's owner is the kb
 #    user that saved it — here the QC owner user — written per save)
 #   OPENCRAB_GATE_SOCKET  the core's UDS path      (default /tmp/opencrab/gate.sock)
@@ -56,8 +54,6 @@ KB_PORT="${KB_PORT:-18080}"
 QC_DIR="${QC_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/omoikane-qc-e2e.XXXXXX")}"
 KB_DB_PATH="${KB_DB_PATH:-$QC_DIR/kb.db}"
 OPENCRAB_URL="${OPENCRAB_URL:-http://127.0.0.1:18700}"
-GATE_ADMIN_URL="${GATE_ADMIN_URL:-$OPENCRAB_URL}"
-GATE_OPERATOR_TOKEN="${GATE_OPERATOR_TOKEN:-}"
 OPENCRAB_GATE_SOCKET="${OPENCRAB_GATE_SOCKET:-/tmp/opencrab/gate.sock}"
 QC_LIBRARIAN_NAME="${QC_LIBRARIAN_NAME:-きりんQC}"
 QC_REPLY_TIMEOUT="${QC_REPLY_TIMEOUT:-120}"
@@ -95,19 +91,6 @@ diag_platform() {
   printf -- '---- diagnostics -------------------------------------\n'
   printf 'opencrab runtime %s: HTTP %s\n' "$OPENCRAB_URL" \
     "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$OPENCRAB_URL/api/agents" || echo unreachable)"
-  local code
-  local -a auth=()
-  if [ -n "$GATE_OPERATOR_TOKEN" ]; then
-    auth=(-H "Authorization: Bearer $GATE_OPERATOR_TOKEN")
-  fi
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-    ${auth[@]+"${auth[@]}"} \
-    "$GATE_ADMIN_URL/api/gate-instances/00000000-0000-0000-0000-000000000000" || echo unreachable)"
-  printf 'gate admin plane %s: HTTP %s' "$GATE_ADMIN_URL" "$code"
-  if [ "$code" = "401" ]; then
-    printf '  (401: GATE_OPERATOR_TOKEN wrong or missing)'
-  fi
-  printf '\n'
   if [ -S "$OPENCRAB_GATE_SOCKET" ]; then
     printf 'core socket %s: present\n' "$OPENCRAB_GATE_SOCKET"
   else
@@ -153,8 +136,7 @@ KB_DB_PATH="$KB_DB_PATH" \
 KB_HTTP_ADDR="127.0.0.1:${KB_PORT}" \
 KB_OAUTH_REDIRECT_BASE="$KB_BASE" \
 OPENCRAB_URL="$OPENCRAB_URL" \
-GATE_ADMIN_URL="$GATE_ADMIN_URL" \
-GATE_OPERATOR_TOKEN="$GATE_OPERATOR_TOKEN" \
+GATE_ENABLED=1 \
   "$QC_DIR/kb-server" >"$QC_DIR/kb-server.log" 2>&1 &
 KB_PID=$!
 for _ in $(seq 1 50); do
@@ -197,7 +179,7 @@ if [ "$code" != "303" ]; then
   grep -o '<div class="banner">[^<]*' "$QC_DIR/librarian-save.out" \
     | sed 's/<div class="banner">//' || head -c 400 "$QC_DIR/librarian-save.out"
   diag_platform
-  fail "librarian save failed (needs opencrab at $OPENCRAB_URL and gate admin at $GATE_ADMIN_URL)"
+  fail "librarian save failed (needs opencrab at $OPENCRAB_URL)"
 fi
 pass "librarian saved"
 
@@ -216,9 +198,9 @@ INSTANCE_ID="$(printf '%s' "$ROSTER" | jq -r --arg u "$QC_USER" \
 if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
   printf 'roster: %s\n' "$ROSTER"
   diag_platform
-  fail "librarian has no gate_instance_id — instance registration on $GATE_ADMIN_URL did not happen (subject_id resolvable on the runtime? operator token valid?)"
+  fail "librarian has no gate_instance_id — the save did not mint one (kb-server GATE_ENABLED set?)"
 fi
-pass "gateway token works; instance $INSTANCE_ID registered"
+pass "gateway token works; instance $INSTANCE_ID minted"
 
 # ---- 7. start omoikane-gate -----------------------------------------
 step "start omoikane-gate (socket $OPENCRAB_GATE_SOCKET)"
@@ -241,12 +223,12 @@ for _ in $(seq 1 50); do
 done
 if [ -z "$CONNECTED" ]; then
   diag_platform
-  fail "gate never logged 'gate instance connected' (hello with the core failed?)"
+  fail "gate never logged 'gate instance connected' (hello refused? subject_unknown = agent not on the runtime)"
 fi
 pass "omoikane-gate connected (pid $GATE_PID)"
 
 # ---- 8. open a /talk thread -----------------------------------------
-step "open /talk thread (triggers the binding PUT server-side)"
+step "open /talk thread (writes the gateway routing row server-side)"
 THREAD_ID="$(curl -sf -H "Authorization: Bearer $OWNER_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"intent":"talk","title":"QC gateway E2E"}' \

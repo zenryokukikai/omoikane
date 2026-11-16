@@ -24,7 +24,6 @@ import (
 const (
 	testInstanceA  = "0190a1b2-c3d4-7e5f-8a6b-000000000001"
 	testInstanceB  = "0190a1b2-c3d4-7e5f-8a6b-000000000002"
-	testBinding1   = "0190a1b2-c3d4-7e5f-8a6b-0000000000aa"
 	testDeliveryID = "0190a1b2-c3d4-7e5f-8a6b-0000000000ee"
 	testThread     = "thread-0000aaaa"
 	testToken      = "tok-gateway-test"
@@ -70,7 +69,9 @@ type fakeKBServer struct {
 	messages    map[string][]ChatMessage // thread → full history (oldest first)
 	sinceSeen   []string                 // captured ?since= values
 	authorSeen  []string                 // captured ?author_user_id= values
-	cursors     map[string]string        // thread → last_sent_message_id (key present = binding row exists)
+	cursors     map[string]string        // thread → last_sent_message_id (key present = routed through the gateway)
+	threadOwner map[string]string        // thread → instance id (routing row's instance)
+	threadLists int                      // GET /v1/gateway/instances/{id}/threads calls
 	cursorPuts  []string                 // "thread=msg" advance calls in order
 	sse         chan string              // preformatted SSE blocks
 	lastAuth    string
@@ -79,19 +80,20 @@ type fakeKBServer struct {
 
 func newFakeKBServer(t *testing.T) *fakeKBServer {
 	f := &fakeKBServer{
-		t:          t,
-		chatStatus: http.StatusCreated,
-		nextMsgID:  "m-reply-1",
-		messages:   map[string][]ChatMessage{},
-		cursors:    map[string]string{},
-		sse:        make(chan string, 16),
+		t:           t,
+		chatStatus:  http.StatusCreated,
+		nextMsgID:   "m-reply-1",
+		messages:    map[string][]ChatMessage{},
+		cursors:     map[string]string{},
+		threadOwner: map[string]string{},
+		sse:         make(chan string, 16),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/gateway/librarians", f.handleRoster)
 	mux.HandleFunc("POST /v1/librarian/chat", f.handleChat)
 	mux.HandleFunc("POST /v1/events/broadcast", f.handleBroadcast)
 	mux.HandleFunc("GET /v1/librarian/threads/{id}/messages", f.handleMessages)
-	mux.HandleFunc("GET /v1/gateway/threads/{id}/cursor", f.handleGetCursor)
+	mux.HandleFunc("GET /v1/gateway/instances/{id}/threads", f.handleInstanceThreads)
 	mux.HandleFunc("PUT /v1/gateway/threads/{id}/cursor", f.handlePutCursor)
 	mux.HandleFunc("GET /v1/events", f.handleSSE)
 	f.srv = httptest.NewServer(mux)
@@ -170,19 +172,30 @@ func (f *fakeKBServer) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"messages": out})
 }
 
-// handleGetCursor serves GET /v1/gateway/threads/{id}/cursor: 404 when
-// no binding row (no map key), else the stored last_sent_message_id.
-func (f *fakeKBServer) handleGetCursor(w http.ResponseWriter, r *http.Request) {
+// handleInstanceThreads serves GET /v1/gateway/instances/{id}/threads:
+// every routed thread of that instance with its cursor.
+func (f *fakeKBServer) handleInstanceThreads(w http.ResponseWriter, r *http.Request) {
 	f.auth(r)
-	thread := r.PathValue("id")
+	inst := r.PathValue("id")
 	f.mu.Lock()
-	cur, ok := f.cursors[thread]
-	f.mu.Unlock()
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no binding"})
-		return
+	f.threadLists++
+	out := []GatewayThread{}
+	for th, owner := range f.threadOwner {
+		if owner == inst {
+			out = append(out, GatewayThread{ThreadID: th, LastSentMessageID: f.cursors[th]})
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"thread_id": thread, "last_sent_message_id": cur})
+	f.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"threads": out})
+}
+
+// routeThread registers thread as gateway-routed for instance (the
+// talk_gate_bindings row), with an optional starting cursor.
+func (f *fakeKBServer) routeThread(instance, thread, cursor string) {
+	f.mu.Lock()
+	f.threadOwner[thread] = instance
+	f.cursors[thread] = cursor
+	f.mu.Unlock()
 }
 
 // handlePutCursor serves PUT /v1/gateway/threads/{id}/cursor: records
@@ -316,13 +329,13 @@ func (f *fakeCore) ok(id string) {
 	f.send(map[string]any{"id": id, "m": "ok"})
 }
 
-// okSeq answers a said request with {id, m:"ok", seq}.
+// okSeq answers a said request with {id, m:"ok", seq, session_id}.
 func (f *fakeCore) okSeq(id string, seq any) {
-	f.send(map[string]any{"id": id, "m": "ok", "seq": seq})
+	f.send(map[string]any{"id": id, "m": "ok", "seq": seq, "session_id": "sess"})
 }
 
-// serveHandshake serves the V3 hello (hello ok = RUNNING; no ready
-// stage exists), asserting the hello's instance_id.
+// serveHandshake serves the protocol 3 hello (hello ok = RUNNING),
+// asserting the hello's instance_id.
 func (f *fakeCore) serveHandshake(wantInstance string) {
 	f.t.Helper()
 	if got := f.serveHandshakeAny(); got != wantInstance {
@@ -366,19 +379,6 @@ func (f *fakeCore) expectClosed() {
 	}
 }
 
-// bind sends a bind for (bindingID, address) and consumes the ack.
-func (f *fakeCore) bind(reqID, bindingID, address string) {
-	f.t.Helper()
-	f.send(map[string]any{"id": reqID, "m": "bind", "binding_id": bindingID, "address": address})
-	m := f.recv()
-	if got := f.str(m, "id"); got != reqID {
-		f.t.Fatalf("bind ack id=%q, want %q", got, reqID)
-	}
-	if got := f.str(m, "m"); got != "ok" {
-		f.t.Fatalf("bind answered %v, want ok", m)
-	}
-}
-
 // recvSaid reads one frame and asserts it is a said request.
 func (f *fakeCore) recvSaid() map[string]json.RawMessage {
 	f.t.Helper()
@@ -401,7 +401,7 @@ type harness struct {
 }
 
 // startRuntime builds and runs a Runtime against the fake KB server and
-// a piped Dial. cursors nil = the production noCursorStore.
+// a piped Dial. cursors nil = the real httpKB cursor advance.
 func startRuntime(t *testing.T, kb *fakeKBServer, cursors CursorStore) *harness {
 	t.Helper()
 	cores := make(chan net.Conn, 8)
@@ -412,7 +412,6 @@ func startRuntime(t *testing.T, kb *fakeKBServer, cursors CursorStore) *harness 
 		DiscoveryInterval: 25 * time.Millisecond,
 		ReconnectMin:      10 * time.Millisecond,
 		ReconnectMax:      50 * time.Millisecond,
-		HelloRevision:     1,
 		Cursors:           cursors,
 		Dial: func(ctx context.Context, _ string) (io.ReadWriteCloser, error) {
 			client, server := net.Pipe()
@@ -466,12 +465,6 @@ func newMemCursors(seed map[string]string) *memCursors {
 		seed = map[string]string{}
 	}
 	return &memCursors{cursors: seed}
-}
-
-func (m *memCursors) Cursor(_ context.Context, threadID string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.cursors[threadID], nil
 }
 
 func (m *memCursors) Advance(_ context.Context, threadID, messageID string) error {

@@ -1,5 +1,5 @@
-// Connection tests: the V3 handshake (hello ok ⇒ RUNNING), said round
-// trips, bind/say/activity dispatch, and response correlation — all
+// Connection tests: the protocol 3 handshake (hello ok ⇒ RUNNING), said
+// round trips, say/activity dispatch, and response correlation — all
 // against a fake core over net.Pipe.
 package gate
 
@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-// TestHelloFrameShape pins the V3 hello to its exact member set (§3.3:
-// id, m, protocol, instance_id, revision, config_digest — nothing
-// else; kind_id, origin_scope, address_form, ingress_discovery,
-// effects, capabilities are gone).
+// TestHelloFrameShape pins the protocol 3 hello to its exact member set
+// (D-1099: id, m, protocol=3, instance_id, agent_id,
+// operation_protocol=1, final_delivery="automatic", operations=[] —
+// revision and config_digest are gone).
 func TestHelloFrameShape(t *testing.T) {
 	client, server := net.Pipe()
 	fc := newFakeCore(t, server)
@@ -32,21 +32,28 @@ func TestHelloFrameShape(t *testing.T) {
 	}()
 	m, raw := fc.recv()
 
-	sameMembers(t, raw, "id", "m", "protocol", "instance_id", "revision", "config_digest")
+	sameMembers(t, raw, "id", "m", "protocol", "instance_id", "agent_id",
+		"operation_protocol", "final_delivery", "operations")
 	if s := fc.str(m, "m"); s != "hello" {
 		t.Fatalf("m = %q, want hello", s)
 	}
-	if s := string(m["protocol"]); s != "2" {
-		t.Fatalf("protocol = %s, want 2", s)
+	if s := string(m["protocol"]); s != "3" {
+		t.Fatalf("protocol = %s, want 3", s)
 	}
 	if s := fc.str(m, "instance_id"); s != testInstanceID {
 		t.Fatalf("instance_id = %q", s)
 	}
-	if s := string(m["revision"]); s != "1" {
-		t.Fatalf("revision = %s, want 1", s)
+	if s := fc.str(m, "agent_id"); s != testAgentID {
+		t.Fatalf("agent_id = %q", s)
 	}
-	if s := fc.str(m, "config_digest"); s != testDigest {
-		t.Fatalf("config_digest = %q", s)
+	if s := string(m["operation_protocol"]); s != "1" {
+		t.Fatalf("operation_protocol = %s, want 1", s)
+	}
+	if s := fc.str(m, "final_delivery"); s != "automatic" {
+		t.Fatalf("final_delivery = %q, want automatic", s)
+	}
+	if s := string(m["operations"]); s != "[]" {
+		t.Fatalf("operations = %s, want []", s)
 	}
 
 	fc.ok(fc.str(m, "id"))
@@ -66,28 +73,21 @@ func TestHelloErrResponseFailsDial(t *testing.T) {
 		done <- err
 	}()
 	m, _ := fc.recv()
-	fc.errResp(fc.str(m, "id"), "revision_mismatch", nil)
+	fc.errResp(fc.str(m, "id"), "subject_unknown", nil)
 	err := <-done
 	var we *WireError
-	if !errors.As(err, &we) || we.Code != "revision_mismatch" {
-		t.Fatalf("NewConn error = %v, want WireError revision_mismatch", err)
+	if !errors.As(err, &we) || we.Code != "subject_unknown" {
+		t.Fatalf("NewConn error = %v, want WireError subject_unknown", err)
 	}
 }
 
-// TestHappyPath: hello ok ⇒ RUNNING immediately; binds acked with the
-// exact {id,m:"ok"} response; a said round-trips with seq; a say
-// delivered answers a plain ok with NO origin member (§3.3/§10).
+// TestHappyPath: hello ok ⇒ RUNNING immediately (no bind exists in
+// protocol 3); a said round-trips with seq; a say delivered answers a
+// plain ok with NO origin member.
 func TestHappyPath(t *testing.T) {
 	var mu sync.Mutex
-	var bound []string
 	var says []Say
 	h := &testHandler{
-		onBind: func(b Binding) error {
-			mu.Lock()
-			bound = append(bound, b.BindingID)
-			mu.Unlock()
-			return nil
-		},
 		onSay: func(s Say) SayResult {
 			mu.Lock()
 			says = append(says, s)
@@ -97,31 +97,16 @@ func TestHappyPath(t *testing.T) {
 	}
 	c, fc := runningConn(t, h)
 
-	// Two binds, each acked with exactly {id, m:"ok"}.
-	for _, id := range []string{testBindingA, testBindingB} {
-		fc.send(map[string]any{"id": "bind:" + id, "m": "bind",
-			"binding_id": id, "address": "thread-" + id[len(id)-8:]})
-		ack, raw := fc.recv()
-		if got := fc.str(ack, "id"); got != "bind:"+id {
-			t.Fatalf("bind ack id = %q", got)
-		}
-		sameMembers(t, raw, "id", "m")
-		if got := fc.str(ack, "m"); got != "ok" {
-			t.Fatalf("bind ack m = %q, want ok", got)
-		}
-	}
-	mu.Lock()
-	if len(bound) != 2 || bound[0] != testBindingA || bound[1] != testBindingB {
-		t.Fatalf("bound = %v", bound)
-	}
-	mu.Unlock()
-
-	// Said round trip: exact member set, attachments always present.
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	// Said round trip: exact member set, attachments always present,
+	// caller/author_label omitted when unset.
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, raw := fc.recv()
-	sameMembers(t, raw, "id", "m", "binding_id", "origin", "author_id", "text", "attachments")
+	sameMembers(t, raw, "id", "m", "session", "origin", "author_id", "text", "attachments")
 	if got := fc.str(ev, "m"); got != "said" {
 		t.Fatalf("frame m = %q, want said", got)
+	}
+	if got := fc.str(ev, "session"); got != testSessionA {
+		t.Fatalf("session = %q", got)
 	}
 	if got := string(ev["attachments"]); got != "[]" {
 		t.Fatalf("attachments = %s, want []", got)
@@ -133,7 +118,7 @@ func TestHappyPath(t *testing.T) {
 	}
 
 	// Say in, delivered out: plain ok, no origin member.
-	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
 		"payload": map[string]any{"text": "reply"}})
 	resp, raw := fc.recv()
 	if got := fc.str(resp, "id"); got != testDeliveryID {
@@ -144,39 +129,60 @@ func TestHappyPath(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(says) != 1 || says[0].ID != testDeliveryID || says[0].BindingID != testBindingA {
+	if len(says) != 1 || says[0].ID != testDeliveryID || says[0].Session != testSessionA {
 		t.Fatalf("says = %+v", says)
 	}
 }
 
-// TestDispatchHeldUntilStart: the core may pipeline binds right behind
-// the hello ok; they must dispatch (in order) once Start registers the
-// handler, never before.
+// TestSaidCallerAndLabel: the gateway-asserted caller travels as
+// caller:{role} and author_label as a plain member.
+func TestSaidCallerAndLabel(t *testing.T) {
+	c, fc := runningConn(t, &testHandler{})
+	s := said(testSessionA, "origin-c")
+	s.Caller = CallerOwner
+	s.AuthorLabel = "Owner Name"
+	res := sendSaidAsync(c, s)
+	ev, raw := fc.recv()
+	sameMembers(t, raw, "id", "m", "session", "origin", "author_id", "author_label", "caller", "text", "attachments")
+	if got := string(ev["caller"]); got != `{"role":"owner"}` {
+		t.Fatalf("caller = %s", got)
+	}
+	if got := fc.str(ev, "author_label"); got != "Owner Name" {
+		t.Fatalf("author_label = %q", got)
+	}
+	fc.okSeq(fc.str(ev, "id"), 1)
+	if r := <-res; r.err != nil {
+		t.Fatalf("SendSaid: %v", r.err)
+	}
+}
+
+// TestDispatchHeldUntilStart: the core may send say right behind the
+// hello ok; it must dispatch once Start registers the handler, never
+// before.
 func TestDispatchHeldUntilStart(t *testing.T) {
 	c, fc := startConn(t)
-	fc.send(map[string]any{"id": "bind:" + testBindingA, "m": "bind",
-		"binding_id": testBindingA, "address": "thread-0000aaaa"})
-	// No ack may appear before Start.
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
+		"payload": map[string]any{"text": "early"}})
+	// No answer may appear before Start.
 	fc.c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	if _, err := fc.br.ReadByte(); !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("bind dispatched before Start (read err = %v)", err)
+		t.Fatalf("say dispatched before Start (read err = %v)", err)
 	}
 	fc.c.SetReadDeadline(time.Now().Add(10 * time.Second))
 
-	got := make(chan Binding, 1)
-	if err := c.Start(&testHandler{onBind: func(b Binding) error {
-		got <- b
-		return nil
+	got := make(chan Say, 1)
+	if err := c.Start(&testHandler{onSay: func(s Say) SayResult {
+		got <- s
+		return SayDelivered()
 	}}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	ack, _ := fc.recv()
-	if fc.str(ack, "id") != "bind:"+testBindingA || fc.str(ack, "m") != "ok" {
-		t.Fatalf("bind ack = %v", ack)
+	if fc.str(ack, "id") != testDeliveryID || fc.str(ack, "m") != "ok" {
+		t.Fatalf("say ack = %v", ack)
 	}
-	b := <-got
-	if b.BindingID != testBindingA || b.Address != "thread-0000aaaa" {
-		t.Fatalf("binding = %+v", b)
+	if s := <-got; s.Session != testSessionA {
+		t.Fatalf("say = %+v", s)
 	}
 	// Start is single-shot.
 	if err := c.Start(&testHandler{}); err == nil {
@@ -189,12 +195,14 @@ func TestSendSaidValidationBlocksWire(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	for name, s := range map[string]Said{
-		"empty origin":      said(testBindingA, ""),
-		"bad binding uuid":  {BindingID: "NOT-A-UUID", Origin: "o", AuthorID: "a", Text: "hi"},
-		"empty author":      {BindingID: testBindingA, Origin: "o", AuthorID: "", Text: "hi"},
-		"no text no attach": {BindingID: testBindingA, Origin: "o", AuthorID: "a"},
-		"http attachment":   {BindingID: testBindingA, Origin: "o", AuthorID: "a", Attachments: []Attachment{{Kind: "image", URL: "http://example.invalid/a.png"}}},
-		"non-image kind":    {BindingID: testBindingA, Origin: "o", AuthorID: "a", Attachments: []Attachment{{Kind: "video", URL: "https://example.invalid/a.mp4"}}},
+		"empty origin":      said(testSessionA, ""),
+		"empty session":     {Session: "", Origin: "o", AuthorID: "a", Text: "hi"},
+		"control in key":    {Session: "thread-\n1", Origin: "o", AuthorID: "a", Text: "hi"},
+		"bad caller":        {Session: testSessionA, Origin: "o", AuthorID: "a", Text: "hi", Caller: "admin"},
+		"empty author":      {Session: testSessionA, Origin: "o", AuthorID: "", Text: "hi"},
+		"no text no attach": {Session: testSessionA, Origin: "o", AuthorID: "a"},
+		"http attachment":   {Session: testSessionA, Origin: "o", AuthorID: "a", Attachments: []Attachment{{Kind: "image", URL: "http://example.invalid/a.png"}}},
+		"non-image kind":    {Session: testSessionA, Origin: "o", AuthorID: "a", Attachments: []Attachment{{Kind: "video", URL: "https://example.invalid/a.mp4"}}},
 	} {
 		if _, _, err := c.SendSaid(ctx, s); err == nil {
 			t.Fatalf("%s: invalid said accepted", name)
@@ -211,7 +219,7 @@ func TestSendSaidValidationBlocksWire(t *testing.T) {
 func TestSaidImageOnly(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
 	s := Said{
-		BindingID:   testBindingA,
+		Session:     testSessionA,
 		Origin:      "origin-img",
 		AuthorID:    "author-1",
 		Attachments: []Attachment{{Kind: "image", URL: "https://example.invalid/a.png"}},
@@ -235,7 +243,7 @@ func TestSaidImageOnly(t *testing.T) {
 // recorded=false, err nil, connection stays alive.
 func TestSaidSeqNullMeansDiscarded(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	fc.okSeq(fc.str(ev, "id"), nil)
 	r := <-res
@@ -248,7 +256,7 @@ func TestSaidSeqNullMeansDiscarded(t *testing.T) {
 	default:
 	}
 	// The connection remains usable for the next said.
-	res2 := sendSaidAsync(c, said(testBindingA, "origin-2"))
+	res2 := sendSaidAsync(c, said(testSessionA, "origin-2"))
 	ev2, _ := fc.recv()
 	fc.okSeq(fc.str(ev2, "id"), 43)
 	if r2 := <-res2; r2.err != nil || !r2.recorded || r2.seq != 43 {
@@ -262,7 +270,7 @@ func TestSaidSeqNullMeansDiscarded(t *testing.T) {
 func TestSaidDuplicateOriginSameSeq(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
 	for attempt := 0; attempt < 2; attempt++ {
-		res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+		res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 		ev, _ := fc.recv()
 		fc.okSeq(fc.str(ev, "id"), 42)
 		r := <-res
@@ -275,14 +283,14 @@ func TestSaidDuplicateOriginSameSeq(t *testing.T) {
 
 func TestSaidErrResponseSurfacesWireError(t *testing.T) {
 	c, fc := runningConn(t, &testHandler{})
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
-	fc.errResp(fc.str(ev, "id"), "binding_closed", "closed by operator")
+	fc.errResp(fc.str(ev, "id"), "store_error", "closed by operator")
 	r := <-res
 	var we *WireError
-	if !errors.As(r.err, &we) || we.Code != "binding_closed" ||
+	if !errors.As(r.err, &we) || we.Code != "store_error" ||
 		we.Detail == nil || *we.Detail != "closed by operator" {
-		t.Fatalf("SendSaid error = %v, want WireError binding_closed", r.err)
+		t.Fatalf("SendSaid error = %v, want WireError store_error", r.err)
 	}
 	select {
 	case <-c.Closed():
@@ -297,7 +305,7 @@ func TestSayRejectedAnswersExternalRejected(t *testing.T) {
 	detail := "rate limited"
 	h := &testHandler{onSay: func(Say) SayResult { return SayRejected(&detail) }}
 	c, fc := runningConn(t, h)
-	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
 		"payload": map[string]any{"text": "x"}})
 	resp, raw := fc.recv()
 	sameMembers(t, raw, "id", "m", "code", "detail")
@@ -317,7 +325,7 @@ func TestSayRejectedAnswersExternalRejected(t *testing.T) {
 func TestSayRejectedNilDetailSerializesNull(t *testing.T) {
 	h := &testHandler{onSay: func(Say) SayResult { return SayRejected(nil) }}
 	_, fc := runningConn(t, h)
-	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
 		"payload": map[string]any{"text": "x"}})
 	_, raw := fc.recv()
 	want := `{"id":"` + testDeliveryID + `","m":"err","code":"external_rejected","detail":null}`
@@ -329,7 +337,7 @@ func TestSayRejectedNilDetailSerializesNull(t *testing.T) {
 func TestSayUnknownOutcomeClosesWithoutAnswering(t *testing.T) {
 	h := &testHandler{onSay: func(Say) SayResult { return SayUnknown() }}
 	c, fc := runningConn(t, h)
-	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "binding_id": testBindingA,
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
 		"payload": map[string]any{"text": "x"}})
 	// No response frame: the socket just closes.
 	if _, err := fc.br.ReadByte(); err == nil {
@@ -338,39 +346,29 @@ func TestSayUnknownOutcomeClosesWithoutAnswering(t *testing.T) {
 	waitClosed(t, c)
 }
 
-func TestBindFailureAnswersBindFailed(t *testing.T) {
-	h := &testHandler{onBind: func(Binding) error { return errors.New("no capacity") }}
-	_, fc := runningConn(t, h)
-	fc.send(map[string]any{"id": "bind:" + testBindingA, "m": "bind",
-		"binding_id": testBindingA, "address": "thread-0000aaaa"})
-	resp, _ := fc.recv()
-	if fc.str(resp, "m") != "err" || fc.str(resp, "code") != "bind_failed" {
-		t.Fatalf("bind failure response = %v, want err bind_failed", resp)
-	}
-}
-
-// TestActivityDispatchedAndViolationDropped: V3 activity carries only
-// binding_id/activity_id/state with state started|ended; anything else
-// (the old progress state included) is dropped without closing.
+// TestActivityDispatchedAndViolationDropped: activity carries
+// session/activity_id/state with state started|ended|read; anything
+// else (an unknown state, a missing session) is dropped without
+// closing.
 func TestActivityDispatchedAndViolationDropped(t *testing.T) {
-	got := make(chan Activity, 2)
+	got := make(chan Activity, 3)
 	h := &testHandler{onActivity: func(a Activity) { got <- a }}
 	c, fc := runningConn(t, h)
 
-	// Violations first: unknown state (old "progress"), bad binding id.
-	fc.send(map[string]any{"m": "activity", "binding_id": testBindingA,
+	// Violations first: unknown state, empty session.
+	fc.send(map[string]any{"m": "activity", "session": testSessionA,
 		"activity_id": "act-0", "state": "progress"})
-	fc.send(map[string]any{"m": "activity", "binding_id": "NOT-A-UUID",
+	fc.send(map[string]any{"m": "activity", "session": "",
 		"activity_id": "act-0", "state": "started"})
 	// Valid ones next: proves the connection survived and order held.
-	fc.send(map[string]any{"m": "activity", "binding_id": testBindingA,
-		"activity_id": "act-1", "state": "started"})
-	fc.send(map[string]any{"m": "activity", "binding_id": testBindingA,
-		"activity_id": "act-1", "state": "ended"})
-	for _, want := range []string{"started", "ended"} {
+	for _, st := range []string{"started", "read", "ended"} {
+		fc.send(map[string]any{"m": "activity", "session": testSessionA,
+			"activity_id": "act-1", "state": st, "origin": "o-1"})
+	}
+	for _, want := range []string{"started", "read", "ended"} {
 		select {
 		case a := <-got:
-			if a.ActivityID != "act-1" || a.State != want || a.BindingID != testBindingA {
+			if a.ActivityID != "act-1" || a.State != want || a.Session != testSessionA {
 				t.Fatalf("activity = %+v, want state %s", a, want)
 			}
 		case <-time.After(5 * time.Second):
@@ -388,25 +386,20 @@ func TestActivityDispatchedAndViolationDropped(t *testing.T) {
 // at every level, in requests and responses alike (the old strict
 // unknown-member rejection is gone).
 func TestUnknownMembersIgnored(t *testing.T) {
-	bound := make(chan Binding, 1)
-	h := &testHandler{onBind: func(b Binding) error {
-		bound <- b
-		return nil
-	}}
+	h := &testHandler{onSay: func(Say) SayResult { return SayDelivered() }}
 	c, fc := runningConn(t, h)
 
-	// bind with extra members: still dispatched and acked.
-	fc.send(map[string]any{"id": "bind:" + testBindingA, "m": "bind",
-		"binding_id": testBindingA, "address": "thread-0000aaaa",
+	// say with extra members: still dispatched and acked.
+	fc.send(map[string]any{"id": testDeliveryID, "m": "say", "session": testSessionA,
+		"payload":       map[string]any{"text": "x", "stream_id": "s"},
 		"future_member": true, "nested": map[string]any{"x": 1}})
 	ack, _ := fc.recv()
 	if fc.str(ack, "m") != "ok" {
-		t.Fatalf("bind with unknown members not acked: %v", ack)
+		t.Fatalf("say with unknown members not acked: %v", ack)
 	}
-	<-bound
 
 	// said ok with extra members: still resolves.
-	res := sendSaidAsync(c, said(testBindingA, "origin-1"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-1"))
 	ev, _ := fc.recv()
 	fc.send(map[string]any{"id": fc.str(ev, "id"), "m": "ok", "seq": 5, "shiny": "new"})
 	if r := <-res; r.err != nil || r.seq != 5 {
@@ -419,7 +412,7 @@ func TestContextCancellationAbandonsRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := c.SendSaid(ctx, said(testBindingA, "origin-1"))
+		_, _, err := c.SendSaid(ctx, said(testSessionA, "origin-1"))
 		done <- err
 	}()
 	ev, _ := fc.recv()
@@ -429,7 +422,7 @@ func TestContextCancellationAbandonsRequest(t *testing.T) {
 	}
 	// The late response is an abandoned id: ignored, connection kept.
 	fc.okSeq(fc.str(ev, "id"), 45)
-	res := sendSaidAsync(c, said(testBindingA, "origin-2"))
+	res := sendSaidAsync(c, said(testSessionA, "origin-2"))
 	ev2, _ := fc.recv()
 	fc.okSeq(fc.str(ev2, "id"), 46)
 	if r := <-res; r.err != nil || r.seq != 46 {

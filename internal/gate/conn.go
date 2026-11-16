@@ -1,13 +1,12 @@
-// Conn: the V3 connection state machine (DESIGN-EXTGATE-V3.md §4) from
-// the gateway seat. One Conn is one gate instance connection:
+// Conn: the connection state machine from the gateway seat (protocol
+// 3). One Conn is one gate instance connection:
 //
 //	PRE_HELLO --hello ok--> RUNNING --fatal | socket close--> CLOSED
 //
-// Hello success means RUNNING immediately: there is no ready message
-// and no multi-stage readiness. The core then binds every open binding
-// of the instance; the only readiness state is the core's per-binding
-// acknowledged set, which this side observes as OnBind callbacks it
-// acks.
+// Hello success means RUNNING immediately. Protocol 3 has no bind and
+// no per-binding readiness: the core sends say/activity for any session
+// of a live instance, and a said with a new session key creates that
+// session core-side.
 //
 // Incoming violations from the gateway seat: framing violations
 // (UTF-8/JSON/duplicate member/oversize) close the socket; a response
@@ -35,10 +34,6 @@ import (
 // on the read loop, so a callback may issue Conn requests without
 // deadlocking).
 type Handler interface {
-	// OnBind provisions one binding. A nil return acks the bind; an
-	// error answers err(code="bind_failed") — the core then closes the
-	// connection (§3.3).
-	OnBind(Binding) error
 	// OnSay performs one outbound delivery and reports the outcome.
 	// Returning the zero SayResult (unknown outcome) closes the socket
 	// without answering, per the spec's no-fabrication rule (§3.4).
@@ -100,7 +95,7 @@ type Conn struct {
 
 // Dial connects to the core's Unix socket at socketPath and performs
 // the hello exchange, returning in RUNNING state. Call Start next to
-// begin handler dispatch (core binds queue until then).
+// begin handler dispatch (core frames queue until then).
 func Dial(ctx context.Context, socketPath string, p HelloParams) (*Conn, error) {
 	var d net.Dialer
 	nc, err := d.DialContext(ctx, "unix", socketPath)
@@ -138,12 +133,14 @@ func NewConn(ctx context.Context, rwc io.ReadWriteCloser, p HelloParams) (*Conn,
 
 	id := c.nextRequestID()
 	resp, err := c.request(ctx, id, pendingHello, helloFrame{
-		ID:           id,
-		M:            "hello",
-		Protocol:     2,
-		InstanceID:   p.InstanceID,
-		Revision:     p.Revision,
-		ConfigDigest: p.ConfigDigest,
+		ID:                id,
+		M:                 "hello",
+		Protocol:          3,
+		InstanceID:        p.InstanceID,
+		AgentID:           p.AgentID,
+		OperationProtocol: 1,
+		FinalDelivery:     "automatic",
+		Operations:        []json.RawMessage{},
 	})
 	if err != nil {
 		c.closeWith(fmt.Errorf("gate: hello failed: %w", err))
@@ -195,13 +192,19 @@ func (c *Conn) SendSaid(ctx context.Context, s Said) (seq int64, recorded bool, 
 	if attachments == nil {
 		attachments = []Attachment{}
 	}
+	var caller *saidCaller
+	if s.Caller != "" {
+		caller = &saidCaller{Role: s.Caller}
+	}
 	id := c.nextRequestID()
 	resp, err := c.request(ctx, id, pendingSaid, saidFrame{
 		ID:          id,
 		M:           "said",
-		BindingID:   s.BindingID,
+		Session:     s.Session,
 		Origin:      s.Origin,
 		AuthorID:    s.AuthorID,
+		AuthorLabel: s.AuthorLabel,
+		Caller:      caller,
 		Text:        s.Text,
 		Attachments: attachments,
 	})
@@ -411,8 +414,9 @@ func (c *Conn) handleResponse(m string, data []byte) error {
 		req.ch <- resp
 		return nil
 	}
-	// m == "ok": shape per pending kind (§3.3 — hello ok is {id,m},
-	// said ok is {id,m,seq} with seq positive-i64|null).
+	// m == "ok": shape per pending kind (hello ok is {id,m}; said ok is
+	// {id,m,seq,session_id} with seq positive-i64|null — session_id is
+	// informational and ignored here).
 	if req.kind == pendingSaid {
 		seqRaw, present := members["seq"]
 		if !present {

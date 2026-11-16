@@ -1,11 +1,10 @@
 package api
 
 // Gateway scope (issue #104 G3a, C案): author attribution on chat +
-// broadcast, the /v1/gateway/librarians roster, SSE-equivalent
-// visibility, and the thread-creation gate-binding hook (run against
-// the REAL opencrab.GateProvisioner + gate.AdminClient and a fake
-// admin HTTP server, the same construction as
-// dashboard/my_librarian_gate_test.go).
+// broadcast, the /v1/gateway/librarians roster, the per-instance
+// routed-thread list, SSE-equivalent visibility, and the
+// thread-creation routing hook (protocol 3: the REAL
+// opencrab.GateProvisioner, which makes no core call).
 
 import (
 	"context"
@@ -16,7 +15,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -293,9 +291,10 @@ func TestGatewayStampNeverMintsAgentAuthority(t *testing.T) {
 	}
 }
 
-// GET/PUT /v1/gateway/threads/{id}/cursor (issue #104 G3c): binding-row
-// lifecycle, the message-membership guard on advance, and the uniform
-// wrong-scope 403.
+// GET /v1/gateway/instances/{id}/threads + PUT
+// /v1/gateway/threads/{id}/cursor: the routed-thread list carries each
+// thread's cursor, the advance guards message membership, and both
+// answer the uniform wrong-scope 403.
 func TestGatewayThreadCursor(t *testing.T) {
 	base, st, gwTok, aliceTok, _ := gwSetup(t)
 	ctx := context.Background()
@@ -313,34 +312,46 @@ func TestGatewayThreadCursor(t *testing.T) {
 	}
 
 	cursorURL := base + "/v1/gateway/threads/" + th + "/cursor"
+	listURL := base + "/v1/gateway/instances/inst-1/threads"
+	decodeList := func(raw []byte) map[string]string {
+		t.Helper()
+		var out struct {
+			Threads []struct {
+				ThreadID          string `json:"thread_id"`
+				LastSentMessageID string `json:"last_sent_message_id"`
+			} `json:"threads"`
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatalf("decode list %s: %v", raw, err)
+		}
+		m := map[string]string{}
+		for _, r := range out.Threads {
+			m[r.ThreadID] = r.LastSentMessageID
+		}
+		return m
+	}
 
-	// No binding row yet → GET 404, PUT 404 (the cursor only trails an
-	// existing binding).
-	if s, _ := doJSON(t, http.MethodGet, cursorURL, gwTok, nil, nil); s != http.StatusNotFound {
-		t.Fatalf("GET cursor without binding: %d, want 404", s)
+	// Nothing routed yet → empty list; PUT 404 (the cursor only trails
+	// a routed thread).
+	s, raw := doJSON(t, http.MethodGet, listURL, gwTok, nil, nil)
+	if s != http.StatusOK || len(decodeList(raw)) != 0 {
+		t.Fatalf("empty list: %d %s", s, raw)
 	}
 	if s, _ := doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": msgID}, nil); s != http.StatusNotFound {
-		t.Fatalf("PUT cursor without binding: %d, want 404", s)
+		t.Fatalf("PUT cursor without routing row: %d, want 404", s)
 	}
 
-	// Register a binding → GET returns the empty cursor.
+	// Route th on inst-1 (and otherTh on another instance) → the list
+	// shows th only, with the empty cursor.
 	if err := st.PutTalkGateBinding(ctx, th, "binding-1", "inst-1"); err != nil {
 		t.Fatal(err)
 	}
-	decodeCursor := func(raw []byte) (threadID, cursor string) {
-		t.Helper()
-		var c struct {
-			ThreadID          string `json:"thread_id"`
-			LastSentMessageID string `json:"last_sent_message_id"`
-		}
-		if err := json.Unmarshal(raw, &c); err != nil {
-			t.Fatalf("decode cursor %s: %v", raw, err)
-		}
-		return c.ThreadID, c.LastSentMessageID
+	if err := st.PutTalkGateBinding(ctx, otherTh, "binding-2", "inst-2"); err != nil {
+		t.Fatal(err)
 	}
-	s, raw := doJSON(t, http.MethodGet, cursorURL, gwTok, nil, nil)
-	if tid, c := decodeCursor(raw); s != http.StatusOK || tid != th || c != "" {
-		t.Fatalf("GET fresh cursor: %d %s", s, raw)
+	s, raw = doJSON(t, http.MethodGet, listURL, gwTok, nil, nil)
+	if got := decodeList(raw); s != http.StatusOK || len(got) != 1 || got[th] != "" {
+		t.Fatalf("list after routing: %d %s", s, raw)
 	}
 
 	// PUT advance guards: empty id, a nonexistent id, and a cross-thread
@@ -355,22 +366,18 @@ func TestGatewayThreadCursor(t *testing.T) {
 		t.Fatalf("PUT cross-thread message_id: %d, want 400", s)
 	}
 
-	// PUT a real message of this thread → 200, and GET reflects it.
-	s, raw = doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": msgID}, nil)
-	if _, c := decodeCursor(raw); s != http.StatusOK || c != msgID {
+	// PUT a real message of this thread → 200, and the list reflects it.
+	if s, raw := doJSON(t, http.MethodPut, cursorURL, gwTok, map[string]any{"message_id": msgID}, nil); s != http.StatusOK {
 		t.Fatalf("PUT valid cursor: %d %s", s, raw)
 	}
-	if b, err := st.GetTalkGateBinding(ctx, th); err != nil || b.LastSentMessageID != msgID {
-		t.Fatalf("cursor row after PUT: %+v err=%v", b, err)
-	}
-	_, raw = doJSON(t, http.MethodGet, cursorURL, gwTok, nil, nil)
-	if _, c := decodeCursor(raw); c != msgID {
-		t.Fatalf("GET after advance = %s, want cursor %q", raw, msgID)
+	_, raw = doJSON(t, http.MethodGet, listURL, gwTok, nil, nil)
+	if got := decodeList(raw); got[th] != msgID {
+		t.Fatalf("list after advance = %s, want cursor %q", raw, msgID)
 	}
 
-	// Wrong scope: RequireScope's uniform 403 on both verbs.
-	if s, _ := doJSON(t, http.MethodGet, cursorURL, aliceTok, nil, nil); s != http.StatusForbidden {
-		t.Errorf("read/write token GET cursor: %d, want 403", s)
+	// Wrong scope: RequireScope's uniform 403 on both routes.
+	if s, _ := doJSON(t, http.MethodGet, listURL, aliceTok, nil, nil); s != http.StatusForbidden {
+		t.Errorf("read/write token GET list: %d, want 403", s)
 	}
 	if s, _ := doJSON(t, http.MethodPut, cursorURL, aliceTok, map[string]any{"message_id": msgID}, nil); s != http.StatusForbidden {
 		t.Errorf("read/write token PUT cursor: %d, want 403", s)
@@ -441,62 +448,13 @@ func TestResolveVisibleSpacesGatewayScope(t *testing.T) {
 	}
 }
 
-// ---- thread-creation gate binding -----------------------------------
+// ---- thread-creation gate routing -----------------------------------
 
-// fakeBindingAdmin is a minimal admin plane for the binding PUT: it
-// records calls and answers 201 (or a uniform 500 when failing).
-type fakeBindingAdmin struct {
-	mu    sync.Mutex
-	fail  bool
-	calls []adminBindingHit
-}
-
-type adminBindingHit struct {
-	Method, Path, Body string
-}
-
-func (f *fakeBindingAdmin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	f.mu.Lock()
-	f.calls = append(f.calls, adminBindingHit{r.Method, r.URL.Path, string(body)})
-	f.mu.Unlock()
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if f.fail {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, `{"error":{"code":"store_error","detail":null}}`)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/api/gate-bindings/"):
-		id := strings.TrimPrefix(r.URL.Path, "/api/gate-bindings/")
-		_, _ = io.WriteString(w, `{"binding_id":"`+id+`"}`)
-	default:
-		_, _ = io.WriteString(w, `{}`)
-	}
-}
-
-func (f *fakeBindingAdmin) bindingPuts() []adminBindingHit {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []adminBindingHit
-	for _, c := range f.calls {
-		if c.Method == http.MethodPut && strings.HasPrefix(c.Path, "/api/gate-bindings/") {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// gateBindServer is testServer with the REAL GateProvisioner wired to
-// the fake admin, plus alice (active librarian, registered instance)
-// and bob (no librarian).
-func gateBindServer(t *testing.T, fail bool) (base string, st *store.Store, aliceTok, bobTok, instanceID string, admin *fakeBindingAdmin) {
+// gateBindServer is testServer with the REAL GateProvisioner (protocol
+// 3: no core call), plus alice (active librarian with a gate instance
+// id) and bob (no librarian).
+func gateBindServer(t *testing.T) (base string, st *store.Store, aliceTok, bobTok, instanceID string) {
 	t.Helper()
-	admin = &fakeBindingAdmin{fail: fail}
-	adminSrv := httptest.NewServer(admin)
-	t.Cleanup(adminSrv.Close)
-
 	dir := t.TempDir()
 	var err error
 	st, err = store.Open(context.Background(), filepath.Join(dir, "test.db"))
@@ -533,10 +491,7 @@ func gateBindServer(t *testing.T, fail bool) (base string, st *store.Store, alic
 		Enricher:    enrich.New("", "", "", "", logger),
 		SecretsMode: config.SecretsEnforce,
 		Logger:      logger,
-		GateBinder: &opencrab.GateProvisioner{
-			Admin: gate.NewAdminClient(adminSrv.URL, "op-token"),
-			Log:   logger,
-		},
+		GateBinder:  opencrab.GateProvisioner{},
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
@@ -545,7 +500,7 @@ func gateBindServer(t *testing.T, fail bool) (base string, st *store.Store, alic
 		srv.Close()
 		_ = st.Close()
 	})
-	return srv.URL, st, aliceTok, bobTok, instanceID, admin
+	return srv.URL, st, aliceTok, bobTok, instanceID
 }
 
 func gwCreateThread(t *testing.T, base, tok, intent string) (int, string, []byte) {
@@ -559,74 +514,35 @@ func gwCreateThread(t *testing.T, base, tok, intent string) (int, string, []byte
 	return s, out.ThreadID, raw
 }
 
-// Happy path: creating a /talk thread PUTs one binding (V3 exact
-// request: {instance_id, address}, address = the thread id) and stores
-// the row.
+// Creating a /talk thread for a librarian with a gate instance writes
+// the routing row (so the thread goes through the gateway, keyed by the
+// thread id); non-talk threads and librarian-less users get none.
 func TestTalkThreadCreationBindsGate(t *testing.T) {
-	base, st, aliceTok, bobTok, instanceID, admin := gateBindServer(t, false)
+	base, st, aliceTok, bobTok, instanceID := gateBindServer(t)
+	ctx := context.Background()
 
 	s, threadID, raw := gwCreateThread(t, base, aliceTok, "talk")
 	if s != http.StatusCreated || threadID == "" {
 		t.Fatalf("open thread: %d %s", s, raw)
 	}
-
-	puts := admin.bindingPuts()
-	if len(puts) != 1 {
-		t.Fatalf("binding PUTs = %d (%+v), want 1", len(puts), admin.calls)
-	}
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(puts[0].Body), &members); err != nil {
-		t.Fatal(err)
-	}
-	if len(members) != 2 {
-		t.Errorf("binding PUT body = %s, want exactly {instance_id, address}", puts[0].Body)
-	}
-	var req struct {
-		InstanceID string `json:"instance_id"`
-		Address    string `json:"address"`
-	}
-	if err := json.Unmarshal([]byte(puts[0].Body), &req); err != nil {
-		t.Fatal(err)
-	}
-	if req.InstanceID != instanceID || req.Address != threadID {
-		t.Errorf("binding PUT body: %s", puts[0].Body)
-	}
-	wantBindingID := strings.TrimPrefix(puts[0].Path, "/api/gate-bindings/")
-
-	b, err := st.GetTalkGateBinding(context.Background(), threadID)
+	b, err := st.GetTalkGateBinding(ctx, threadID)
 	if err != nil {
-		t.Fatalf("binding row: %v", err)
+		t.Fatalf("routing row: %v", err)
 	}
-	if b.BindingID != wantBindingID || b.InstanceID != instanceID || b.LastSentMessageID != "" {
-		t.Errorf("binding row = %+v, want binding %q instance %q empty cursor", b, wantBindingID, instanceID)
+	if !gate.IsCanonicalUUID(b.BindingID) || b.InstanceID != instanceID || b.LastSentMessageID != "" {
+		t.Errorf("routing row = %+v, want a UUID id, instance %q, empty cursor", b, instanceID)
 	}
 
-	// Non-talk threads and librarian-less users never touch the gate.
-	before := len(admin.bindingPuts())
-	if s, _, raw := gwCreateThread(t, base, aliceTok, "observation"); s != http.StatusCreated {
-		t.Fatalf("observation thread: %d %s", s, raw)
+	_, obsID, _ := gwCreateThread(t, base, aliceTok, "observation")
+	if _, err := st.GetTalkGateBinding(ctx, obsID); err == nil {
+		t.Error("observation thread got a routing row")
 	}
-	if s, _, raw := gwCreateThread(t, base, bobTok, "talk"); s != http.StatusCreated {
-		t.Fatalf("bob talk thread: %d %s", s, raw)
+	_, bobID, _ := gwCreateThread(t, base, bobTok, "talk")
+	if _, err := st.GetTalkGateBinding(ctx, bobID); err == nil {
+		t.Error("librarian-less user's talk thread got a routing row")
 	}
-	if after := len(admin.bindingPuts()); after != before {
-		t.Errorf("unexpected binding PUTs: %+v", admin.bindingPuts()[before:])
-	}
-}
-
-// Admin-plane failure: thread creation still succeeds; no row appears
-// (best-effort — the /talk flow works without the gate).
-func TestTalkThreadCreationGateFailureNonFatal(t *testing.T) {
-	base, st, aliceTok, _, _, admin := gateBindServer(t, true)
-
-	s, threadID, raw := gwCreateThread(t, base, aliceTok, "talk")
-	if s != http.StatusCreated || threadID == "" {
-		t.Fatalf("open thread with failing admin: %d %s, want 201", s, raw)
-	}
-	if len(admin.bindingPuts()) != 1 {
-		t.Fatalf("binding PUTs = %d, want the one failed attempt", len(admin.bindingPuts()))
-	}
-	if _, err := st.GetTalkGateBinding(context.Background(), threadID); err == nil {
-		t.Error("binding row stored despite admin failure")
+	list, err := st.ListTalkGateBindingsByInstance(ctx, instanceID)
+	if err != nil || len(list) != 1 || list[0].ThreadID != threadID {
+		t.Fatalf("instance routing list = %+v err=%v, want just %q", list, err, threadID)
 	}
 }

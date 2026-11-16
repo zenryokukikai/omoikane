@@ -15,19 +15,15 @@ import (
 
 const (
 	testInstanceID = "0190a1b2-c3d4-7e5f-8a6b-000000000001"
-	testDigest     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	// bindingA < bindingB in byte order.
-	testBindingA   = "0190a1b2-c3d4-7e5f-8a6b-0000000000aa"
-	testBindingB   = "0190a1b2-c3d4-7e5f-8a6b-0000000000bb"
+	testAgentID    = "plib-u-test"
+	// Session keys are the gateway's opaque keys (omoikane: /talk thread ids).
+	testSessionA   = "thread-0000aaaa"
+	testSessionB   = "thread-0000bbbb"
 	testDeliveryID = "0190a1b2-c3d4-7e5f-8a6b-0000000000ee"
 )
 
 func testHelloParams() HelloParams {
-	return HelloParams{
-		InstanceID:   testInstanceID,
-		Revision:     1,
-		ConfigDigest: testDigest,
-	}
+	return HelloParams{InstanceID: testInstanceID, AgentID: testAgentID}
 }
 
 // fakeCore drives the core side of a net.Pipe by script.
@@ -95,15 +91,16 @@ func (f *fakeCore) sendRaw(s string) {
 	}
 }
 
-// ok answers request id with a plain ok (hello/bind/say form).
+// ok answers request id with a plain ok (hello/say form).
 func (f *fakeCore) ok(id string) {
 	f.send(map[string]any{"id": id, "m": "ok"})
 }
 
-// okSeq answers a said request with {id, m:"ok", seq}. seq may be nil
-// (explicit null: core did not record the said).
+// okSeq answers a said request with {id, m:"ok", seq, session_id} (the
+// protocol 3 said ok). seq may be nil (explicit null: core did not
+// record the said).
 func (f *fakeCore) okSeq(id string, seq any) {
-	f.send(map[string]any{"id": id, "m": "ok", "seq": seq})
+	f.send(map[string]any{"id": id, "m": "ok", "seq": seq, "session_id": "sess-1"})
 }
 
 // errResp answers request id with {id, m:"err", code, detail}.
@@ -112,7 +109,7 @@ func (f *fakeCore) errResp(id, code string, detail any) {
 }
 
 // startConn runs NewConn against a fresh pipe and serves the hello
-// exchange (V3: hello ok ⇒ RUNNING; no ready stage). It returns the
+// exchange (hello ok ⇒ RUNNING; no ready stage). It returns the
 // running Conn and the fake core. Handler dispatch is still held —
 // call Start (or use runningConn).
 func startConn(t *testing.T) (*Conn, *fakeCore) {
@@ -143,19 +140,11 @@ func startConn(t *testing.T) (*Conn, *fakeCore) {
 	return r.c, fc
 }
 
-// testHandler is a Handler with overridable callbacks; nil callbacks
-// default to bind ack and say rejected.
+// testHandler is a Handler with overridable callbacks; a nil onSay
+// defaults to say rejected.
 type testHandler struct {
-	onBind     func(Binding) error
 	onSay      func(Say) SayResult
 	onActivity func(Activity)
-}
-
-func (h *testHandler) OnBind(b Binding) error {
-	if h.onBind != nil {
-		return h.onBind(b)
-	}
-	return nil
 }
 
 func (h *testHandler) OnSay(s Say) SayResult {
@@ -212,13 +201,13 @@ func sendSaidAsync(c *Conn, s Said) chan saidResult {
 	return ch
 }
 
-// said builds a minimal valid said on binding b.
-func said(b, origin string) Said {
+// said builds a minimal valid said on session key k.
+func said(k, origin string) Said {
 	return Said{
-		BindingID: b,
-		Origin:    origin,
-		AuthorID:  "author-1",
-		Text:      "hello world",
+		Session:  k,
+		Origin:   origin,
+		AuthorID: "author-1",
+		Text:     "hello world",
 	}
 }
 

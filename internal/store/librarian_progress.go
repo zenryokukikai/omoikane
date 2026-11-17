@@ -28,8 +28,14 @@ type LibrarianProgress struct {
 // librarian_meta DRAFT would add one row to its own backlog,
 // neutralising the drain. Other roles have different exclusion
 // needs: curator wants to see librarian_meta DRAFTs (so it can
-// decide whether to promote them); detective wants to see them too
-// (cluster discovery). So this is role-specific.
+// decide whether to promote them). Detective compares SOURCE
+// knowledge only — its protocol drops librarian_meta from the
+// candidate pool and forbids treating a summary as a duplicate of its
+// source — so a librarian_meta primary is always no_action. Feeding
+// them anyway let cataloger's output (up to ~60/h) outpace detective's
+// drain (~20/h): on 2026-11-18 271 of 296 backlog rows were
+// librarian_meta, sources waited behind them, and sessions ended
+// early. So this is role-specific.
 //
 // Empty slice = no exclusions (process every status-eligible entry).
 func excludedTypesForRole(role string) []string {
@@ -42,6 +48,12 @@ func excludedTypesForRole(role string) []string {
 		// 'note' is a human's own free-form memo (issue #71): it
 		// needs no summary, so it never enters cataloger's backlog.
 		return []string{"librarian_meta", "note"}
+	case "detective":
+		// Detective judges source knowledge; librarian outputs
+		// (summaries, proposals, resolutions, journals) are derivative.
+		// Search still reaches them as bilingual bridges — only the
+		// primary is restricted.
+		return []string{"librarian_meta"}
 	}
 	return nil
 }

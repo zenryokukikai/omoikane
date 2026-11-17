@@ -375,3 +375,38 @@ func TestListProgressInstanceFilter(t *testing.T) {
 		t.Errorf("beta: %d", len(rows))
 	}
 }
+
+// Detective judges source knowledge only (its protocol drops
+// librarian_meta from candidates and never flags a summary as a
+// duplicate of its source), so librarian outputs must not occupy its
+// backlog — neither the pop nor the counter. Curator still sees them.
+func TestNextUnprocessedEntryExcludesLibrarianMetaForDetective(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_ = s.CreateProject(ctx, &Project{ID: "p", Name: "P"})
+	metaID, _ := s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "librarian_meta",
+		Title: "a cataloger summary", Body: "x", Status: "ACTIVE",
+	})
+	lessonID, _ := s.CreateEntry(ctx, &Entry{
+		ProjectID: "p", Type: "lesson",
+		Title: "real source", Body: "x", Status: "ACTIVE",
+	})
+	got, err := s.NextUnprocessedEntry(ctx, "detective", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != lessonID {
+		t.Errorf("detective should pick the lesson (%s), got %s", lessonID, got.ID)
+	}
+	if n, _ := s.BacklogSize(ctx, "detective", ""); n != 1 {
+		t.Errorf("detective backlog should be 1 (lesson only), got %d", n)
+	}
+	got, err = s.NextUnprocessedEntry(ctx, "curator", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != metaID {
+		t.Errorf("curator must still see librarian_meta first (%s), got %s", metaID, got.ID)
+	}
+}
